@@ -22,7 +22,13 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     contact_name = Column(String, nullable=True)
     contact_phone = Column(String, index=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+
+    status = Column(String, default="open", nullable=False)
+    assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
 
@@ -31,6 +37,11 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+
+    direction = Column(String, nullable=False, default="outbound")
+    is_read = Column(Boolean, default=False, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)

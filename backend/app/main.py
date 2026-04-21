@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from . import models
+from . import models, schemas
 from .database import Base, engine, get_db
 
 load_dotenv()
@@ -39,66 +39,6 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: str | None = None
-
-
-class UserBase(BaseModel):
-    username: str
-    email: str
-    full_name: str | None = None
-    disabled: bool = False
-
-
-class UserCreate(BaseModel):
-    username: str
-    email: str
-    full_name: str | None = None
-    password: str
-
-
-class User(UserBase):
-    id: int
-
-    class Config:
-        from_attributes = True
-
-
-class UserInDB(UserBase):
-    id: int
-    hashed_password: str
-
-    class Config:
-        from_attributes = True
-
-
-class ConversationCreate(BaseModel):
-    contact_name: str | None = None
-    contact_phone: str
-
-
-class ConversationOut(BaseModel):
-    id: int
-    contact_name: str | None = None
-    contact_phone: str
-    created_at: datetime
-    user_id: int
-
-    class Config:
-        from_attributes = True
-
-
-class MessageCreate(BaseModel):
-    content: str
-
-
-class MessageOut(BaseModel):
-    id: int
-    content: str
-    created_at: datetime
-    user_id: int
-    conversation_id: int
-
-    class Config:
-        from_attributes = True
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -187,9 +127,9 @@ async def get_current_active_user(
     return current_user
 
 
-@app.post("/users/", response_model=User, status_code=status.HTTP_201_CREATED)
+@app.post("/users/", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(
-    user: UserCreate,
+    user: schemas.UserCreate,
     db: Annotated[Session, Depends(get_db)],
 ):
     existing_user = get_user(db, user.username)
@@ -239,7 +179,7 @@ async def login_for_access_token(
     return Token(access_token=access_token, token_type="bearer")
 
 
-@app.get("/users/me/", response_model=User)
+@app.get("/users/me/", response_model=schemas.UserOut)
 async def read_users_me(
     current_user: Annotated[models.User, Depends(get_current_active_user)]
 ):
@@ -248,11 +188,11 @@ async def read_users_me(
 
 @app.post(
     "/conversations/",
-    response_model=ConversationOut,
+    response_model=schemas.ConversationOut,
     status_code=status.HTTP_201_CREATED,
 )
 def create_conversation(
-    conversation: ConversationCreate,
+    conversation: schemas.ConversationCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
@@ -269,7 +209,7 @@ def create_conversation(
     return db_conversation
 
 
-@app.get("/conversations/", response_model=list[ConversationOut])
+@app.get("/conversations/", response_model=list[schemas.ConversationOut])
 def get_my_conversations(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
@@ -286,12 +226,12 @@ def get_my_conversations(
 
 @app.post(
     "/conversations/{conversation_id}/messages/",
-    response_model=MessageOut,
+    response_model=schemas.MessageOut,
     status_code=status.HTTP_201_CREATED,
 )
 def create_message(
     conversation_id: int,
-    message: MessageCreate,
+    message: schemas.MessageCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
@@ -301,11 +241,14 @@ def create_message(
 
     db_message = models.Message(
         content=message.content,
+        direction="outbound",
+        is_read=True,
         user_id=current_user.id,
         conversation_id=conversation_id,
     )
 
     db.add(db_message)
+    conversation.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(db_message)
 
@@ -314,7 +257,7 @@ def create_message(
 
 @app.get(
     "/conversations/{conversation_id}/messages/",
-    response_model=list[MessageOut],
+    response_model=list[schemas.MessageOut],
 )
 def get_conversation_messages(
     conversation_id: int,
