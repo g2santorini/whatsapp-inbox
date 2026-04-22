@@ -4,7 +4,9 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -18,6 +20,8 @@ load_dotenv()
 app = FastAPI(title="WhatsApp Inbox")
 
 Base.metadata.create_all(bind=engine)
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 def get_required_env(name: str) -> str:
@@ -217,7 +221,7 @@ def get_my_conversations(
     conversations = (
         db.query(models.Conversation)
         .filter(models.Conversation.user_id == current_user.id)
-        .order_by(models.Conversation.created_at.desc())
+        .order_by(models.Conversation.updated_at.desc())
         .all()
     )
 
@@ -284,3 +288,8 @@ def get_conversation_messages(
 @app.get("/")
 def read_root():
     return {"status": "ok"}
+
+
+@app.get("/test")
+def read_test_page():
+    return FileResponse("app/static/test.html")

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Inbox Test Panel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+      margin-top: 12px;
+    }
+
+    input, textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    button {
+      background: #25d366;
+      color: white;
+      border: none;
+      cursor: pointer;
+      margin-top: 12px;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #1ebe5d;
+    }
+
+    .secondary-btn {
+      background: #128c7e;
+    }
+
+    .secondary-btn:hover {
+      background: #0f7a6e;
+    }
+
+    .muted {
+      color: #666;
+      font-size: 13px;
+    }
+
+    .status {
+      background: #eef6ff;
+      border: 1px solid #cfe5ff;
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 10px;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+
+    .conversation-item {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .conversation-item:hover {
+      background: #f7f7f7;
+    }
+
+    .conversation-item.active {
+      border-color: #25d366;
+      background: #ecfff3;
+    }
+
+    .chat-box {
+      background: #efeae2;
+      border-radius: 12px;
+      padding: 16px;
+      min-height: 500px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .message.outbound {
+      background: #dcf8c6;
+      margin-left: auto;
+    }
+
+    .message.inbound {
+      background: white;
+      margin-right: auto;
+    }
+
+    .message-meta {
+      font-size: 11px;
+      color: #666;
+      margin-top: 6px;
+    }
+
+    .composer {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr 140px;
+      gap: 10px;
+    }
+
+    .empty-state {
+      color: #666;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #666;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .chat-box {
+        min-height: 350px;
+      }
+
+      .composer {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>WhatsApp Inbox Test Panel</h1>
+
+    <div class="card">
+      <div class="top-row">
+        <div>
+          <strong>Backend:</strong>
+          <span class="small">http://127.0.0.1:8001</span>
+        </div>
+      </div>
+
+      <label>Username</label>
+      <input id="username" value="testuser" />
+
+      <label>Password</label>
+      <input id="password" type="password" value="123456" />
+
+      <button onclick="login()">Login</button>
+      <div id="loginStatus" class="status">Not logged in</div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <h3>Create Conversation</h3>
+
+          <label>Contact Name</label>
+          <input id="contactName" placeholder="John Client" />
+
+          <label>Contact Phone</label>
+          <input id="contactPhone" placeholder="+306900000000" />
+
+          <button onclick="createConversation()">Create Conversation</button>
+          <button class="secondary-btn" onclick="loadConversations()">Refresh Conversations</button>
+
+          <div id="conversationStatus" class="status">No action yet</div>
+        </div>
+
+        <div class="card">
+          <h3>Conversations</h3>
+          <div id="conversationList" class="muted">No conversations loaded yet.</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card chat-box">
+          <div id="chatHeader" class="muted">No conversation selected</div>
+
+          <div id="messages" class="messages">
+            <div class="empty-state">Select a conversation to see messages.</div>
+          </div>
+
+          <div class="composer">
+            <textarea id="messageInput" placeholder="Type message..."></textarea>
+            <button onclick="sendMessage()">Send Message</button>
+          </div>
+
+          <div id="messageStatus" class="status">No message action yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8001";
+    let token = "";
+    let selectedConversationId = null;
+    let selectedConversationLabel = "";
+
+    function setStatus(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    function getAuthHeaders() {
+      return {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      };
+    }
+
+    async function login() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      const formData = new URLSearchParams();
+      formData.append("username", username);
+      formData.append("password", password);
+
+      try {
+        const response = await fetch(`${API_BASE}/token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setStatus("loginStatus", `Login failed:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+
+        token = data.access_token;
+        setStatus("loginStatus", `Login success.\nToken saved in page memory.`);
+        await loadConversations();
+      } catch (error) {
+        setStatus("loginStatus", `Login error:\n${error}`);
+      }
+    }
+
+    async function createConversation() {
+      if (!token) {
+        setStatus("conversationStatus", "Please login first.");
+        return;
+      }
+
+      const contact_name = document.getElementById("contactName").value.trim();
+      const contact_phone = document.getElementById("contactPhone").value.trim();
+
+      try {
+        const response = await fetch(`${API_BASE}/conversations/`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            contact_name,
+            contact_phone
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setStatus("conversationStatus", `Create conversation failed:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+
+        setStatus("conversationStatus", `Conversation created:\n${JSON.stringify(data, null, 2)}`);
+        document.getElementById("contactName").value = "";
+        document.getElementById("contactPhone").value = "";
+        await loadConversations();
+      } catch (error) {
+        setStatus("conversationStatus", `Create conversation error:\n${error}`);
+      }
+    }
+
+    async function loadConversations() {
+      if (!token) {
+        setStatus("conversationStatus", "Please login first.");
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/conversations/`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setStatus("conversationStatus", `Load conversations failed:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+
+        renderConversations(data);
+        setStatus("conversationStatus", `Loaded ${data.length} conversation(s).`);
+      } catch (error) {
+        setStatus("conversationStatus", `Load conversations error:\n${error}`);
+      }
+    }
+
+    async function renderConversations(conversations) {
+  const list = document.getElementById("conversationList");
+
+  if (!conversations.length) {
+    list.innerHTML = `<div class="muted">No conversations yet.</div>`;
+    return;
+  }
+
+  // 🔥 Φέρνουμε last message για κάθε conversation
+  const conversationsWithLast = await Promise.all(
+    conversations.map(async (conv) => {
+      try {
+        const res = await fetch(`${API_BASE}/conversations/${conv.id}/messages/`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+
+        const messages = await res.json();
+
+        let lastMessage = "";
+        if (messages.length > 0) {
+          lastMessage = messages[messages.length - 1].content;
+        }
+
+        return { ...conv, lastMessage };
+      } catch (err) {
+        return { ...conv, lastMessage: "" };
+      }
+    })
+  );
+
+  list.innerHTML = conversationsWithLast.map(conv => {
+    const label = conv.contact_name || conv.contact_phone;
+    const activeClass = conv.id === selectedConversationId ? "active" : "";
+
+    return `
+      <div class="conversation-item ${activeClass}" onclick="selectConversation(${conv.id}, '${escapeQuotes(label)}')">
+        <div><strong>${escapeHtml(label)}</strong></div>
+        <div class="small">${escapeHtml(conv.contact_phone)}</div>
+        <div class="small" style="margin-top:4px; color:#444;">
+          ${escapeHtml(conv.lastMessage || "No messages yet")}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+    async function selectConversation(conversationId, label) {
+      selectedConversationId = conversationId;
+      selectedConversationLabel = label;
+      document.getElementById("chatHeader").textContent = `Conversation: ${label}`;
+      await loadMessages();
+      await loadConversations();
+    }
+
+    async function loadMessages() {
+      if (!token || !selectedConversationId) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/conversations/${selectedConversationId}/messages/`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setStatus("messageStatus", `Load messages failed:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+
+        renderMessages(data);
+        setStatus("messageStatus", `Loaded ${data.length} message(s).`);
+      } catch (error) {
+        setStatus("messageStatus", `Load messages error:\n${error}`);
+      }
+    }
+
+    function renderMessages(messages) {
+      const box = document.getElementById("messages");
+
+      if (!messages.length) {
+        box.innerHTML = `<div class="empty-state">No messages yet.</div>`;
+        return;
+      }
+
+      box.innerHTML = messages.map(msg => `
+        <div class="message ${msg.direction || 'outbound'}">
+          <div>${escapeHtml(msg.content)}</div>
+          <div class="message-meta">
+            ${escapeHtml(msg.direction || "unknown")} · ${escapeHtml(msg.created_at)}
+          </div>
+        </div>
+      `).join("");
+
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendMessage() {
+      if (!token) {
+        setStatus("messageStatus", "Please login first.");
+        return;
+      }
+
+      if (!selectedConversationId) {
+        setStatus("messageStatus", "Please select a conversation first.");
+        return;
+      }
+
+      const content = document.getElementById("messageInput").value.trim();
+
+      if (!content) {
+        setStatus("messageStatus", "Message is empty.");
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/conversations/${selectedConversationId}/messages/`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ content })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setStatus("messageStatus", `Send message failed:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+
+        document.getElementById("messageInput").value = "";
+        setStatus("messageStatus", `Message created:\n${JSON.stringify(data, null, 2)}`);
+        await loadMessages();
+        await loadConversations();
+      } catch (error) {
+        setStatus("messageStatus", `Send message error:\n${error}`);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function escapeQuotes(value) {
+      return String(value).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+    }
+  </script>
+</body>
+</html>
