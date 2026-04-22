@@ -76,6 +76,10 @@ def get_conversation(db: Session, conversation_id: int, user_id: int):
     )
 
 
+def touch_conversation(conversation: models.Conversation):
+    conversation.updated_at = datetime.utcnow()
+
+
 def authenticate_user(db: Session, username: str, password: str):
     user = get_user(db, username)
     if not user:
@@ -252,11 +256,145 @@ def create_message(
     )
 
     db.add(db_message)
-    conversation.updated_at = datetime.utcnow()
+
+    conversation.assigned_to_user_id = current_user.id
+    conversation.status = "taken"
+    touch_conversation(conversation)
+
     db.commit()
     db.refresh(db_message)
 
+    print(f"[ASSIGN_ON_SEND] conversation_id={conversation_id} assigned_to={current_user.id}")
+
     return db_message
+
+
+@app.post("/conversations/{conversation_id}/take/")
+def take_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id, current_user.id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conversation.assigned_to_user_id = current_user.id
+    conversation.status = "taken"
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(f"[TAKE] conversation_id={conversation_id} assigned_to={current_user.id}")
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "assigned_to_user_id": current_user.id,
+        "conversation_status": conversation.status,
+    }
+
+
+@app.post("/conversations/{conversation_id}/release/")
+def release_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id, current_user.id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conversation.assigned_to_user_id = None
+    conversation.status = "open"
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(f"[RELEASE] conversation_id={conversation_id} released_by={current_user.id}")
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "assigned_to_user_id": None,
+        "conversation_status": conversation.status,
+    }
+
+
+@app.post(
+    "/conversations/{conversation_id}/simulate-inbound/",
+    response_model=schemas.MessageOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def simulate_inbound_message(
+    conversation_id: int,
+    message: schemas.MessageCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id, current_user.id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db_message = models.Message(
+        content=message.content,
+        direction="inbound",
+        is_read=False,
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+    )
+
+    db.add(db_message)
+
+    conversation.assigned_to_user_id = None
+    conversation.status = "open"
+    touch_conversation(conversation)
+
+    db.commit()
+    db.refresh(db_message)
+
+    print(
+        f"[SIMULATE_INBOUND] conversation_id={conversation_id} "
+        f"user_id={current_user.id} reset_to_open=True content={message.content!r}"
+    )
+
+    return db_message
+
+
+@app.post("/conversations/{conversation_id}/mark-as-read/")
+def mark_conversation_as_read(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id, current_user.id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    unread_messages = (
+        db.query(models.Message)
+        .filter(
+            models.Message.user_id == current_user.id,
+            models.Message.conversation_id == conversation_id,
+            models.Message.direction == "inbound",
+            models.Message.is_read.is_(False),
+        )
+        .all()
+    )
+
+    updated_count = 0
+    for msg in unread_messages:
+        msg.is_read = True
+        updated_count += 1
+
+    db.commit()
+
+    print(
+        f"[MARK_AS_READ] conversation_id={conversation_id} "
+        f"user_id={current_user.id} updated_count={updated_count}"
+    )
+
+    return {"status": "ok", "updated_count": updated_count}
 
 
 @app.get(
