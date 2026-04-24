@@ -20,6 +20,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
+    role: str
     disabled: bool
 
     class Config:
@@ -65,6 +66,8 @@ class ConversationOut(ConversationBase):
     id: int
     status: str
     assigned_to_user_id: Optional[int]
+    unread_count: int
+    last_message_at: datetime
     created_at: datetime
     updated_at: datetime
 

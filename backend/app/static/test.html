@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsApp Inbox Test Panel</title>
+  <title>WhatsApp Inbox</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -52,7 +52,7 @@
     }
 
     textarea {
-      min-height: 90px;
+      min-height: 70px;
       resize: vertical;
     }
 
@@ -67,6 +67,11 @@
 
     button:hover {
       background: #1ebe5d;
+    }
+
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
     }
 
     .secondary-btn {
@@ -115,8 +120,8 @@
     .conversation-item {
       border: 1px solid #ddd;
       border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 10px;
+      padding: 10px;
+      margin-bottom: 8px;
       cursor: pointer;
       background: #fff;
       transition: all 0.15s ease;
@@ -134,11 +139,6 @@
     .conversation-item.unread {
       border-color: #b7d7ff;
       background: #f7fbff;
-    }
-
-    .conversation-item.unread.active {
-      border-color: #25d366;
-      background: #ecfff3;
     }
 
     .conversation-name-row {
@@ -189,7 +189,7 @@
     .chat-box {
       background: #efeae2;
       border-radius: 12px;
-      padding: 16px;
+      padding: 14px;
       min-height: 500px;
       display: flex;
       flex-direction: column;
@@ -213,15 +213,16 @@
       flex: 1;
       overflow-y: auto;
       padding-right: 8px;
+      margin-bottom: 10px;
     }
 
     .message {
       max-width: 70%;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 7px;
       font-size: 14px;
-      line-height: 1.4;
+      line-height: 1.35;
       white-space: pre-wrap;
     }
 
@@ -236,16 +237,16 @@
     }
 
     .message-meta {
-      font-size: 11px;
+      font-size: 10px;
       color: #666;
-      margin-top: 6px;
+      margin-top: 5px;
     }
 
     .conversation-actions {
       display: flex;
       gap: 10px;
-      margin-top: 12px;
-      margin-bottom: 12px;
+      margin-top: 6px;
+      margin-bottom: 10px;
       flex-wrap: wrap;
     }
 
@@ -259,7 +260,7 @@
     .composer {
       margin-top: 0;
       display: grid;
-      grid-template-columns: 1fr 140px 180px;
+      grid-template-columns: 1fr 130px 170px;
       gap: 10px;
     }
 
@@ -282,6 +283,28 @@
       color: #666;
     }
 
+    .views {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .view-btn {
+      width: auto;
+      margin: 0;
+      padding: 7px 10px;
+      font-size: 12px;
+      background: #fff;
+      color: #128c7e;
+      border: 1px solid #128c7e;
+    }
+
+    .view-btn.active {
+      background: #128c7e;
+      color: #fff;
+    }
+
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
@@ -302,6 +325,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <h1>WhatsApp Inbox Test Panel</h1>
@@ -312,10 +336,13 @@
           <strong>Backend:</strong>
           <span class="small">http://127.0.0.1:8001</span>
         </div>
+        <div>
+          <button class="danger-btn" onclick="logout()" style="width:auto; margin-top:0;">Logout</button>
+        </div>
       </div>
 
       <label>Username</label>
-      <input id="username" value="testuser" />
+      <input id="username" value="george" />
 
       <label>Password</label>
       <input id="password" type="password" value="123456" />
@@ -342,6 +369,15 @@
         </div>
 
         <div class="card">
+          <h3>Views</h3>
+          <div class="views">
+            <button id="viewAll" class="view-btn active" onclick="setView('all')">All</button>
+            <button id="viewUnread" class="view-btn" onclick="setView('unread')">Open / Unread</button>
+            <button id="viewMine" class="view-btn" onclick="setView('mine')">Mine</button>
+            <button id="viewTaken" class="view-btn" onclick="setView('taken')">Taken</button>
+            <button id="viewUnassigned" class="view-btn" onclick="setView('unassigned')">Unassigned</button>
+          </div>
+
           <h3>Conversations</h3>
           <div id="conversationList" class="muted">No conversations loaded yet.</div>
         </div>
@@ -365,7 +401,7 @@
 
           <div class="composer">
             <textarea id="messageInput" placeholder="Type message..."></textarea>
-            <button onclick="sendMessage()">Send Message</button>
+            <button id="sendBtn" onclick="sendMessage()">Send Message</button>
             <button class="secondary-btn" onclick="simulateInboundMessage()">Simulate Client Message</button>
           </div>
 
@@ -377,11 +413,18 @@
 
   <script>
     const API_BASE = "http://127.0.0.1:8001";
-    let token = "";
+    const AUTO_REFRESH_MS = 4000;
+
+    let token = localStorage.getItem("whatsapp_inbox_token") || "";
     let currentUserId = null;
+    let currentUser = null;
+    let usersMap = {};
     let selectedConversationId = null;
     let selectedConversationLabel = "";
     let selectedConversationMeta = null;
+    let allConversations = [];
+    let activeView = "all";
+    let autoRefreshTimer = null;
 
     function setStatus(id, text) {
       document.getElementById(id).textContent = text;
@@ -394,6 +437,33 @@
       };
     }
 
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function escapeQuotes(value) {
+      return String(value ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      try {
+        return new Date(value).toLocaleString();
+      } catch {
+        return value;
+      }
+    }
+
+    function getUserName(userId) {
+      if (!userId) return "";
+      return usersMap[userId] || `User ${userId}`;
+    }
+
     function getAssignmentLabel(conv) {
       if (!conv) return "";
 
@@ -402,7 +472,7 @@
       }
 
       if (conv.status === "taken" && conv.assigned_to_user_id) {
-        return "Taken";
+        return `Taken by ${getUserName(conv.assigned_to_user_id)}`;
       }
 
       return "Open";
@@ -413,13 +483,27 @@
       return conv.status === "taken" ? "taken" : "open";
     }
 
+    function isTakenByOther(conv) {
+      return (
+        conv &&
+        conv.status === "taken" &&
+        conv.assigned_to_user_id &&
+        conv.assigned_to_user_id !== currentUserId &&
+        currentUser?.role !== "admin"
+      );
+    }
+
     function updateActionButtons() {
       const takeBtn = document.getElementById("takeConversationBtn");
       const releaseBtn = document.getElementById("releaseConversationBtn");
+      const sendBtn = document.getElementById("sendBtn");
+      const input = document.getElementById("messageInput");
 
       if (!selectedConversationMeta) {
         takeBtn.style.display = "none";
         releaseBtn.style.display = "none";
+        sendBtn.disabled = false;
+        input.disabled = false;
         return;
       }
 
@@ -431,19 +515,67 @@
         selectedConversationMeta.status === "taken" &&
         selectedConversationMeta.assigned_to_user_id === currentUserId;
 
+      const adminCanRelease =
+        currentUser?.role === "admin" &&
+        selectedConversationMeta.status === "taken";
+
       takeBtn.style.display = isOpen ? "inline-block" : "none";
-      releaseBtn.style.display = isTakenByYou ? "inline-block" : "none";
+      releaseBtn.style.display = (isTakenByYou || adminCanRelease) ? "inline-block" : "none";
+
+      const locked = isTakenByOther(selectedConversationMeta);
+      sendBtn.disabled = locked;
+      input.disabled = locked;
+      input.placeholder = locked
+        ? `Read-only. ${getAssignmentLabel(selectedConversationMeta)}`
+        : "Type message...";
     }
 
     function updateChatHeaderStatus() {
       const el = document.getElementById("chatHeaderStatus");
+
       if (!selectedConversationMeta) {
         el.textContent = "";
         updateActionButtons();
         return;
       }
+
       el.textContent = getAssignmentLabel(selectedConversationMeta);
       updateActionButtons();
+    }
+
+    function updateBrowserTitle() {
+      const totalUnread = allConversations.reduce((sum, conv) => {
+        return sum + (conv.unread_count || 0);
+      }, 0);
+
+      document.title = totalUnread > 0
+        ? `(${totalUnread}) WhatsApp Inbox`
+        : "WhatsApp Inbox";
+    }
+
+    function startAutoRefresh() {
+      if (autoRefreshTimer) return;
+
+      autoRefreshTimer = setInterval(async () => {
+        if (!token) return;
+
+        try {
+          await loadConversations(false);
+
+          if (selectedConversationId) {
+            await loadMessages(false);
+          }
+        } catch (error) {
+          console.warn("Auto refresh error:", error);
+        }
+      }, AUTO_REFRESH_MS);
+    }
+
+    function stopAutoRefresh() {
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+      }
     }
 
     async function fetchCurrentUser() {
@@ -459,7 +591,29 @@
         throw new Error(JSON.stringify(data));
       }
 
+      currentUser = data;
       currentUserId = data.id;
+      return data;
+    }
+
+    async function loadUsers() {
+      const response = await fetch(`${API_BASE}/users/`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(JSON.stringify(data));
+      }
+
+      usersMap = {};
+      data.forEach(user => {
+        usersMap[user.id] = user.full_name || user.username || `User ${user.id}`;
+      });
+
       return data;
     }
 
@@ -488,12 +642,43 @@
         }
 
         token = data.access_token;
+        localStorage.setItem("whatsapp_inbox_token", token);
+
         await fetchCurrentUser();
-        setStatus("loginStatus", `Login success.\nToken saved in page memory.`);
+        await loadUsers();
+        setStatus(
+          "loginStatus",
+          `Login success as ${currentUser.full_name || currentUser.username} (${currentUser.role}).\nToken saved in localStorage.`
+        );
+
         await loadConversations();
+        startAutoRefresh();
       } catch (error) {
         setStatus("loginStatus", `Login error:\n${error}`);
       }
+    }
+
+    function logout() {
+      token = "";
+      currentUserId = null;
+      currentUser = null;
+      usersMap = {};
+      selectedConversationId = null;
+      selectedConversationLabel = "";
+      selectedConversationMeta = null;
+      allConversations = [];
+      localStorage.removeItem("whatsapp_inbox_token");
+      stopAutoRefresh();
+
+      document.title = "WhatsApp Inbox";
+      document.getElementById("conversationList").innerHTML = `<div class="muted">No conversations loaded yet.</div>`;
+      document.getElementById("messages").innerHTML = `<div class="empty-state">Select a conversation to see messages.</div>`;
+      document.getElementById("chatHeader").textContent = "No conversation selected";
+      document.getElementById("chatHeaderStatus").textContent = "";
+      setStatus("loginStatus", "Logged out.");
+      setStatus("conversationStatus", "No action yet");
+      setStatus("messageStatus", "No message action yet");
+      updateActionButtons();
     }
 
     async function createConversation() {
@@ -504,6 +689,11 @@
 
       const contact_name = document.getElementById("contactName").value.trim();
       const contact_phone = document.getElementById("contactPhone").value.trim();
+
+      if (!contact_phone) {
+        setStatus("conversationStatus", "Contact phone is required.");
+        return;
+      }
 
       try {
         const response = await fetch(`${API_BASE}/conversations/`, {
@@ -531,9 +721,45 @@
       }
     }
 
-    async function loadConversations() {
+    function setView(view) {
+      activeView = view;
+
+      ["All", "Unread", "Mine", "Taken", "Unassigned"].forEach(name => {
+        const el = document.getElementById(`view${name}`);
+        if (el) el.classList.remove("active");
+      });
+
+      const activeEl = document.getElementById(`view${view.charAt(0).toUpperCase() + view.slice(1)}`);
+      if (activeEl) activeEl.classList.add("active");
+
+      renderConversations(allConversations);
+    }
+
+    function getFilteredConversations() {
+      if (activeView === "unread") {
+        return allConversations.filter(conv =>
+          (conv.unread_count || 0) > 0 || conv.status === "open"
+        );
+      }
+
+      if (activeView === "mine") {
+        return allConversations.filter(conv => conv.assigned_to_user_id === currentUserId);
+      }
+
+      if (activeView === "taken") {
+        return allConversations.filter(conv => conv.status === "taken");
+      }
+
+      if (activeView === "unassigned") {
+        return allConversations.filter(conv => !conv.assigned_to_user_id);
+      }
+
+      return allConversations;
+    }
+
+    async function loadConversations(showStatus = true) {
       if (!token) {
-        setStatus("conversationStatus", "Please login first.");
+        if (showStatus) setStatus("conversationStatus", "Please login first.");
         return;
       }
 
@@ -547,37 +773,42 @@
         const data = await response.json();
 
         if (!response.ok) {
-          setStatus("conversationStatus", `Load conversations failed:\n${JSON.stringify(data, null, 2)}`);
+          if (showStatus) {
+            setStatus("conversationStatus", `Load conversations failed:\n${JSON.stringify(data, null, 2)}`);
+          }
           return;
         }
 
-        await renderConversations(data);
+        allConversations = data;
 
         if (selectedConversationId) {
-          const freshSelected = data.find(conv => conv.id === selectedConversationId) || null;
-          selectedConversationMeta = freshSelected;
-          updateChatHeaderStatus();
-        } else {
-          selectedConversationMeta = null;
-          updateChatHeaderStatus();
+          selectedConversationMeta =
+            allConversations.find(conv => conv.id === selectedConversationId) || null;
         }
 
-        setStatus("conversationStatus", `Loaded ${data.length} conversation(s).`);
+        updateBrowserTitle();
+        renderConversations(allConversations);
+        updateChatHeaderStatus();
+
+        if (showStatus) {
+          setStatus("conversationStatus", `Loaded ${data.length} conversation(s).`);
+        }
       } catch (error) {
-        setStatus("conversationStatus", `Load conversations error:\n${error}`);
+        if (showStatus) setStatus("conversationStatus", `Load conversations error:\n${error}`);
       }
     }
 
     async function renderConversations(conversations) {
       const list = document.getElementById("conversationList");
+      const filtered = getFilteredConversations();
 
-      if (!conversations.length) {
-        list.innerHTML = `<div class="muted">No conversations yet.</div>`;
+      if (!filtered.length) {
+        list.innerHTML = `<div class="muted">No conversations for this view.</div>`;
         return;
       }
 
       const conversationsWithMeta = await Promise.all(
-        conversations.map(async (conv) => {
+        filtered.map(async (conv) => {
           try {
             const res = await fetch(`${API_BASE}/conversations/${conv.id}/messages/`, {
               headers: {
@@ -588,27 +819,20 @@
             const messages = await res.json();
 
             let lastMessage = "";
-            let hasUnread = false;
             let lastMessageIsUnreadInbound = false;
 
             if (Array.isArray(messages) && messages.length > 0) {
               const last = messages[messages.length - 1];
               lastMessage = last.content || "";
-
-              hasUnread = messages.some(msg =>
-                msg.direction === "inbound" && msg.is_read === false
-              );
-
               lastMessageIsUnreadInbound =
                 last.direction === "inbound" && last.is_read === false;
             }
 
-            return { ...conv, lastMessage, hasUnread, lastMessageIsUnreadInbound };
+            return { ...conv, lastMessage, lastMessageIsUnreadInbound };
           } catch (err) {
             return {
               ...conv,
               lastMessage: "",
-              hasUnread: false,
               lastMessageIsUnreadInbound: false
             };
           }
@@ -618,9 +842,12 @@
       list.innerHTML = conversationsWithMeta.map(conv => {
         const label = conv.contact_name || conv.contact_phone;
         const activeClass = conv.id === selectedConversationId ? "active" : "";
-        const unreadClass = conv.hasUnread ? "unread" : "";
-        const unreadDot = conv.hasUnread ? `<span class="unread-dot"></span>` : "";
-        const nameUnreadTextClass = conv.hasUnread ? "unread-text" : "";
+        const unreadCount = conv.unread_count || 0;
+        const hasUnread = unreadCount > 0;
+        const unreadClass = hasUnread ? "unread" : "";
+        const unreadDot = hasUnread ? `<span class="unread-dot"></span>` : "";
+        const unreadBadge = hasUnread ? ` (${unreadCount})` : "";
+        const nameUnreadTextClass = hasUnread ? "unread-text" : "";
         const lastMessageUnreadTextClass = conv.lastMessageIsUnreadInbound ? "unread-text" : "";
         const assignmentLabel = getAssignmentLabel(conv);
         const assignmentClass = getAssignmentClass(conv);
@@ -628,12 +855,15 @@
         return `
           <div class="conversation-item ${activeClass} ${unreadClass}" onclick="selectConversation(${conv.id}, '${escapeQuotes(label)}')">
             <div class="conversation-name-row">
-              <div class="conversation-name ${nameUnreadTextClass}">${escapeHtml(label)}</div>
+              <div class="conversation-name ${nameUnreadTextClass}">${escapeHtml(label)}${escapeHtml(unreadBadge)}</div>
               ${unreadDot}
             </div>
             <div class="small">${escapeHtml(conv.contact_phone || "")}</div>
             <div class="small last-message ${lastMessageUnreadTextClass}" style="margin-top:4px; color:#444;">
               ${escapeHtml(conv.lastMessage || "No messages yet")}
+            </div>
+            <div class="small" style="margin-top:4px;">
+              Last: ${escapeHtml(formatDate(conv.last_message_at || conv.updated_at))}
             </div>
             <div class="assignment-pill ${assignmentClass}">${escapeHtml(assignmentLabel)}</div>
           </div>
@@ -681,6 +911,7 @@
 
         if (!response.ok) {
           setStatus("messageStatus", `Take conversation failed:\n${JSON.stringify(data, null, 2)}`);
+          await loadConversations(false);
           return;
         }
 
@@ -714,6 +945,7 @@
 
         if (!response.ok) {
           setStatus("messageStatus", `Release conversation failed:\n${JSON.stringify(data, null, 2)}`);
+          await loadConversations(false);
           return;
         }
 
@@ -727,7 +959,11 @@
     async function selectConversation(conversationId, label) {
       selectedConversationId = conversationId;
       selectedConversationLabel = label;
+      selectedConversationMeta =
+        allConversations.find(conv => conv.id === conversationId) || null;
+
       document.getElementById("chatHeader").textContent = `Conversation: ${label}`;
+      updateChatHeaderStatus();
 
       try {
         await markConversationAsRead(conversationId);
@@ -736,10 +972,10 @@
       }
 
       await loadMessages();
-      await loadConversations();
+      await loadConversations(false);
     }
 
-    async function loadMessages() {
+    async function loadMessages(showStatus = true) {
       if (!token || !selectedConversationId) {
         return;
       }
@@ -754,14 +990,18 @@
         const data = await response.json();
 
         if (!response.ok) {
-          setStatus("messageStatus", `Load messages failed:\n${JSON.stringify(data, null, 2)}`);
+          if (showStatus) {
+            setStatus("messageStatus", `Load messages failed:\n${JSON.stringify(data, null, 2)}`);
+          }
           return;
         }
 
         renderMessages(data);
-        setStatus("messageStatus", `Loaded ${data.length} message(s).`);
+        if (showStatus) {
+          setStatus("messageStatus", `Loaded ${data.length} message(s).`);
+        }
       } catch (error) {
-        setStatus("messageStatus", `Load messages error:\n${error}`);
+        if (showStatus) setStatus("messageStatus", `Load messages error:\n${error}`);
       }
     }
 
@@ -777,7 +1017,7 @@
         <div class="message ${msg.direction || 'outbound'}">
           <div>${escapeHtml(msg.content)}</div>
           <div class="message-meta">
-            ${escapeHtml(msg.direction || "unknown")} · ${escapeHtml(msg.created_at)}
+            ${escapeHtml(msg.direction || "unknown")} · ${escapeHtml(formatDate(msg.created_at))}
           </div>
         </div>
       `).join("");
@@ -793,6 +1033,11 @@
 
       if (!selectedConversationId) {
         setStatus("messageStatus", "Please select a conversation first.");
+        return;
+      }
+
+      if (isTakenByOther(selectedConversationMeta)) {
+        setStatus("messageStatus", `Cannot send. ${getAssignmentLabel(selectedConversationMeta)}.`);
         return;
       }
 
@@ -814,6 +1059,7 @@
 
         if (!response.ok) {
           setStatus("messageStatus", `Send message failed:\n${JSON.stringify(data, null, 2)}`);
+          await loadConversations(false);
           return;
         }
 
@@ -867,18 +1113,26 @@
       }
     }
 
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
+    window.onload = async () => {
+      if (!token) return;
 
-    function escapeQuotes(value) {
-      return String(value).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
-    }
+      try {
+        await fetchCurrentUser();
+        await loadUsers();
+
+        setStatus(
+          "loginStatus",
+          `Auto login success as ${currentUser.full_name || currentUser.username} (${currentUser.role}).`
+        );
+
+        await loadConversations();
+        startAutoRefresh();
+      } catch (error) {
+        localStorage.removeItem("whatsapp_inbox_token");
+        token = "";
+        setStatus("loginStatus", `Saved login expired. Please login again.\n${error}`);
+      }
+    };
   </script>
 </body>
 </html>

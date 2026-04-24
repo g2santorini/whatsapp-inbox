@@ -13,6 +13,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     full_name = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
+    role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
 
 
@@ -25,6 +26,9 @@ class Conversation(Base):
 
     status = Column(String, default="open", nullable=False)
     assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    unread_count = Column(Integer, default=0, nullable=False)
+    last_message_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
