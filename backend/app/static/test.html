@@ -372,10 +372,8 @@
           <h3>Views</h3>
           <div class="views">
             <button id="viewAll" class="view-btn active" onclick="setView('all')">All</button>
-            <button id="viewUnread" class="view-btn" onclick="setView('unread')">Open / Unread</button>
+            <button id="viewUnread" class="view-btn" onclick="setView('unread')">Unread / Open</button>
             <button id="viewMine" class="view-btn" onclick="setView('mine')">Mine</button>
-            <button id="viewTaken" class="view-btn" onclick="setView('taken')">Taken</button>
-            <button id="viewUnassigned" class="view-btn" onclick="setView('unassigned')">Unassigned</button>
           </div>
 
           <h3>Conversations</h3>
@@ -646,9 +644,10 @@
 
         await fetchCurrentUser();
         await loadUsers();
+
         setStatus(
           "loginStatus",
-          `Login success as ${currentUser.full_name || currentUser.username} (${currentUser.role}).\nToken saved in localStorage.`
+          `Login success as ${currentUser.full_name || currentUser.username} (${currentUser.role}).`
         );
 
         await loadConversations();
@@ -712,7 +711,7 @@
           return;
         }
 
-        setStatus("conversationStatus", `Conversation created:\n${JSON.stringify(data, null, 2)}`);
+        setStatus("conversationStatus", "Conversation created successfully.");
         document.getElementById("contactName").value = "";
         document.getElementById("contactPhone").value = "";
         await loadConversations();
@@ -724,7 +723,7 @@
     function setView(view) {
       activeView = view;
 
-      ["All", "Unread", "Mine", "Taken", "Unassigned"].forEach(name => {
+      ["All", "Unread", "Mine"].forEach(name => {
         const el = document.getElementById(`view${name}`);
         if (el) el.classList.remove("active");
       });
@@ -738,7 +737,9 @@
     function getFilteredConversations() {
       if (activeView === "unread") {
         return allConversations.filter(conv =>
-          (conv.unread_count || 0) > 0 || conv.status === "open"
+          (conv.unread_count || 0) > 0 ||
+          conv.status === "open" ||
+          conv.assigned_to_user_id == null
         );
       }
 
@@ -746,15 +747,7 @@
         return allConversations.filter(conv => conv.assigned_to_user_id === currentUserId);
       }
 
-      if (activeView === "taken") {
-        return allConversations.filter(conv => conv.status === "taken");
-      }
-
-      if (activeView === "unassigned") {
-        return allConversations.filter(conv => !conv.assigned_to_user_id);
-      }
-
-      return allConversations;
+    return allConversations;
     }
 
     async function loadConversations(showStatus = true) {
@@ -915,7 +908,7 @@
           return;
         }
 
-        setStatus("messageStatus", `Conversation taken:\n${JSON.stringify(data, null, 2)}`);
+        setStatus("messageStatus", "Conversation taken successfully.");
         await loadConversations();
       } catch (error) {
         setStatus("messageStatus", `Take conversation error:\n${error}`);
@@ -949,7 +942,7 @@
           return;
         }
 
-        setStatus("messageStatus", `Conversation released:\n${JSON.stringify(data, null, 2)}`);
+        setStatus("messageStatus", "Conversation released successfully.");
         await loadConversations();
       } catch (error) {
         setStatus("messageStatus", `Release conversation error:\n${error}`);
@@ -1064,7 +1057,7 @@
         }
 
         document.getElementById("messageInput").value = "";
-        setStatus("messageStatus", `Message created:\n${JSON.stringify(data, null, 2)}`);
+        setStatus("messageStatus", "Message sent successfully.");
         await loadMessages();
         await loadConversations();
       } catch (error) {
@@ -1105,7 +1098,7 @@
         }
 
         document.getElementById("messageInput").value = "";
-        setStatus("messageStatus", `Inbound message created:\n${JSON.stringify(data, null, 2)}`);
+        setStatus("messageStatus", "Inbound message created successfully.");
         await loadMessages();
         await loadConversations();
       } catch (error) {

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Inbox</title>
+
+  <link rel="stylesheet" href="./inbox.css" />
+</head>
+
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon">💬</div>
+        <div>WhatsApp Inbox</div>
+      </div>
+
+      <div id="loginArea" class="login-area">
+        <input id="username" placeholder="Username" value="george" />
+        <input id="password" type="password" placeholder="Password" value="123456" />
+        <button class="btn btn-primary" onclick="login()">Log In</button>
+      </div>
+
+      <div id="userArea" class="login-area" style="display:none;">
+        <div id="helloUser" class="hello-user"></div>
+        <button class="btn btn-light" onclick="logout()">Log out</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <div class="new-chat-row">
+            <button class="btn btn-primary" onclick="openNewChatModal()">＋ New Chat</button>
+            <button class="settings-btn" onclick="showToast('Settings will come in the next step.')">☰</button>
+          </div>
+
+          <div class="search">
+            <input id="searchInput" placeholder="Search conversations..." oninput="renderConversations()" />
+            <span>⌕</span>
+          </div>
+
+          <div class="tabs">
+            <button id="tabAll" class="tab active" onclick="setView('all')">All</button>
+            <button id="tabUnread" class="tab" onclick="setView('unread')">Unread / Open</button>
+            <button id="tabMine" class="tab" onclick="setView('mine')">Mine</button>
+          </div>
+        </div>
+
+        <div id="conversationList" class="conversation-list">
+          <div class="empty-state">
+            <div>
+              <strong>No conversations yet</strong>
+              Log in and refresh your inbox.
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-foot">
+          <button class="btn btn-light" onclick="loadConversations()">↻ Refresh</button>
+          <span id="lastUpdated">Not updated yet</span>
+        </div>
+      </aside>
+
+      <section class="chat">
+        <div class="chat-header">
+          <div class="chat-person">
+            <div id="chatAvatar" class="avatar">?</div>
+            <div>
+              <div id="chatTitle" class="chat-title">Select a conversation</div>
+              <div id="chatSubtitle" class="chat-subtitle">Messages will appear here.</div>
+            </div>
+          </div>
+
+          <div class="chat-actions">
+            <button id="takeConversationBtn" class="btn btn-ghost" onclick="takeConversation()" style="display:none;">Take</button>
+            <button id="releaseConversationBtn" class="btn btn-danger" onclick="releaseConversation()" style="display:none;">Release</button>
+          </div>
+        </div>
+
+        <div id="messages" class="messages">
+          <div class="empty-state">
+            <div>
+              <strong>Welcome</strong>
+              Choose a conversation from the left panel.
+            </div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <textarea id="messageInput" placeholder="Type a message..."></textarea>
+          <button id="sendBtn" class="btn btn-primary" onclick="sendMessage()">Send</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="newChatModal" class="modal-backdrop">
+    <div class="modal">
+      <h2>New Chat</h2>
+      <p>Start a new conversation with a customer.</p>
+
+      <div class="field">
+        <label>Name optional</label>
+        <input id="newChatName" placeholder="John Client" />
+      </div>
+
+      <div class="field">
+        <label>Telephone required</label>
+        <input id="newChatPhone" placeholder="+306900000000" oninput="validateNewChatPhone()" />
+        <div id="phoneStatus" class="phone-status">Use international format, e.g. +306900000000</div>
+      </div>
+
+      <div class="field">
+        <label>Message</label>
+        <textarea id="newChatMessage" placeholder="Hello, how can we help you?"></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-light" onclick="closeNewChatModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createNewChat()">Create Chat</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./inbox.js"></script>
+</body>
+</html>
