@@ -5,14 +5,19 @@ import {
   login,
   clearToken,
   getCurrentUser,
+  getUsers,
   getConversations,
+  createConversation,
   getMessages,
   sendMessage,
+  takeConversation,
+  releaseConversation,
 } from './api';
 
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
+  const [users, setUsers] = useState([]);
 
   const [username, setUsername] = useState('testuser');
   const [password, setPassword] = useState('testpass');
@@ -23,6 +28,122 @@ function App() {
 
   const [newMessage, setNewMessage] = useState('');
   const [error, setError] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
+  const [showNewConversationForm, setShowNewConversationForm] = useState(false);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactPhone, setNewContactPhone] = useState('');
+  const [newConversationMessage, setNewConversationMessage] = useState('');
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+
+  const assignedToUserId = selectedConversation?.assigned_to_user_id || null;
+
+  const isConversationTakenByAnotherUser =
+    Boolean(assignedToUserId) && assignedToUserId !== user?.id;
+
+  const canTakeConversation =
+    Boolean(selectedConversation) && !selectedConversation.assigned_to_user_id;
+
+  const canReleaseConversation =
+    Boolean(selectedConversation) && selectedConversation.assigned_to_user_id === user?.id;
+
+  const canUseConversationAction = canTakeConversation || canReleaseConversation;
+
+  const canSendMessage =
+    Boolean(selectedConversation) && !isConversationTakenByAnotherUser && !isSending;
+
+  function getAssignedUser(userId) {
+    if (!userId) {
+      return null;
+    }
+
+    return users.find((singleUser) => singleUser.id === userId) || null;
+  }
+
+  function getAssignedUserLabel(userId) {
+    if (!userId) {
+      return 'Nobody';
+    }
+
+    const assignedUser = getAssignedUser(userId);
+
+    if (!assignedUser) {
+      return `User #${userId}`;
+    }
+
+    return assignedUser.username || `User #${userId}`;
+  }
+
+  function getAssignedUserClass(userId) {
+    if (!userId) {
+      return 'assigned-nobody';
+    }
+
+    const assignedUser = getAssignedUser(userId);
+    const usernameValue = assignedUser?.username?.toLowerCase() || '';
+
+    if (usernameValue === 'george') {
+      return 'assigned-george';
+    }
+
+    if (usernameValue === 'panagiotis') {
+      return 'assigned-panagiotis';
+    }
+
+    return 'assigned-other';
+  }
+
+  function getConversationActionLabel() {
+    if (!selectedConversation) {
+      return 'Take';
+    }
+
+    if (canTakeConversation) {
+      return 'Take';
+    }
+
+    if (canReleaseConversation) {
+      return 'Release';
+    }
+
+    return `Taken by ${getAssignedUserLabel(selectedConversation.assigned_to_user_id)}`;
+  }
+
+  function getErrorMessage(err, fallbackMessage) {
+    let errorMessage = fallbackMessage;
+
+    try {
+      const parsedError = JSON.parse(err.message);
+      errorMessage = parsedError.detail || errorMessage;
+    } catch {
+      errorMessage = err.message || errorMessage;
+    }
+
+    return errorMessage;
+  }
+
+  async function refreshConversations(selectedConversationId = null) {
+    const conversationData = await getConversations();
+    setConversations(conversationData);
+
+    if (selectedConversationId) {
+      const refreshedConversation = conversationData.find(
+        (conversation) => conversation.id === selectedConversationId
+      );
+
+      if (refreshedConversation) {
+        setSelectedConversation(refreshedConversation);
+      }
+
+      return;
+    }
+
+    if (conversationData.length > 0) {
+      setSelectedConversation(conversationData[0]);
+    } else {
+      setSelectedConversation(null);
+    }
+  }
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -40,22 +161,31 @@ function App() {
     clearToken();
     setToken(null);
     setUser(null);
+    setUsers([]);
     setConversations([]);
     setSelectedConversation(null);
     setMessages([]);
+    setNewMessage('');
+    setError('');
+    setShowNewConversationForm(false);
+    setNewContactName('');
+    setNewContactPhone('');
+    setNewConversationMessage('');
   }
 
   async function loadInitialData() {
     try {
       const currentUser = await getCurrentUser();
-      const conversationData = await getConversations();
-
       setUser(currentUser);
-      setConversations(conversationData);
 
-      if (conversationData.length > 0) {
-        setSelectedConversation(conversationData[0]);
+      try {
+        const usersData = await getUsers();
+        setUsers(usersData);
+      } catch (err) {
+        setUsers([]);
       }
+
+      await refreshConversations();
     } catch (err) {
       clearToken();
       setToken(null);
@@ -73,22 +203,125 @@ function App() {
   }
 
   async function handleSelectConversation(conversation) {
+    setError('');
     setSelectedConversation(conversation);
+  }
+
+  async function handleCreateConversation(event) {
+    event.preventDefault();
+
+    const contactPhone = newContactPhone.trim();
+    const contactName = newContactName.trim() || contactPhone;
+    const firstMessage = newConversationMessage.trim();
+
+    if (!contactPhone || isCreatingConversation) {
+      setError('Phone number is required.');
+      return;
+    }
+
+    if (!firstMessage) {
+      setError('First message is required.');
+      return;
+    }
+
+    try {
+      setIsCreatingConversation(true);
+      setError('');
+
+      const createdConversation = await createConversation(contactName, contactPhone);
+
+      if (createdConversation?.id) {
+        await sendMessage(createdConversation.id, firstMessage);
+
+        setNewContactName('');
+        setNewContactPhone('');
+        setNewConversationMessage('');
+        setShowNewConversationForm(false);
+
+        await refreshConversations(createdConversation.id);
+        await loadMessages(createdConversation.id);
+      } else {
+        setError('Conversation was created, but it could not be opened.');
+        await refreshConversations();
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not create conversation.'));
+    } finally {
+      setIsCreatingConversation(false);
+    }
+  }
+
+  async function handleTakeConversation() {
+    if (!selectedConversation || !canTakeConversation) {
+      return;
+    }
+
+    try {
+      setError('');
+
+      await takeConversation(selectedConversation.id);
+      await refreshConversations(selectedConversation.id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not take conversation.'));
+    }
+  }
+
+  async function handleReleaseConversation() {
+    if (!selectedConversation || !canReleaseConversation) {
+      return;
+    }
+
+    try {
+      setError('');
+
+      await releaseConversation(selectedConversation.id);
+      await refreshConversations(selectedConversation.id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not release conversation.'));
+    }
+  }
+
+  async function handleConversationAction() {
+    if (canTakeConversation) {
+      await handleTakeConversation();
+      return;
+    }
+
+    if (canReleaseConversation) {
+      await handleReleaseConversation();
+    }
   }
 
   async function handleSendMessage(event) {
     event.preventDefault();
 
-    if (!selectedConversation || !newMessage.trim()) {
+    if (!selectedConversation || !newMessage.trim() || isSending) {
       return;
     }
 
+    if (isConversationTakenByAnotherUser) {
+      setError(
+        `This conversation is taken by ${getAssignedUserLabel(
+          selectedConversation.assigned_to_user_id
+        )}.`
+      );
+      return;
+    }
+
+    const messageToSend = newMessage.trim();
+
+    setIsSending(true);
+    setError('');
+    setNewMessage('');
+
     try {
-      await sendMessage(selectedConversation.id, newMessage.trim());
-      setNewMessage('');
+      await sendMessage(selectedConversation.id, messageToSend);
       await loadMessages(selectedConversation.id);
     } catch (err) {
-      setError('Could not send message.');
+      setError(getErrorMessage(err, 'Could not send message.'));
+      setNewMessage(messageToSend);
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -101,6 +334,8 @@ function App() {
   useEffect(() => {
     if (selectedConversation) {
       loadMessages(selectedConversation.id);
+    } else {
+      setMessages([]);
     }
   }, [selectedConversation]);
 
@@ -139,6 +374,8 @@ function App() {
 
   return (
     <div className="app">
+      {error && <div className="app-error">{error}</div>}
+
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-icon">W</div>
@@ -147,6 +384,53 @@ function App() {
             <p>{user ? `Logged in as ${user.username}` : 'Team WhatsApp Inbox'}</p>
           </div>
         </div>
+
+        <button
+          className="new-conversation-toggle"
+          onClick={() => {
+            setError('');
+            setShowNewConversationForm((currentValue) => !currentValue);
+          }}
+        >
+          {showNewConversationForm ? 'Close' : '+ New conversation'}
+        </button>
+
+        {showNewConversationForm && (
+          <form className="new-conversation-form" onSubmit={handleCreateConversation}>
+            <input
+              value={newContactName}
+              onChange={(event) => setNewContactName(event.target.value)}
+              placeholder="Contact name"
+              disabled={isCreatingConversation}
+            />
+
+            <input
+              value={newContactPhone}
+              onChange={(event) => setNewContactPhone(event.target.value)}
+              placeholder="Phone number"
+              disabled={isCreatingConversation}
+            />
+
+            <textarea
+              value={newConversationMessage}
+              onChange={(event) => setNewConversationMessage(event.target.value)}
+              placeholder="First message"
+              disabled={isCreatingConversation}
+              rows="3"
+            />
+
+            <button
+              type="submit"
+              disabled={
+                isCreatingConversation ||
+                !newContactPhone.trim() ||
+                !newConversationMessage.trim()
+              }
+            >
+              {isCreatingConversation ? 'Creating...' : 'Create & Send'}
+            </button>
+          </form>
+        )}
 
         <div className="conversation-list">
           {conversations.length === 0 ? (
@@ -164,6 +448,17 @@ function App() {
                 >
                   <strong>{label}</strong>
                   <span>{conversation.contact_phone}</span>
+
+                  <small className="conversation-meta">
+                    <span className="status-pill">{conversation.status || 'open'}</span>
+                    <span
+                      className={`assigned-badge ${getAssignedUserClass(
+                        conversation.assigned_to_user_id
+                      )}`}
+                    >
+                      {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                    </span>
+                  </small>
                 </button>
               );
             })
@@ -182,9 +477,40 @@ function App() {
               <div>
                 <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
                 <p>{selectedConversation.contact_phone}</p>
+
+                <p className="conversation-status-row">
+                  <span className="status-pill">
+                    {selectedConversation.status || 'open'}
+                  </span>
+
+                  <span
+                    className={`assigned-badge ${getAssignedUserClass(
+                      selectedConversation.assigned_to_user_id
+                    )}`}
+                  >
+                    Assigned to: {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
+                  </span>
+                </p>
+
+                {isConversationTakenByAnotherUser && (
+                  <p className="conversation-locked-message">
+                    This conversation is taken by{' '}
+                    {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}.
+                  </p>
+                )}
               </div>
 
-              <button className="take-button">Take</button>
+              <div className="chat-actions">
+                <button
+                  className={`conversation-action-button ${
+                    canReleaseConversation ? 'release-mode' : ''
+                  }`}
+                  onClick={handleConversationAction}
+                  disabled={!canUseConversationAction}
+                >
+                  {getConversationActionLabel()}
+                </button>
+              </div>
             </header>
 
             <section className="messages">
@@ -194,7 +520,9 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'}`}
+                    className={`message ${
+                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                    }`}
                   >
                     {message.content}
                   </div>
@@ -206,15 +534,23 @@ function App() {
               <input
                 value={newMessage}
                 onChange={(event) => setNewMessage(event.target.value)}
-                placeholder="Type a message..."
+                placeholder={
+                  isConversationTakenByAnotherUser
+                    ? `Taken by ${getAssignedUserLabel(
+                        selectedConversation.assigned_to_user_id
+                      )}`
+                    : 'Type a message...'
+                }
+                disabled={!canSendMessage}
               />
-              <button type="submit">Send</button>
+
+              <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
+                {isSending ? 'Sending...' : 'Send'}
+              </button>
             </form>
           </>
         ) : (
-          <div className="no-chat-selected">
-            Select a conversation to start.
-          </div>
+          <div className="no-chat-selected">Select a conversation to start.</div>
         )}
       </main>
     </div>

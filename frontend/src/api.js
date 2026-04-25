@@ -62,6 +62,10 @@ export async function getCurrentUser() {
   return apiRequest('/users/me/');
 }
 
+export async function getUsers() {
+  return apiRequest('/users/');
+}
+
 export async function getConversations() {
   return apiRequest('/conversations/');
 }
