@@ -14,6 +14,9 @@ import {
   releaseConversation,
 } from './api';
 
+const AUTO_REFRESH_INTERVAL_MS = 5000;
+const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
+
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
@@ -122,6 +125,18 @@ function App() {
     return errorMessage;
   }
 
+  function resetNewConversationForm() {
+    setNewContactName('');
+    setNewContactPhone('');
+    setNewConversationMessage('');
+  }
+
+  function closeNewConversationOverlay() {
+    setShowNewConversationForm(false);
+    resetNewConversationForm();
+    setError('');
+  }
+
   async function refreshConversations(selectedConversationId = null) {
     const conversationData = await getConversations();
     setConversations(conversationData);
@@ -133,8 +148,15 @@ function App() {
 
       if (refreshedConversation) {
         setSelectedConversation(refreshedConversation);
+        return;
       }
 
+      if (conversationData.length > 0) {
+        setSelectedConversation(conversationData[0]);
+        return;
+      }
+
+      setSelectedConversation(null);
       return;
     }
 
@@ -168,9 +190,7 @@ function App() {
     setNewMessage('');
     setError('');
     setShowNewConversationForm(false);
-    setNewContactName('');
-    setNewContactPhone('');
-    setNewConversationMessage('');
+    resetNewConversationForm();
   }
 
   async function loadInitialData() {
@@ -219,6 +239,11 @@ function App() {
       return;
     }
 
+    if (!PHONE_NUMBER_REGEX.test(contactPhone)) {
+      setError('Phone number must start with + and country code, for example +306900000000.');
+      return;
+    }
+
     if (!firstMessage) {
       setError('First message is required.');
       return;
@@ -233,9 +258,7 @@ function App() {
       if (createdConversation?.id) {
         await sendMessage(createdConversation.id, firstMessage);
 
-        setNewContactName('');
-        setNewContactPhone('');
-        setNewConversationMessage('');
+        resetNewConversationForm();
         setShowNewConversationForm(false);
 
         await refreshConversations(createdConversation.id);
@@ -317,6 +340,7 @@ function App() {
     try {
       await sendMessage(selectedConversation.id, messageToSend);
       await loadMessages(selectedConversation.id);
+      await refreshConversations(selectedConversation.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not send message.'));
       setNewMessage(messageToSend);
@@ -338,6 +362,24 @@ function App() {
       setMessages([]);
     }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const selectedConversationId = selectedConversation?.id || null;
+
+      refreshConversations(selectedConversationId).catch(() => {
+        // Silent auto-refresh failure. Manual actions will still show errors.
+      });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [token, selectedConversation?.id]);
 
   if (!token) {
     return (
@@ -385,52 +427,79 @@ function App() {
           </div>
         </div>
 
-        <button
-          className="new-conversation-toggle"
-          onClick={() => {
-            setError('');
-            setShowNewConversationForm((currentValue) => !currentValue);
-          }}
-        >
-          {showNewConversationForm ? 'Close' : '+ New conversation'}
-        </button>
+        <div className="new-conversation-area">
+          <button
+            className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
+            onClick={() => {
+              setError('');
+              setShowNewConversationForm((currentValue) => !currentValue);
+            }}
+            type="button"
+            aria-label="Create new conversation"
+          >
+            <span className="new-conversation-plus">
+              {showNewConversationForm ? '×' : '+'}
+            </span>
+            <span className="new-conversation-label">
+              {showNewConversationForm ? 'Close' : 'New'}
+            </span>
+          </button>
 
-        {showNewConversationForm && (
-          <form className="new-conversation-form" onSubmit={handleCreateConversation}>
-            <input
-              value={newContactName}
-              onChange={(event) => setNewContactName(event.target.value)}
-              placeholder="Contact name"
-              disabled={isCreatingConversation}
-            />
+          {showNewConversationForm && (
+            <div className="new-conversation-overlay">
+              <div className="new-conversation-overlay-header">
+                <div>
+                  <h3>New conversation</h3>
+                  <p>Create a chat and send the first message.</p>
+                </div>
 
-            <input
-              value={newContactPhone}
-              onChange={(event) => setNewContactPhone(event.target.value)}
-              placeholder="Phone number"
-              disabled={isCreatingConversation}
-            />
+                <button
+                  className="new-conversation-close"
+                  type="button"
+                  onClick={closeNewConversationOverlay}
+                  aria-label="Close new conversation form"
+                >
+                  ×
+                </button>
+              </div>
 
-            <textarea
-              value={newConversationMessage}
-              onChange={(event) => setNewConversationMessage(event.target.value)}
-              placeholder="First message"
-              disabled={isCreatingConversation}
-              rows="3"
-            />
+              <form className="new-conversation-form" onSubmit={handleCreateConversation}>
+                <input
+                  value={newContactName}
+                  onChange={(event) => setNewContactName(event.target.value)}
+                  placeholder="Contact name"
+                  disabled={isCreatingConversation}
+                />
 
-            <button
-              type="submit"
-              disabled={
-                isCreatingConversation ||
-                !newContactPhone.trim() ||
-                !newConversationMessage.trim()
-              }
-            >
-              {isCreatingConversation ? 'Creating...' : 'Create & Send'}
-            </button>
-          </form>
-        )}
+                <input
+                  value={newContactPhone}
+                  onChange={(event) => setNewContactPhone(event.target.value)}
+                  placeholder="Phone number, e.g. +306900000000"
+                  disabled={isCreatingConversation}
+                />
+
+                <textarea
+                  value={newConversationMessage}
+                  onChange={(event) => setNewConversationMessage(event.target.value)}
+                  placeholder="First message"
+                  disabled={isCreatingConversation}
+                  rows="3"
+                />
+
+                <button
+                  type="submit"
+                  disabled={
+                    isCreatingConversation ||
+                    !newContactPhone.trim() ||
+                    !newConversationMessage.trim()
+                  }
+                >
+                  {isCreatingConversation ? 'Creating...' : 'Create & Send'}
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
 
         <div className="conversation-list">
           {conversations.length === 0 ? (
