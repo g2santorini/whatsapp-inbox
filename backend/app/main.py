@@ -48,6 +48,8 @@ class TokenData(BaseModel):
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
+
 
 def is_admin(user: models.User) -> bool:
     return user.role == "admin"
@@ -137,7 +139,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: Annotated[models.User, Depends(get_current_user)]
+    current_user: Annotated[models.User, Depends(get_current_user)],
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -145,7 +147,9 @@ async def get_current_active_user(
     return current_user
 
 
-@app.post("/users/", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/users/", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED
+)
 def create_user(
     user: schemas.UserCreate,
     db: Annotated[Session, Depends(get_db)],
@@ -165,7 +169,7 @@ def create_user(
         email=user.email,
         full_name=user.full_name,
         hashed_password=hashed_password,
-        role="operator",
+        role="user",
         disabled=False,
     )
 
@@ -183,6 +187,82 @@ def get_users(
 ):
     users = db.query(models.User).order_by(models.User.full_name.asc()).all()
     return users
+
+
+@app.patch("/users/{user_id}", response_model=schemas.UserOut)
+def update_user(
+    user_id: int,
+    user_update: schemas.UserUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can update users",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_role = None
+
+    if user_update.role is not None:
+        new_role = user_update.role.strip().lower()
+
+        if new_role not in ALLOWED_USER_ROLES:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid role. Allowed roles: admin, power_user, user",
+            )
+
+        if db_user.id == current_user.id and new_role != "admin":
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot remove your own admin role",
+            )
+
+    if user_update.disabled is not None:
+        if db_user.id == current_user.id and user_update.disabled:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot disable your own account",
+            )
+
+    is_admin_role_being_removed = (
+        db_user.role == "admin" and new_role is not None and new_role != "admin"
+    )
+
+    is_admin_being_disabled = db_user.role == "admin" and user_update.disabled is True
+
+    if is_admin_role_being_removed or is_admin_being_disabled:
+        active_admin_count = (
+            db.query(models.User)
+            .filter(
+                models.User.role == "admin",
+                models.User.disabled.is_(False),
+            )
+            .count()
+        )
+
+        if active_admin_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot remove or disable the last active admin",
+            )
+
+    if new_role is not None:
+        db_user.role = new_role
+
+    if user_update.disabled is not None:
+        db_user.disabled = user_update.disabled
+
+    db.commit()
+    db.refresh(db_user)
+
+    return db_user
 
 
 @app.post("/token", response_model=Token)
@@ -211,7 +291,7 @@ async def login_for_access_token(
 
 @app.get("/users/me/", response_model=schemas.UserOut)
 async def read_users_me(
-    current_user: Annotated[models.User, Depends(get_current_active_user)]
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
     return current_user
 
@@ -363,9 +443,8 @@ def release_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if (
-        conversation.assigned_to_user_id != current_user.id
-        and not is_admin(current_user)
+    if conversation.assigned_to_user_id != current_user.id and not is_admin(
+        current_user
     ):
         raise HTTPException(
             status_code=403,

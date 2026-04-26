@@ -83,6 +83,13 @@ export async function getUsers() {
   return apiRequest('/users/');
 }
 
+export async function updateUser(userId, updates) {
+  return apiRequest(`/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
 export async function getConversations() {
   return apiRequest('/conversations/');
 }

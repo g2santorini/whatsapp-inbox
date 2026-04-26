@@ -27,6 +27,11 @@ class UserOut(UserBase):
         orm_mode = True
 
 
+class UserUpdate(BaseModel):
+    role: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
 # =====================
 # MESSAGE
 # =====================
