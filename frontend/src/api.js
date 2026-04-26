@@ -84,7 +84,7 @@ export async function getUsers() {
 }
 
 export async function createUser(userData) {
-  return apiRequest('/users/', {
+  return apiRequest('/users', {
     method: 'POST',
     body: JSON.stringify(userData),
   });
@@ -123,25 +123,25 @@ export async function sendMessage(conversationId, content) {
 }
 
 export async function takeConversation(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/take/`, {
+  return apiRequest(`/conversations/${conversationId}/take`, {
     method: 'POST',
   });
 }
 
 export async function releaseConversation(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/release/`, {
+  return apiRequest(`/conversations/${conversationId}/release`, {
     method: 'POST',
   });
 }
 
 export async function markConversationAsRead(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/mark-as-read/`, {
+  return apiRequest(`/conversations/${conversationId}/mark-as-read`, {
     method: 'POST',
   });
 }
 
 export async function simulateInboundMessage(conversationId, content) {
-  return apiRequest(`/conversations/${conversationId}/simulate-inbound/`, {
+  return apiRequest(`/conversations/${conversationId}/simulate-inbound`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   });

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,110 @@ from .database import Base, engine, get_db
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
+
+VERIFY_TOKEN = "sendro_verify_token_123"
+
+
+@app.get("/webhook/whatsapp")
+def verify_whatsapp_webhook(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+):
+    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+        return int(hub_challenge)
+
+    raise HTTPException(status_code=403, detail="Invalid verify token")
+
+
+@app.post("/webhook/whatsapp")
+async def receive_whatsapp_message(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    data = await request.json()
+
+    try:
+        entry = data["entry"][0]
+        change = entry["changes"][0]
+        value = change["value"]
+
+        message = value["messages"][0]
+        contact = value["contacts"][0]
+
+        text = message["text"]["body"]
+        phone = message["from"]
+        name = contact["profile"]["name"]
+
+        webhook_user = db.query(models.User).first()
+
+        if webhook_user is None:
+            webhook_user = models.User(
+                username="whatsapp_webhook",
+                email="whatsapp_webhook@sendro.local",
+                full_name="WhatsApp Webhook",
+                hashed_password=get_password_hash("change-me-later"),
+                role="admin",
+                disabled=False,
+            )
+            db.add(webhook_user)
+            db.commit()
+            db.refresh(webhook_user)
+
+        conversation = (
+            db.query(models.Conversation)
+            .filter(models.Conversation.contact_phone == phone)
+            .first()
+        )
+
+        now = datetime.utcnow()
+
+        if conversation is None:
+            conversation = models.Conversation(
+                contact_name=name,
+                contact_phone=phone,
+                status="open",
+                assigned_to_user_id=None,
+                unread_count=0,
+                last_message_at=now,
+                created_at=now,
+                updated_at=now,
+                user_id=webhook_user.id,
+            )
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+
+        db_message = models.Message(
+            content=text,
+            direction="inbound",
+            is_read=False,
+            user_id=webhook_user.id,
+            conversation_id=conversation.id,
+        )
+
+        db.add(db_message)
+
+        conversation.status = "open"
+        conversation.unread_count = (conversation.unread_count or 0) + 1
+        conversation.last_message_at = now
+        conversation.updated_at = now
+
+        db.commit()
+        db.refresh(db_message)
+
+        print("📩 SAVED WHATSAPP MESSAGE:")
+        print("Conversation ID:", conversation.id)
+        print("Message ID:", db_message.id)
+        print("Name:", name)
+        print("Phone:", phone)
+        print("Text:", text)
+
+    except Exception as e:
+        print("❌ Error saving WhatsApp message:", e)
+
+    return {"status": "ok"}
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -338,6 +442,26 @@ async def read_users_me(
     current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
     return current_user
+
+
+@app.get("/conversations/", response_model=list[schemas.ConversationOut])
+def get_conversations(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    query = db.query(models.Conversation)
+
+    if not can_view_all_conversations(current_user):
+        query = query.filter(
+            or_(
+                models.Conversation.assigned_to_user_id.is_(None),
+                models.Conversation.assigned_to_user_id == current_user.id,
+            )
+        )
+
+    conversations = query.order_by(models.Conversation.updated_at.desc()).all()
+
+    return conversations
 
 
 @app.post(
