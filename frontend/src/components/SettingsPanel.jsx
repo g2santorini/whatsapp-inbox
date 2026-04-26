@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getCurrentUser, getUsers, updateUser } from '../api';
+import { createUser, getCurrentUser, getUsers, updateUser } from '../api';
 import './SettingsPanel.css';
 
 const ROLE_OPTIONS = [
@@ -7,6 +7,14 @@ const ROLE_OPTIONS = [
   { value: 'power_user', label: 'Power User' },
   { value: 'user', label: 'User' },
 ];
+
+const EMPTY_NEW_USER_FORM = {
+  username: '',
+  email: '',
+  full_name: '',
+  password: '',
+  role: 'user',
+};
 
 const settingsSections = [
   {
@@ -64,6 +72,15 @@ function formatRole(role) {
   return role || 'User';
 }
 
+function sortUsers(usersToSort) {
+  return [...usersToSort].sort((firstUser, secondUser) => {
+    const firstLabel = firstUser.full_name || firstUser.username || '';
+    const secondLabel = secondUser.full_name || secondUser.username || '';
+
+    return firstLabel.localeCompare(secondLabel);
+  });
+}
+
 function SettingsPanel() {
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
@@ -71,6 +88,10 @@ function SettingsPanel() {
   const [updatingUserId, setUpdatingUserId] = useState(null);
   const [settingsError, setSettingsError] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
+
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [newUserForm, setNewUserForm] = useState(EMPTY_NEW_USER_FORM);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const activeUsers = users.filter((user) => !user.disabled).length;
@@ -87,11 +108,67 @@ function SettingsPanel() {
       ]);
 
       setCurrentUser(currentUserData);
-      setUsers(usersData);
+      setUsers(sortUsers(usersData));
     } catch (err) {
       setSettingsError(getErrorMessage(err, 'Could not load users.'));
     } finally {
       setIsLoadingUsers(false);
+    }
+  }
+
+  function updateNewUserForm(fieldName, value) {
+    setNewUserForm((currentForm) => ({
+      ...currentForm,
+      [fieldName]: value,
+    }));
+  }
+
+  function resetAddUserForm() {
+    setNewUserForm(EMPTY_NEW_USER_FORM);
+  }
+
+  function closeAddUserForm() {
+    setShowAddUserForm(false);
+    resetAddUserForm();
+    setSettingsError('');
+  }
+
+  async function handleCreateUser(event) {
+    event.preventDefault();
+
+    const username = newUserForm.username.trim();
+    const email = newUserForm.email.trim();
+    const fullName = newUserForm.full_name.trim();
+    const password = newUserForm.password.trim();
+    const role = newUserForm.role;
+
+    if (!username || !email || !password) {
+      setSettingsError('Username, email, and temporary password are required.');
+      return;
+    }
+
+    try {
+      setIsCreatingUser(true);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const createdUser = await createUser({
+        username,
+        email,
+        full_name: fullName || null,
+        password,
+        role,
+      });
+
+      setUsers((currentUsers) => sortUsers([...currentUsers, createdUser]));
+      setSettingsSuccess('User created successfully.');
+
+      resetAddUserForm();
+      setShowAddUserForm(false);
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not create user.'));
+    } finally {
+      setIsCreatingUser(false);
     }
   }
 
@@ -104,7 +181,9 @@ function SettingsPanel() {
       const updatedUser = await updateUser(userId, { role: newRole });
 
       setUsers((currentUsers) =>
-        currentUsers.map((user) => (user.id === userId ? updatedUser : user))
+        sortUsers(
+          currentUsers.map((user) => (user.id === userId ? updatedUser : user))
+        )
       );
 
       if (currentUser?.id === updatedUser.id) {
@@ -130,7 +209,9 @@ function SettingsPanel() {
       });
 
       setUsers((currentUsers) =>
-        currentUsers.map((user) => (user.id === userToUpdate.id ? updatedUser : user))
+        sortUsers(
+          currentUsers.map((user) => (user.id === userToUpdate.id ? updatedUser : user))
+        )
       );
 
       if (currentUser?.id === updatedUser.id) {
@@ -200,7 +281,7 @@ function SettingsPanel() {
 
       {!isAdmin && (
         <div className="settings-alert warning">
-          You can view users, but only admins can change roles or block users.
+          You can view users, but only admins can create users, change roles, or block users.
         </div>
       )}
 
@@ -213,10 +294,118 @@ function SettingsPanel() {
             </p>
           </div>
 
-          <button type="button" onClick={loadUsers} disabled={isLoadingUsers}>
-            {isLoadingUsers ? 'Loading...' : 'Refresh'}
-          </button>
+          <div className="settings-user-card-actions">
+            {isAdmin && (
+              <button
+                type="button"
+                className="add-user-button"
+                onClick={() => {
+                  setSettingsError('');
+                  setSettingsSuccess('');
+                  setShowAddUserForm((currentValue) => !currentValue);
+                }}
+              >
+                {showAddUserForm ? 'Close form' : 'Add user'}
+              </button>
+            )}
+
+            <button type="button" onClick={loadUsers} disabled={isLoadingUsers}>
+              {isLoadingUsers ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
         </div>
+
+        {showAddUserForm && (
+          <form className="add-user-form" onSubmit={handleCreateUser}>
+            <div className="add-user-form-header">
+              <div>
+                <h3>Add new user</h3>
+                <p>Create a team member with a temporary password and initial role.</p>
+              </div>
+
+              <button type="button" onClick={closeAddUserForm}>
+                ×
+              </button>
+            </div>
+
+            <div className="add-user-form-grid">
+              <label>
+                <span>Username *</span>
+                <input
+                  value={newUserForm.username}
+                  onChange={(event) => updateNewUserForm('username', event.target.value)}
+                  placeholder="e.g. maria"
+                  disabled={isCreatingUser}
+                />
+              </label>
+
+              <label>
+                <span>Email *</span>
+                <input
+                  value={newUserForm.email}
+                  onChange={(event) => updateNewUserForm('email', event.target.value)}
+                  placeholder="maria@example.com"
+                  type="email"
+                  disabled={isCreatingUser}
+                />
+              </label>
+
+              <label>
+                <span>Full name</span>
+                <input
+                  value={newUserForm.full_name}
+                  onChange={(event) => updateNewUserForm('full_name', event.target.value)}
+                  placeholder="Maria Papadopoulou"
+                  disabled={isCreatingUser}
+                />
+              </label>
+
+              <label>
+                <span>Temporary password *</span>
+                <input
+                  value={newUserForm.password}
+                  onChange={(event) => updateNewUserForm('password', event.target.value)}
+                  placeholder="Temporary password"
+                  type="password"
+                  disabled={isCreatingUser}
+                />
+              </label>
+
+              <label>
+                <span>Role</span>
+                <select
+                  value={newUserForm.role}
+                  onChange={(event) => updateNewUserForm('role', event.target.value)}
+                  disabled={isCreatingUser}
+                >
+                  {ROLE_OPTIONS.map((role) => (
+                    <option value={role.value} key={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="add-user-form-actions">
+              <button type="button" onClick={closeAddUserForm} disabled={isCreatingUser}>
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={
+                  isCreatingUser ||
+                  !newUserForm.username.trim() ||
+                  !newUserForm.email.trim() ||
+                  !newUserForm.password.trim()
+                }
+              >
+                {isCreatingUser ? 'Creating...' : 'Create user'}
+              </button>
+            </div>
+          </form>
+        )}
 
         {isLoadingUsers ? (
           <div className="settings-loading">Loading users...</div>

@@ -83,6 +83,13 @@ export async function getUsers() {
   return apiRequest('/users/');
 }
 
+export async function createUser(userData) {
+  return apiRequest('/users/', {
+    method: 'POST',
+    body: JSON.stringify(userData),
+  });
+}
+
 export async function updateUser(userId, updates) {
   return apiRequest(`/users/${userId}`, {
     method: 'PATCH',
