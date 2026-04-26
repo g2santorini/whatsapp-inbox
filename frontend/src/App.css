@@ -357,6 +357,50 @@ textarea {
   background: #020617;
 }
 
+/* Inbox search */
+
+.inbox-search {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.inbox-search input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  padding: 11px 40px 11px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  outline: none;
+}
+
+.inbox-search input:focus {
+  border-color: #091c40;
+  box-shadow: 0 0 0 3px rgba(9, 28, 64, 0.08);
+}
+
+.inbox-search button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.inbox-search button:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
 /* Inbox tabs */
 
 .inbox-tabs {

@@ -55,6 +55,7 @@ function App() {
   const [conversations, setConversations] = useState([]);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
   const [activeInboxView, setActiveInboxView] = useState(INBOX_VIEWS.ALL);
+  const [inboxSearchQuery, setInboxSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
 
@@ -94,16 +95,38 @@ function App() {
     (conversation) => conversation.assigned_to_user_id === user?.id
   ).length;
 
+  const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
+
   const filteredConversations = conversations.filter((conversation) => {
+    let matchesActiveInboxView = true;
+
     if (activeInboxView === INBOX_VIEWS.OPEN) {
-      return !conversation.assigned_to_user_id;
+      matchesActiveInboxView = !conversation.assigned_to_user_id;
     }
 
     if (activeInboxView === INBOX_VIEWS.MINE) {
-      return conversation.assigned_to_user_id === user?.id;
+      matchesActiveInboxView = conversation.assigned_to_user_id === user?.id;
     }
 
-    return true;
+    if (!matchesActiveInboxView) {
+      return false;
+    }
+
+    if (!normalizedInboxSearchQuery) {
+      return true;
+    }
+
+    const searchableText = [
+      conversation.contact_name,
+      conversation.contact_phone,
+      conversation.status,
+      getAssignedUserLabel(conversation.assigned_to_user_id),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return searchableText.includes(normalizedInboxSearchQuery);
   });
 
   function getAssignedUser(userId) {
@@ -243,6 +266,7 @@ function App() {
     setShowNewConversationForm(false);
     setActivePage(APP_PAGES.INBOX);
     setActiveInboxView(INBOX_VIEWS.ALL);
+    setInboxSearchQuery('');
     resetNewConversationForm();
   }
 
@@ -425,10 +449,13 @@ function App() {
       return;
     }
 
-    if (!selectedConversation || filteredConversations.length === 0) {
-      if (filteredConversations.length === 0) {
-        setSelectedConversation(null);
-      }
+    if (filteredConversations.length === 0) {
+      setSelectedConversation(null);
+      return;
+    }
+
+    if (!selectedConversation) {
+      setSelectedConversation(filteredConversations[0]);
       return;
     }
 
@@ -439,7 +466,14 @@ function App() {
     if (!selectedStillVisible) {
       setSelectedConversation(filteredConversations[0]);
     }
-  }, [activeInboxView, conversations, user?.id, activePage]);
+  }, [
+    activeInboxView,
+    conversations,
+    user?.id,
+    activePage,
+    inboxSearchQuery,
+    selectedConversation?.id,
+  ]);
 
   useEffect(() => {
     if (!token) {
@@ -515,6 +549,24 @@ function App() {
 
         {activePage === APP_PAGES.INBOX && (
           <>
+            <div className="inbox-search">
+              <input
+                value={inboxSearchQuery}
+                onChange={(event) => setInboxSearchQuery(event.target.value)}
+                placeholder="Search by name, phone, status..."
+              />
+
+              {inboxSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setInboxSearchQuery('')}
+                  aria-label="Clear inbox search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
             <div className="inbox-tabs">
               <button
                 type="button"
@@ -620,7 +672,11 @@ function App() {
 
             <div className="conversation-list">
               {filteredConversations.length === 0 ? (
-                <div className="empty-state">No conversations in this view.</div>
+                <div className="empty-state">
+                  {inboxSearchQuery
+                    ? `No conversations found for "${inboxSearchQuery}".`
+                    : 'No conversations in this view.'}
+                </div>
               ) : (
                 filteredConversations.map((conversation) => {
                   const isActive = selectedConversation?.id === conversation.id;
