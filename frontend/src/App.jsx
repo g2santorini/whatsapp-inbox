@@ -724,7 +724,23 @@ function App() {
 
       <main className="chat-panel">
         {activePage === APP_PAGES.SETTINGS ? (
-          <SettingsPanel />
+          user?.role === 'admin' ? (
+            <SettingsPanel />
+          ) : (
+            <div className="settings-access-denied">
+              <div>
+                <span>Settings locked</span>
+                <h2>Admin access required</h2>
+                <p>
+                  Settings are available only to admins. You can still use the inbox according
+                  to your role permissions.
+                </p>
+                <button type="button" onClick={() => setActivePage(APP_PAGES.INBOX)}>
+                  Back to inbox
+                </button>
+              </div>
+            </div>
+          )
         ) : selectedConversation ? (
           <>
             <header className="chat-header">
@@ -756,9 +772,8 @@ function App() {
 
               <div className="chat-actions">
                 <button
-                  className={`conversation-action-button ${
-                    canReleaseConversation ? 'release-mode' : ''
-                  }`}
+                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''
+                    }`}
                   onClick={handleConversationAction}
                   disabled={!canUseConversationAction}
                 >
@@ -774,9 +789,8 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${
-                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                    }`}
+                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                      }`}
                   >
                     {message.content}
                   </div>
@@ -791,8 +805,8 @@ function App() {
                 placeholder={
                   isConversationTakenByAnotherUser
                     ? `Taken by ${getAssignedUserLabel(
-                        selectedConversation.assigned_to_user_id
-                      )}`
+                      selectedConversation.assigned_to_user_id
+                    )}`
                     : 'Type a message...'
                 }
                 disabled={!canSendMessage}

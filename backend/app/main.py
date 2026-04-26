@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -53,6 +54,31 @@ ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
 
 def is_admin(user: models.User) -> bool:
     return user.role == "admin"
+
+
+def is_power_user(user: models.User) -> bool:
+    return user.role == "power_user"
+
+
+def can_view_all_conversations(user: models.User) -> bool:
+    return is_admin(user) or is_power_user(user)
+
+
+def can_override_conversation_assignment(user: models.User) -> bool:
+    return is_admin(user) or is_power_user(user)
+
+
+def user_can_access_conversation(
+    user: models.User,
+    conversation: models.Conversation,
+) -> bool:
+    if can_view_all_conversations(user):
+        return True
+
+    return (
+        conversation.assigned_to_user_id is None
+        or conversation.assigned_to_user_id == user.id
+    )
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -153,23 +179,41 @@ async def get_current_active_user(
 def create_user(
     user: schemas.UserCreate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
-    existing_user = get_user(db, user.username)
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can create users",
+        )
+
+    username = user.username.strip()
+    email = user.email.strip().lower()
+    full_name = user.full_name.strip() if user.full_name else None
+    requested_role = (user.role or "user").strip().lower()
+
+    if requested_role not in ALLOWED_USER_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid role. Allowed roles: admin, power_user, user",
+        )
+
+    existing_user = get_user(db, username)
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
 
-    existing_email = get_user_by_email(db, user.email)
+    existing_email = get_user_by_email(db, email)
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed_password = get_password_hash(user.password)
 
     db_user = models.User(
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
+        username=username,
+        email=email,
+        full_name=full_name,
         hashed_password=hashed_password,
-        role="user",
+        role=requested_role,
         disabled=False,
     )
 
@@ -327,18 +371,28 @@ def create_conversation(
     return db_conversation
 
 
-@app.get("/conversations/", response_model=list[schemas.ConversationOut])
-def get_conversations(
+@app.get(
+    "/conversations/{conversation_id}/messages/",
+    response_model=list[schemas.MessageOut],
+)
+def get_conversation_messages(
+    conversation_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
 ):
-    conversations = (
-        db.query(models.Conversation)
-        .order_by(models.Conversation.last_message_at.desc())
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages = (
+        db.query(models.Message)
+        .filter(models.Message.conversation_id == conversation_id)
+        .order_by(models.Message.created_at.asc())
         .all()
     )
 
-    return conversations
+    return messages
 
 
 @app.post(
@@ -357,10 +411,16 @@ def create_message(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
     if (
         conversation.assigned_to_user_id is not None
         and conversation.assigned_to_user_id != current_user.id
-        and not is_admin(current_user)
+        and not can_override_conversation_assignment(current_user)
     ):
         raise HTTPException(
             status_code=403,
@@ -404,10 +464,16 @@ def take_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
     if (
         conversation.assigned_to_user_id is not None
         and conversation.assigned_to_user_id != current_user.id
-        and not is_admin(current_user)
+        and not can_override_conversation_assignment(current_user)
     ):
         raise HTTPException(
             status_code=403,
@@ -443,12 +509,19 @@ def release_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if conversation.assigned_to_user_id != current_user.id and not is_admin(
-        current_user
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
     ):
         raise HTTPException(
             status_code=403,
-            detail="Only the assigned user or an admin can release this conversation",
+            detail="Only the assigned user, a power user, or an admin can release this conversation",
         )
 
     conversation.assigned_to_user_id = None
@@ -521,6 +594,12 @@ def mark_conversation_as_read(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
     unread_messages = (
         db.query(models.Message)
         .filter(
@@ -568,6 +647,12 @@ def get_conversation_messages(
 
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
 
     messages = (
         db.query(models.Message)
