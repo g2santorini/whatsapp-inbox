@@ -1,16 +1,33 @@
 const API_BASE = '/api';
-const TOKEN_KEY = 'whinly_access_token';
+const TOKEN_KEY = 'sendro_access_token';
+const OLD_TOKEN_KEY = 'whinly_access_token';
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  const sendroToken = localStorage.getItem(TOKEN_KEY);
+
+  if (sendroToken) {
+    return sendroToken;
+  }
+
+  const oldToken = localStorage.getItem(OLD_TOKEN_KEY);
+
+  if (oldToken) {
+    localStorage.setItem(TOKEN_KEY, oldToken);
+    localStorage.removeItem(OLD_TOKEN_KEY);
+    return oldToken;
+  }
+
+  return null;
 }
 
 export function saveToken(token) {
   localStorage.setItem(TOKEN_KEY, token);
+  localStorage.removeItem(OLD_TOKEN_KEY);
 }
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(OLD_TOKEN_KEY);
 }
 
 async function apiRequest(path, options = {}) {

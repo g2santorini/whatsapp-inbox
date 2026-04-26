@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
+import sendroLogo from './assets/sendro_logo_clean.svg';
+import SettingsPanel from './components/SettingsPanel';
 import {
   getToken,
   login,
@@ -17,6 +19,31 @@ import {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 
+const INBOX_VIEWS = {
+  ALL: 'all',
+  OPEN: 'open',
+  MINE: 'mine',
+};
+
+const APP_PAGES = {
+  INBOX: 'inbox',
+  SETTINGS: 'settings',
+};
+
+function BrandBlock({ subtitle }) {
+  return (
+    <div className="brand">
+      <div className="brand-icon">
+        <img src={sendroLogo} alt="Sendro logo" className="brand-logo" />
+      </div>
+      <div>
+        <h1>Sendro</h1>
+        <p>{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
@@ -26,6 +53,8 @@ function App() {
   const [password, setPassword] = useState('testpass');
 
   const [conversations, setConversations] = useState([]);
+  const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
+  const [activeInboxView, setActiveInboxView] = useState(INBOX_VIEWS.ALL);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
 
@@ -54,6 +83,28 @@ function App() {
 
   const canSendMessage =
     Boolean(selectedConversation) && !isConversationTakenByAnotherUser && !isSending;
+
+  const allCount = conversations.length;
+
+  const openUnreadCount = conversations.filter((conversation) => {
+    return !conversation.assigned_to_user_id;
+  }).length;
+
+  const mineCount = conversations.filter(
+    (conversation) => conversation.assigned_to_user_id === user?.id
+  ).length;
+
+  const filteredConversations = conversations.filter((conversation) => {
+    if (activeInboxView === INBOX_VIEWS.OPEN) {
+      return !conversation.assigned_to_user_id;
+    }
+
+    if (activeInboxView === INBOX_VIEWS.MINE) {
+      return conversation.assigned_to_user_id === user?.id;
+    }
+
+    return true;
+  });
 
   function getAssignedUser(userId) {
     if (!userId) {
@@ -190,6 +241,8 @@ function App() {
     setNewMessage('');
     setError('');
     setShowNewConversationForm(false);
+    setActivePage(APP_PAGES.INBOX);
+    setActiveInboxView(INBOX_VIEWS.ALL);
     resetNewConversationForm();
   }
 
@@ -224,6 +277,7 @@ function App() {
 
   async function handleSelectConversation(conversation) {
     setError('');
+    setActivePage(APP_PAGES.INBOX);
     setSelectedConversation(conversation);
   }
 
@@ -260,6 +314,7 @@ function App() {
 
         resetNewConversationForm();
         setShowNewConversationForm(false);
+        setActivePage(APP_PAGES.INBOX);
 
         await refreshConversations(createdConversation.id);
         await loadMessages(createdConversation.id);
@@ -283,6 +338,8 @@ function App() {
       setError('');
 
       await takeConversation(selectedConversation.id);
+      setActivePage(APP_PAGES.INBOX);
+      setActiveInboxView(INBOX_VIEWS.MINE);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not take conversation.'));
@@ -356,12 +413,33 @@ function App() {
   }, [token]);
 
   useEffect(() => {
-    if (selectedConversation) {
+    if (selectedConversation && activePage === APP_PAGES.INBOX) {
       loadMessages(selectedConversation.id);
     } else {
       setMessages([]);
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, activePage]);
+
+  useEffect(() => {
+    if (activePage !== APP_PAGES.INBOX) {
+      return;
+    }
+
+    if (!selectedConversation || filteredConversations.length === 0) {
+      if (filteredConversations.length === 0) {
+        setSelectedConversation(null);
+      }
+      return;
+    }
+
+    const selectedStillVisible = filteredConversations.some(
+      (conversation) => conversation.id === selectedConversation.id
+    );
+
+    if (!selectedStillVisible) {
+      setSelectedConversation(filteredConversations[0]);
+    }
+  }, [activeInboxView, conversations, user?.id, activePage]);
 
   useEffect(() => {
     if (!token) {
@@ -385,12 +463,8 @@ function App() {
     return (
       <div className="login-page">
         <form className="login-card" onSubmit={handleLogin}>
-          <div className="brand login-brand">
-            <div className="brand-icon">W</div>
-            <div>
-              <h1>Whinly</h1>
-              <p>Team WhatsApp Inbox</p>
-            </div>
+          <div className="login-brand">
+            <BrandBlock subtitle="Team WhatsApp Inbox" />
           </div>
 
           <input
@@ -419,120 +493,173 @@ function App() {
       {error && <div className="app-error">{error}</div>}
 
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">W</div>
-          <div>
-            <h1>Whinly</h1>
-            <p>{user ? `Logged in as ${user.username}` : 'Team WhatsApp Inbox'}</p>
-          </div>
-        </div>
+        <BrandBlock subtitle={user ? `Logged in as ${user.username}` : 'Team WhatsApp Inbox'} />
 
-        <div className="new-conversation-area">
+        <nav className="sidebar-nav">
           <button
-            className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
-            onClick={() => {
-              setError('');
-              setShowNewConversationForm((currentValue) => !currentValue);
-            }}
             type="button"
-            aria-label="Create new conversation"
+            className={`sidebar-nav-button ${activePage === APP_PAGES.INBOX ? 'active' : ''}`}
+            onClick={() => setActivePage(APP_PAGES.INBOX)}
           >
-            <span className="new-conversation-plus">
-              {showNewConversationForm ? '×' : '+'}
-            </span>
-            <span className="new-conversation-label">
-              {showNewConversationForm ? 'Close' : 'New'}
-            </span>
+            Inbox
           </button>
 
-          {showNewConversationForm && (
-            <div className="new-conversation-overlay">
-              <div className="new-conversation-overlay-header">
-                <div>
-                  <h3>New conversation</h3>
-                  <p>Create a chat and send the first message.</p>
-                </div>
+          <button
+            type="button"
+            className={`sidebar-nav-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
+            onClick={() => setActivePage(APP_PAGES.SETTINGS)}
+          >
+            Settings
+          </button>
+        </nav>
 
-                <button
-                  className="new-conversation-close"
-                  type="button"
-                  onClick={closeNewConversationOverlay}
-                  aria-label="Close new conversation form"
-                >
-                  ×
-                </button>
-              </div>
+        {activePage === APP_PAGES.INBOX && (
+          <>
+            <div className="inbox-tabs">
+              <button
+                type="button"
+                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.ALL ? 'active' : ''}`}
+                onClick={() => setActiveInboxView(INBOX_VIEWS.ALL)}
+              >
+                <span>All</span>
+                <strong>{allCount}</strong>
+              </button>
 
-              <form className="new-conversation-form" onSubmit={handleCreateConversation}>
-                <input
-                  value={newContactName}
-                  onChange={(event) => setNewContactName(event.target.value)}
-                  placeholder="Contact name"
-                  disabled={isCreatingConversation}
-                />
+              <button
+                type="button"
+                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.OPEN ? 'active' : ''}`}
+                onClick={() => setActiveInboxView(INBOX_VIEWS.OPEN)}
+              >
+                <span>Open / Unread</span>
+                <strong>{openUnreadCount}</strong>
+              </button>
 
-                <input
-                  value={newContactPhone}
-                  onChange={(event) => setNewContactPhone(event.target.value)}
-                  placeholder="Phone number, e.g. +306900000000"
-                  disabled={isCreatingConversation}
-                />
-
-                <textarea
-                  value={newConversationMessage}
-                  onChange={(event) => setNewConversationMessage(event.target.value)}
-                  placeholder="First message"
-                  disabled={isCreatingConversation}
-                  rows="3"
-                />
-
-                <button
-                  type="submit"
-                  disabled={
-                    isCreatingConversation ||
-                    !newContactPhone.trim() ||
-                    !newConversationMessage.trim()
-                  }
-                >
-                  {isCreatingConversation ? 'Creating...' : 'Create & Send'}
-                </button>
-              </form>
+              <button
+                type="button"
+                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.MINE ? 'active' : ''}`}
+                onClick={() => setActiveInboxView(INBOX_VIEWS.MINE)}
+              >
+                <span>Mine</span>
+                <strong>{mineCount}</strong>
+              </button>
             </div>
-          )}
-        </div>
 
-        <div className="conversation-list">
-          {conversations.length === 0 ? (
-            <div className="empty-state">No conversations yet.</div>
-          ) : (
-            conversations.map((conversation) => {
-              const isActive = selectedConversation?.id === conversation.id;
-              const label = conversation.contact_name || conversation.contact_phone;
+            <div className="new-conversation-area">
+              <button
+                className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
+                onClick={() => {
+                  setError('');
+                  setShowNewConversationForm((currentValue) => !currentValue);
+                }}
+                type="button"
+                aria-label="Create new conversation"
+              >
+                <span className="new-conversation-plus">
+                  {showNewConversationForm ? '×' : '+'}
+                </span>
+                <span className="new-conversation-label">
+                  {showNewConversationForm ? 'Close' : 'New'}
+                </span>
+              </button>
 
-              return (
-                <button
-                  key={conversation.id}
-                  className={`conversation ${isActive ? 'active' : ''}`}
-                  onClick={() => handleSelectConversation(conversation)}
-                >
-                  <strong>{label}</strong>
-                  <span>{conversation.contact_phone}</span>
+              {showNewConversationForm && (
+                <div className="new-conversation-overlay">
+                  <div className="new-conversation-overlay-header">
+                    <div>
+                      <h3>New conversation</h3>
+                      <p>Create a chat and send the first message.</p>
+                    </div>
 
-                  <small className="conversation-meta">
-                    <span className="status-pill">{conversation.status || 'open'}</span>
-                    <span
-                      className={`assigned-badge ${getAssignedUserClass(
-                        conversation.assigned_to_user_id
-                      )}`}
+                    <button
+                      className="new-conversation-close"
+                      type="button"
+                      onClick={closeNewConversationOverlay}
+                      aria-label="Close new conversation form"
                     >
-                      {getAssignedUserLabel(conversation.assigned_to_user_id)}
-                    </span>
-                  </small>
-                </button>
-              );
-            })
-          )}
-        </div>
+                      ×
+                    </button>
+                  </div>
+
+                  <form className="new-conversation-form" onSubmit={handleCreateConversation}>
+                    <input
+                      value={newContactName}
+                      onChange={(event) => setNewContactName(event.target.value)}
+                      placeholder="Contact name"
+                      disabled={isCreatingConversation}
+                    />
+
+                    <input
+                      value={newContactPhone}
+                      onChange={(event) => setNewContactPhone(event.target.value)}
+                      placeholder="Phone number, e.g. +306900000000"
+                      disabled={isCreatingConversation}
+                    />
+
+                    <textarea
+                      value={newConversationMessage}
+                      onChange={(event) => setNewConversationMessage(event.target.value)}
+                      placeholder="First message"
+                      disabled={isCreatingConversation}
+                      rows="3"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={
+                        isCreatingConversation ||
+                        !newContactPhone.trim() ||
+                        !newConversationMessage.trim()
+                      }
+                    >
+                      {isCreatingConversation ? 'Creating...' : 'Create & Send'}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+
+            <div className="conversation-list">
+              {filteredConversations.length === 0 ? (
+                <div className="empty-state">No conversations in this view.</div>
+              ) : (
+                filteredConversations.map((conversation) => {
+                  const isActive = selectedConversation?.id === conversation.id;
+                  const label = conversation.contact_name || conversation.contact_phone;
+                  const unreadCount = Number(conversation.unread_count || 0);
+
+                  return (
+                    <button
+                      key={conversation.id}
+                      className={`conversation ${isActive ? 'active' : ''}`}
+                      onClick={() => handleSelectConversation(conversation)}
+                    >
+                      <div className="conversation-title-row">
+                        <strong>{label}</strong>
+
+                        {unreadCount > 0 && (
+                          <span className="unread-badge">{unreadCount}</span>
+                        )}
+                      </div>
+
+                      <span>{conversation.contact_phone}</span>
+
+                      <small className="conversation-meta">
+                        <span className="status-pill">{conversation.status || 'open'}</span>
+                        <span
+                          className={`assigned-badge ${getAssignedUserClass(
+                            conversation.assigned_to_user_id
+                          )}`}
+                        >
+                          {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                        </span>
+                      </small>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
 
         <button className="logout-button" onClick={handleLogout}>
           Logout
@@ -540,7 +667,9 @@ function App() {
       </aside>
 
       <main className="chat-panel">
-        {selectedConversation ? (
+        {activePage === APP_PAGES.SETTINGS ? (
+          <SettingsPanel />
+        ) : selectedConversation ? (
           <>
             <header className="chat-header">
               <div>
