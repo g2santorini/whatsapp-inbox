@@ -252,6 +252,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+
 def create_initial_admin_if_needed():
     db = Session(bind=engine)
 
@@ -288,6 +289,7 @@ def create_initial_admin_if_needed():
 
 
 create_initial_admin_if_needed()
+
 
 def get_user(db: Session, username: str):
     return db.query(models.User).filter(models.User.username == username).first()
