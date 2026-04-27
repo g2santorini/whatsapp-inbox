@@ -123,13 +123,13 @@ export async function sendMessage(conversationId, content) {
 }
 
 export async function takeConversation(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/take`, {
+  return apiRequest(`/conversations/${conversationId}/take/`, {
     method: 'POST',
   });
 }
 
 export async function releaseConversation(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/release`, {
+  return apiRequest(`/conversations/${conversationId}/release/`, {
     method: 'POST',
   });
 }

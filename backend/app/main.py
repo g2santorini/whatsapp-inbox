@@ -1,4 +1,5 @@
 import os
+import requests
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -47,11 +48,17 @@ async def receive_whatsapp_message(
         change = entry["changes"][0]
         value = change["value"]
 
+        if "messages" not in value:
+            print("ℹ️ WHATSAPP WEBHOOK RECEIVED WITHOUT MESSAGE")
+            print(value)
+            return {"status": "ok"}
+
         message = value["messages"][0]
         contact = value["contacts"][0]
 
         text = message["text"]["body"]
         phone = message["from"]
+        normalized_phone = normalize_whatsapp_phone(phone)
         name = contact["profile"]["name"]
 
         webhook_user = db.query(models.User).first()
@@ -71,7 +78,13 @@ async def receive_whatsapp_message(
 
         conversation = (
             db.query(models.Conversation)
-            .filter(models.Conversation.contact_phone == phone)
+            .filter(
+                or_(
+                    models.Conversation.contact_phone == phone,
+                    models.Conversation.contact_phone == normalized_phone,
+                    models.Conversation.contact_phone == f"+{normalized_phone}",
+                )
+            )
             .first()
         )
 
@@ -80,7 +93,7 @@ async def receive_whatsapp_message(
         if conversation is None:
             conversation = models.Conversation(
                 contact_name=name,
-                contact_phone=phone,
+                contact_phone=f"+{normalized_phone}",
                 status="open",
                 assigned_to_user_id=None,
                 unread_count=0,
@@ -139,6 +152,53 @@ def get_required_env(name: str) -> str:
 SECRET_KEY = get_required_env("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+WHATSAPP_ACCESS_TOKEN = get_required_env("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = get_required_env("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v25.0")
+
+
+def normalize_whatsapp_phone(phone: str) -> str:
+    return phone.strip().replace("+", "").replace(" ", "")
+
+
+def send_whatsapp_text_message(to_phone: str, text: str):
+    normalized_phone = normalize_whatsapp_phone(to_phone)
+
+    url = (
+        f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/"
+        f"{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": normalized_phone,
+        "type": "text",
+        "text": {
+            "body": text,
+        },
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=15)
+
+    if response.status_code >= 400:
+        print("❌ WHATSAPP SEND ERROR:")
+        print(response.status_code)
+        print(response.text)
+        raise HTTPException(
+            status_code=502,
+            detail="WhatsApp message could not be sent",
+        )
+
+    print("✅ WHATSAPP MESSAGE SENT:")
+    print(response.json())
+
+    return response.json()
 
 
 class Token(BaseModel):
@@ -568,6 +628,66 @@ def create_message(
 
     db.commit()
     db.refresh(db_message)
+
+    send_whatsapp_text_message(
+        to_phone=conversation.contact_phone,
+        text=message.content,
+    )
+
+    print(
+        f"[SEND] conversation_id={conversation_id} "
+        f"user_id={current_user.id} assigned_to={current_user.id}"
+    )
+
+    return db_message
+
+
+def create_message(
+    conversation_id: int,
+    message: schemas.MessageCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id is not None
+        and conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="This conversation is taken by another user",
+        )
+
+    db_message = models.Message(
+        content=message.content,
+        direction="outbound",
+        is_read=True,
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+    )
+
+    db.add(db_message)
+
+    send_whatsapp_text_message(
+        to_phone=conversation.contact_phone,
+        text=message.content,
+    )
+
+    conversation.assigned_to_user_id = current_user.id
+    conversation.status = "taken"
+    conversation.unread_count = 0
+    touch_conversation(conversation)
 
     print(
         f"[SEND] conversation_id={conversation_id} "
