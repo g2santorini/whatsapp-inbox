@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const TOKEN_KEY = 'sendro_access_token';
 const OLD_TOKEN_KEY = 'whinly_access_token';
 
