@@ -252,6 +252,42 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+def create_initial_admin_if_needed():
+    db = Session(bind=engine)
+
+    try:
+        existing_user_count = db.query(models.User).count()
+
+        if existing_user_count > 0:
+            return
+
+        username = os.getenv("INITIAL_ADMIN_USERNAME")
+        email = os.getenv("INITIAL_ADMIN_EMAIL")
+        password = os.getenv("INITIAL_ADMIN_PASSWORD")
+
+        if not username or not email or not password:
+            print("⚠️ Initial admin was not created because env vars are missing.")
+            return
+
+        initial_admin = models.User(
+            username=username.strip(),
+            email=email.strip().lower(),
+            full_name=username.strip(),
+            hashed_password=get_password_hash(password),
+            role="admin",
+            disabled=False,
+        )
+
+        db.add(initial_admin)
+        db.commit()
+
+        print(f"✅ Initial admin user created: {username}")
+
+    finally:
+        db.close()
+
+
+create_initial_admin_if_needed()
 
 def get_user(db: Session, username: str):
     return db.query(models.User).filter(models.User.username == username).first()
