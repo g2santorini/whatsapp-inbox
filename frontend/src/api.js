@@ -146,6 +146,12 @@ export async function archiveConversation(conversationId) {
   });
 }
 
+export async function deleteConversation(conversationId) {
+  return apiRequest(`/conversations/${conversationId}/`, {
+    method: 'DELETE',
+  });
+}
+
 export async function markConversationAsRead(conversationId) {
   return apiRequest(`/conversations/${conversationId}/mark-as-read/`, {
     method: 'POST',

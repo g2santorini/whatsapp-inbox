@@ -16,6 +16,7 @@ import {
   releaseConversation,
   closeConversation,
   archiveConversation,
+  deleteConversation,
   markConversationAsRead,
 } from './api';
 
@@ -434,6 +435,29 @@ function App() {
     }
   }
 
+  async function handleDeleteConversation() {
+    if (!selectedConversation) return;
+
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this conversation?\n\nThis action cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setError('');
+      const deletedConversationId = selectedConversation.id;
+
+      await deleteConversation(deletedConversationId);
+
+      setSelectedConversation(null);
+      setMessages([]);
+      await refreshConversations();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not delete conversation.'));
+    }
+  }
+
   async function handleSendMessage(event) {
     event.preventDefault();
 
@@ -846,6 +870,14 @@ function App() {
                 >
                   Archive
                 </button>
+
+                <button
+                  className="conversation-action-button release-mode"
+                  type="button"
+                  onClick={handleDeleteConversation}
+                >
+                  Delete
+                </button>
               </div>
             </header>
 
@@ -856,9 +888,8 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${
-                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                    }`}
+                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                      }`}
                   >
                     {message.content}
                   </div>
@@ -875,8 +906,8 @@ function App() {
                     ? 'Archived conversation'
                     : isConversationTakenByAnotherUser
                       ? `Taken by ${getAssignedUserLabel(
-                          selectedConversation.assigned_to_user_id
-                        )}`
+                        selectedConversation.assigned_to_user_id
+                      )}`
                       : 'Type a message...'
                 }
                 disabled={!canSendMessage}
