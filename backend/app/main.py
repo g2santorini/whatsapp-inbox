@@ -21,6 +21,7 @@ from .database import Base, engine, get_db
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
+APP_VERSION = "sendro-debug-2026-04-28-01"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -40,120 +41,6 @@ app.add_middleware(
 )
 
 VERIFY_TOKEN = "sendro_verify_token_123"
-
-
-@app.get("/webhook/whatsapp")
-def verify_whatsapp_webhook(
-    hub_mode: str | None = Query(default=None, alias="hub.mode"),
-    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
-    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
-):
-    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
-        return int(hub_challenge)
-
-    raise HTTPException(status_code=403, detail="Invalid verify token")
-
-
-@app.post("/webhook/whatsapp")
-async def receive_whatsapp_message(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    data = await request.json()
-
-    try:
-        entry = data["entry"][0]
-        change = entry["changes"][0]
-        value = change["value"]
-
-        if "messages" not in value:
-            print("ℹ️ WHATSAPP WEBHOOK RECEIVED WITHOUT MESSAGE")
-            print(value)
-            return {"status": "ok"}
-
-        message = value["messages"][0]
-        contact = value["contacts"][0]
-
-        text = message["text"]["body"]
-        phone = message["from"]
-        normalized_phone = normalize_whatsapp_phone(phone)
-        name = contact["profile"]["name"]
-
-        webhook_user = db.query(models.User).first()
-
-        if webhook_user is None:
-            webhook_user = models.User(
-                username="whatsapp_webhook",
-                email="whatsapp_webhook@sendro.local",
-                full_name="WhatsApp Webhook",
-                hashed_password=get_password_hash("change-me-later"),
-                role="admin",
-                disabled=False,
-            )
-            db.add(webhook_user)
-            db.commit()
-            db.refresh(webhook_user)
-
-        conversation = (
-            db.query(models.Conversation)
-            .filter(
-                or_(
-                    models.Conversation.contact_phone == phone,
-                    models.Conversation.contact_phone == normalized_phone,
-                    models.Conversation.contact_phone == f"+{normalized_phone}",
-                )
-            )
-            .first()
-        )
-
-        now = datetime.utcnow()
-
-        if conversation is None:
-            conversation = models.Conversation(
-                contact_name=name,
-                contact_phone=f"+{normalized_phone}",
-                status="open",
-                assigned_to_user_id=None,
-                unread_count=0,
-                last_message_at=now,
-                created_at=now,
-                updated_at=now,
-                user_id=webhook_user.id,
-            )
-            db.add(conversation)
-            db.commit()
-            db.refresh(conversation)
-
-        db_message = models.Message(
-            content=text,
-            direction="inbound",
-            is_read=False,
-            user_id=webhook_user.id,
-            conversation_id=conversation.id,
-        )
-
-        db.add(db_message)
-
-        conversation.status = "open"
-        conversation.unread_count = (conversation.unread_count or 0) + 1
-        conversation.last_message_at = now
-        conversation.updated_at = now
-
-        db.commit()
-        db.refresh(db_message)
-
-        print("📩 SAVED WHATSAPP MESSAGE:")
-        print("Conversation ID:", conversation.id)
-        print("Message ID:", db_message.id)
-        print("Name:", name)
-        print("Phone:", phone)
-        print("Text:", text)
-
-    except Exception as e:
-        print("❌ Error saving WhatsApp message:", e)
-
-    return {"status": "ok"}
-
 
 Base.metadata.create_all(bind=engine)
 
@@ -202,6 +89,11 @@ def send_whatsapp_text_message(to_phone: str, text: str):
         },
     }
 
+    print("📤 SENDING WHATSAPP MESSAGE:", flush=True)
+    print("URL:", url, flush=True)
+    print("To:", normalized_phone, flush=True)
+    print("Payload:", payload, flush=True)
+
     response = requests.post(url, headers=headers, json=payload, timeout=15)
 
     if response.status_code >= 400:
@@ -215,8 +107,8 @@ def send_whatsapp_text_message(to_phone: str, text: str):
             detail=f"WhatsApp send failed: {response.text}",
         )
 
-    print("✅ WHATSAPP MESSAGE SENT:")
-    print(response.json())
+    print("✅ WHATSAPP MESSAGE SENT:", flush=True)
+    print(response.json(), flush=True)
 
     return response.json()
 
@@ -337,8 +229,10 @@ def authenticate_user(db: Session, username: str, password: str):
     user = get_user(db, username)
     if not user:
         return False
+
     if not verify_password(password, user.hashed_password):
         return False
+
     return user
 
 
@@ -395,8 +289,128 @@ async def get_current_active_user(
     return current_user
 
 
+@app.get("/debug/version")
+def debug_version():
+    return {"version": APP_VERSION}
+
+
+@app.get("/webhook/whatsapp")
+def verify_whatsapp_webhook(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+):
+    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+        return int(hub_challenge)
+
+    raise HTTPException(status_code=403, detail="Invalid verify token")
+
+
+@app.post("/webhook/whatsapp")
+async def receive_whatsapp_message(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    data = await request.json()
+
+    try:
+        entry = data["entry"][0]
+        change = entry["changes"][0]
+        value = change["value"]
+
+        if "messages" not in value:
+            print("ℹ️ WHATSAPP WEBHOOK RECEIVED WITHOUT MESSAGE", flush=True)
+            print(value, flush=True)
+            return {"status": "ok"}
+
+        message = value["messages"][0]
+        contact = value["contacts"][0]
+
+        text = message["text"]["body"]
+        phone = message["from"]
+        normalized_phone = normalize_whatsapp_phone(phone)
+        name = contact["profile"]["name"]
+
+        webhook_user = db.query(models.User).first()
+
+        if webhook_user is None:
+            webhook_user = models.User(
+                username="whatsapp_webhook",
+                email="whatsapp_webhook@sendro.local",
+                full_name="WhatsApp Webhook",
+                hashed_password=get_password_hash("change-me-later"),
+                role="admin",
+                disabled=False,
+            )
+            db.add(webhook_user)
+            db.commit()
+            db.refresh(webhook_user)
+
+        conversation = (
+            db.query(models.Conversation)
+            .filter(
+                or_(
+                    models.Conversation.contact_phone == phone,
+                    models.Conversation.contact_phone == normalized_phone,
+                    models.Conversation.contact_phone == f"+{normalized_phone}",
+                )
+            )
+            .first()
+        )
+
+        now = datetime.utcnow()
+
+        if conversation is None:
+            conversation = models.Conversation(
+                contact_name=name,
+                contact_phone=f"+{normalized_phone}",
+                status="open",
+                assigned_to_user_id=None,
+                unread_count=0,
+                last_message_at=now,
+                created_at=now,
+                updated_at=now,
+                user_id=webhook_user.id,
+            )
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+
+        db_message = models.Message(
+            content=text,
+            direction="inbound",
+            is_read=False,
+            user_id=webhook_user.id,
+            conversation_id=conversation.id,
+        )
+
+        db.add(db_message)
+
+        conversation.status = "open"
+        conversation.unread_count = (conversation.unread_count or 0) + 1
+        conversation.last_message_at = now
+        conversation.updated_at = now
+
+        db.commit()
+        db.refresh(db_message)
+
+        print("📩 SAVED WHATSAPP MESSAGE:", flush=True)
+        print("Conversation ID:", conversation.id, flush=True)
+        print("Message ID:", db_message.id, flush=True)
+        print("Name:", name, flush=True)
+        print("Phone:", phone, flush=True)
+        print("Text:", text, flush=True)
+
+    except Exception as e:
+        print("❌ Error saving WhatsApp message:", e, flush=True)
+
+    return {"status": "ok"}
+
+
 @app.post(
-    "/users/", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED
+    "/users/",
+    response_model=schemas.UserOut,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_user(
     user: schemas.UserCreate,
@@ -627,6 +641,12 @@ def get_conversation_messages(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
     messages = (
         db.query(models.Message)
         .filter(models.Message.conversation_id == conversation_id)
@@ -669,6 +689,11 @@ def create_message(
             detail="This conversation is taken by another user",
         )
 
+    whatsapp_result = send_whatsapp_text_message(
+        to_phone=conversation.contact_phone,
+        text=message.content,
+    )
+
     db_message = models.Message(
         content=message.content,
         direction="outbound",
@@ -687,69 +712,11 @@ def create_message(
     db.commit()
     db.refresh(db_message)
 
-    send_whatsapp_text_message(
-        to_phone=conversation.contact_phone,
-        text=message.content,
-    )
-
     print(
         f"[SEND] conversation_id={conversation_id} "
-        f"user_id={current_user.id} assigned_to={current_user.id}"
-    )
-
-    return db_message
-
-
-def create_message(
-    conversation_id: int,
-    message: schemas.MessageCreate,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[models.User, Depends(get_current_active_user)],
-):
-    conversation = get_conversation(db, conversation_id)
-
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    if not user_can_access_conversation(current_user, conversation):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have access to this conversation",
-        )
-
-    if (
-        conversation.assigned_to_user_id is not None
-        and conversation.assigned_to_user_id != current_user.id
-        and not can_override_conversation_assignment(current_user)
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="This conversation is taken by another user",
-        )
-
-    db_message = models.Message(
-        content=message.content,
-        direction="outbound",
-        is_read=True,
-        user_id=current_user.id,
-        conversation_id=conversation_id,
-    )
-
-    db.add(db_message)
-
-    send_whatsapp_text_message(
-        to_phone=conversation.contact_phone,
-        text=message.content,
-    )
-
-    conversation.assigned_to_user_id = current_user.id
-    conversation.status = "taken"
-    conversation.unread_count = 0
-    touch_conversation(conversation)
-
-    print(
-        f"[SEND] conversation_id={conversation_id} "
-        f"user_id={current_user.id} assigned_to={current_user.id}"
+        f"user_id={current_user.id} assigned_to={current_user.id} "
+        f"whatsapp_result={whatsapp_result}",
+        flush=True,
     )
 
     return db_message
@@ -879,7 +846,8 @@ def simulate_inbound_message(
     print(
         f"[SIMULATE_INBOUND] conversation_id={conversation_id} "
         f"user_id={current_user.id} unread_count={conversation.unread_count} "
-        f"content={message.content!r}"
+        f"content={message.content!r}",
+        flush=True,
     )
 
     return db_message
@@ -925,7 +893,8 @@ def mark_conversation_as_read(
 
     print(
         f"[MARK_AS_READ] conversation_id={conversation_id} "
-        f"user_id={current_user.id} updated_count={updated_count}"
+        f"user_id={current_user.id} updated_count={updated_count}",
+        flush=True,
     )
 
     return {
@@ -936,39 +905,9 @@ def mark_conversation_as_read(
     }
 
 
-@app.get(
-    "/conversations/{conversation_id}/messages/",
-    response_model=list[schemas.MessageOut],
-)
-def get_conversation_messages(
-    conversation_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[models.User, Depends(get_current_active_user)],
-):
-    conversation = get_conversation(db, conversation_id)
-
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    if not user_can_access_conversation(current_user, conversation):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have access to this conversation",
-        )
-
-    messages = (
-        db.query(models.Message)
-        .filter(models.Message.conversation_id == conversation_id)
-        .order_by(models.Message.created_at.asc())
-        .all()
-    )
-
-    return messages
-
-
 @app.get("/")
 def read_root():
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}
 
 
 @app.get("/test")
