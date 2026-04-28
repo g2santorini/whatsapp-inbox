@@ -355,6 +355,7 @@ async def receive_whatsapp_message(
                     models.Conversation.contact_phone == f"+{normalized_phone}",
                 )
             )
+            .order_by(models.Conversation.updated_at.desc())
             .first()
         )
 
@@ -608,9 +609,11 @@ def create_conversation(
 ):
     now = datetime.utcnow()
 
+    normalized_phone = normalize_whatsapp_phone(conversation.contact_phone)
+
     db_conversation = models.Conversation(
         contact_name=conversation.contact_name,
-        contact_phone=conversation.contact_phone,
+        contact_phone=f"+{normalized_phone}",
         status="open",
         assigned_to_user_id=None,
         unread_count=0,
