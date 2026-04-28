@@ -819,6 +819,46 @@ def close_conversation(
     }
 
 
+@app.delete("/conversations/{conversation_id}/")
+def delete_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can delete conversations",
+        )
+
+    deleted_messages_count = (
+        db.query(models.Message)
+        .filter(models.Message.conversation_id == conversation_id)
+        .delete()
+    )
+
+    db.delete(conversation)
+    db.commit()
+
+    print(
+        f"[DELETE] conversation_id={conversation_id} "
+        f"deleted_by={current_user.id} "
+        f"deleted_messages={deleted_messages_count}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "deleted_messages": deleted_messages_count,
+    }
+
+
 @app.post("/conversations/{conversation_id}/archive/")
 def archive_conversation(
     conversation_id: int,
