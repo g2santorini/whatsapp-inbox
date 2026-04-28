@@ -101,7 +101,11 @@ function App() {
   const allCount = activeConversations.length;
 
   const openUnreadCount = conversations.filter((conversation) => {
-    return conversation.status !== 'archived' && conversation.status !== 'closed' && !conversation.assigned_to_user_id;
+    return (
+      conversation.status !== 'archived' &&
+      conversation.status !== 'closed' &&
+      !conversation.assigned_to_user_id
+    );
   }).length;
 
   const mineCount = conversations.filter(
@@ -446,12 +450,10 @@ function App() {
 
     try {
       setError('');
-      const deletedConversationId = selectedConversation.id;
-
-      await deleteConversation(deletedConversationId);
-
+      await deleteConversation(selectedConversation.id);
       setSelectedConversation(null);
       setMessages([]);
+      setError('');
       await refreshConversations();
     } catch (err) {
       setError(getErrorMessage(err, 'Could not delete conversation.'));
@@ -498,11 +500,12 @@ function App() {
 
   useEffect(() => {
     if (selectedConversation && activePage === APP_PAGES.INBOX) {
+      setError('');
       loadMessages(selectedConversation.id);
     } else {
       setMessages([]);
     }
-  }, [selectedConversation, activePage]);
+  }, [selectedConversation?.id, activePage]);
 
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
@@ -888,8 +891,9 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                      }`}
+                    className={`message ${
+                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                    }`}
                   >
                     {message.content}
                   </div>
@@ -906,8 +910,8 @@ function App() {
                     ? 'Archived conversation'
                     : isConversationTakenByAnotherUser
                       ? `Taken by ${getAssignedUserLabel(
-                        selectedConversation.assigned_to_user_id
-                      )}`
+                          selectedConversation.assigned_to_user_id
+                        )}`
                       : 'Type a message...'
                 }
                 disabled={!canSendMessage}
