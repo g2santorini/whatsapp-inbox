@@ -36,20 +36,6 @@ const APP_PAGES = {
   SETTINGS: 'settings',
 };
 
-function BrandBlock({ subtitle }) {
-  return (
-    <div className="brand">
-      <div className="brand-icon">
-        <img src={sendroLogo} alt="Sendro logo" className="brand-logo" />
-      </div>
-      <div>
-        <h1>Sendro</h1>
-        <p>{subtitle}</p>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
@@ -557,7 +543,15 @@ function App() {
       <div className="login-page">
         <form className="login-card" onSubmit={handleLogin}>
           <div className="login-brand">
-            <BrandBlock subtitle="Team WhatsApp Inbox" />
+            <div className="brand">
+              <div className="brand-icon">
+                <img src={sendroLogo} alt="Sendro logo" className="brand-logo" />
+              </div>
+              <div>
+                <h1>Sendro</h1>
+                <p>Team WhatsApp Inbox</p>
+              </div>
+            </div>
           </div>
 
           <input
@@ -582,222 +576,242 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app sendro-shell">
       {error && <div className="app-error">{error}</div>}
 
-      <aside className="sidebar">
-        <BrandBlock subtitle={user ? `Logged in as ${user.username}` : 'Team WhatsApp Inbox'} />
+      <aside className="blue-sidebar">
+        <div className="blue-sidebar-top">
+          <div className="blue-brand">
+            <div className="blue-brand-icon">
+              <img src={sendroLogo} alt="Sendro logo" className="blue-brand-logo" />
+            </div>
+            <span>Sendro</span>
+          </div>
 
-        <nav className="sidebar-nav">
+          <div className="blue-section-title">Inbox</div>
+
+          <div className="blue-filter-list">
+            <button
+              type="button"
+              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.ALL ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.INBOX);
+                setActiveInboxView(INBOX_VIEWS.ALL);
+              }}
+            >
+              <span>All</span>
+              <strong>{allCount}</strong>
+            </button>
+
+            <button
+              type="button"
+              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.OPEN ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.INBOX);
+                setActiveInboxView(INBOX_VIEWS.OPEN);
+              }}
+            >
+              <span>Open / Unread</span>
+              <strong>{openUnreadCount}</strong>
+            </button>
+
+            <button
+              type="button"
+              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.MINE ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.INBOX);
+                setActiveInboxView(INBOX_VIEWS.MINE);
+              }}
+            >
+              <span>Mine</span>
+              <strong>{mineCount}</strong>
+            </button>
+
+            <button
+              type="button"
+              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.CLOSED ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.INBOX);
+                setActiveInboxView(INBOX_VIEWS.CLOSED);
+              }}
+            >
+              <span>Closed</span>
+              <strong>{closedCount}</strong>
+            </button>
+
+            <button
+              type="button"
+              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.ARCHIVED ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.INBOX);
+                setActiveInboxView(INBOX_VIEWS.ARCHIVED);
+              }}
+            >
+              <span>Archived</span>
+              <strong>{archivedCount}</strong>
+            </button>
+          </div>
+
           <button
             type="button"
-            className={`sidebar-nav-button ${activePage === APP_PAGES.INBOX ? 'active' : ''}`}
-            onClick={() => setActivePage(APP_PAGES.INBOX)}
-          >
-            Inbox
-          </button>
-
-          <button
-            type="button"
-            className={`sidebar-nav-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
+            className={`blue-settings-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
             onClick={() => setActivePage(APP_PAGES.SETTINGS)}
           >
             Settings
           </button>
-        </nav>
+        </div>
 
-        {activePage === APP_PAGES.INBOX && (
-          <>
-            <div className="inbox-search">
+        <div className="blue-sidebar-bottom">
+          <div className="blue-user-box">
+            <span>Logged in as</span>
+            <strong>{user?.username || 'User'}</strong>
+            <small>{user?.role || 'user'}</small>
+          </div>
+
+          <button className="blue-logout-button" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      <section className="conversation-column">
+        <div className="conversation-column-header">
+          <button
+            className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
+            onClick={() => {
+              setError('');
+              setShowNewConversationForm((currentValue) => !currentValue);
+            }}
+            type="button"
+            aria-label="Create new conversation"
+          >
+            <span className="new-conversation-plus">
+              {showNewConversationForm ? '×' : '+'}
+            </span>
+            <span className="new-conversation-label">
+              {showNewConversationForm ? 'Close' : 'New'}
+            </span>
+          </button>
+
+          <div className="inbox-search">
+            <input
+              value={inboxSearchQuery}
+              onChange={(event) => setInboxSearchQuery(event.target.value)}
+              placeholder="Search by name, phone, status..."
+            />
+
+            {inboxSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setInboxSearchQuery('')}
+                aria-label="Clear inbox search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showNewConversationForm && (
+          <div className="new-conversation-overlay">
+            <div className="new-conversation-overlay-header">
+              <div>
+                <h3>New conversation</h3>
+                <p>Create a chat and send the first message.</p>
+              </div>
+
+              <button
+                className="new-conversation-close"
+                type="button"
+                onClick={closeNewConversationOverlay}
+                aria-label="Close new conversation form"
+              >
+                ×
+              </button>
+            </div>
+
+            <form className="new-conversation-form" onSubmit={handleCreateConversation}>
               <input
-                value={inboxSearchQuery}
-                onChange={(event) => setInboxSearchQuery(event.target.value)}
-                placeholder="Search by name, phone, status..."
+                value={newContactName}
+                onChange={(event) => setNewContactName(event.target.value)}
+                placeholder="Contact name"
+                disabled={isCreatingConversation}
               />
 
-              {inboxSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setInboxSearchQuery('')}
-                  aria-label="Clear inbox search"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+              <input
+                value={newContactPhone}
+                onChange={(event) => setNewContactPhone(event.target.value)}
+                placeholder="Phone number, e.g. +306900000000"
+                disabled={isCreatingConversation}
+              />
 
-            <div className="inbox-tabs">
-              <button
-                type="button"
-                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.ALL ? 'active' : ''}`}
-                onClick={() => setActiveInboxView(INBOX_VIEWS.ALL)}
-              >
-                <span>All</span>
-                <strong>{allCount}</strong>
-              </button>
+              <textarea
+                value={newConversationMessage}
+                onChange={(event) => setNewConversationMessage(event.target.value)}
+                placeholder="First message"
+                disabled={isCreatingConversation}
+                rows="3"
+              />
 
               <button
-                type="button"
-                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.OPEN ? 'active' : ''}`}
-                onClick={() => setActiveInboxView(INBOX_VIEWS.OPEN)}
+                type="submit"
+                disabled={
+                  isCreatingConversation ||
+                  !newContactPhone.trim() ||
+                  !newConversationMessage.trim()
+                }
               >
-                <span>Open / Unread</span>
-                <strong>{openUnreadCount}</strong>
+                {isCreatingConversation ? 'Creating...' : 'Create & Send'}
               </button>
-
-              <button
-                type="button"
-                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.MINE ? 'active' : ''}`}
-                onClick={() => setActiveInboxView(INBOX_VIEWS.MINE)}
-              >
-                <span>Mine</span>
-                <strong>{mineCount}</strong>
-              </button>
-
-              <button
-                type="button"
-                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.CLOSED ? 'active' : ''}`}
-                onClick={() => setActiveInboxView(INBOX_VIEWS.CLOSED)}
-              >
-                <span>Closed</span>
-                <strong>{closedCount}</strong>
-              </button>
-
-              <button
-                type="button"
-                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.ARCHIVED ? 'active' : ''}`}
-                onClick={() => setActiveInboxView(INBOX_VIEWS.ARCHIVED)}
-              >
-                <span>Archived</span>
-                <strong>{archivedCount}</strong>
-              </button>
-            </div>
-
-            <div className="new-conversation-area">
-              <button
-                className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
-                onClick={() => {
-                  setError('');
-                  setShowNewConversationForm((currentValue) => !currentValue);
-                }}
-                type="button"
-                aria-label="Create new conversation"
-              >
-                <span className="new-conversation-plus">
-                  {showNewConversationForm ? '×' : '+'}
-                </span>
-                <span className="new-conversation-label">
-                  {showNewConversationForm ? 'Close' : 'New'}
-                </span>
-              </button>
-
-              {showNewConversationForm && (
-                <div className="new-conversation-overlay">
-                  <div className="new-conversation-overlay-header">
-                    <div>
-                      <h3>New conversation</h3>
-                      <p>Create a chat and send the first message.</p>
-                    </div>
-
-                    <button
-                      className="new-conversation-close"
-                      type="button"
-                      onClick={closeNewConversationOverlay}
-                      aria-label="Close new conversation form"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  <form className="new-conversation-form" onSubmit={handleCreateConversation}>
-                    <input
-                      value={newContactName}
-                      onChange={(event) => setNewContactName(event.target.value)}
-                      placeholder="Contact name"
-                      disabled={isCreatingConversation}
-                    />
-
-                    <input
-                      value={newContactPhone}
-                      onChange={(event) => setNewContactPhone(event.target.value)}
-                      placeholder="Phone number, e.g. +306900000000"
-                      disabled={isCreatingConversation}
-                    />
-
-                    <textarea
-                      value={newConversationMessage}
-                      onChange={(event) => setNewConversationMessage(event.target.value)}
-                      placeholder="First message"
-                      disabled={isCreatingConversation}
-                      rows="3"
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={
-                        isCreatingConversation ||
-                        !newContactPhone.trim() ||
-                        !newConversationMessage.trim()
-                      }
-                    >
-                      {isCreatingConversation ? 'Creating...' : 'Create & Send'}
-                    </button>
-                  </form>
-                </div>
-              )}
-            </div>
-
-            <div className="conversation-list">
-              {filteredConversations.length === 0 ? (
-                <div className="empty-state">
-                  {inboxSearchQuery
-                    ? `No conversations found for "${inboxSearchQuery}".`
-                    : 'No conversations in this view.'}
-                </div>
-              ) : (
-                filteredConversations.map((conversation) => {
-                  const isActive = selectedConversation?.id === conversation.id;
-                  const label = conversation.contact_name || conversation.contact_phone;
-                  const unreadCount = Number(conversation.unread_count || 0);
-
-                  return (
-                    <button
-                      key={conversation.id}
-                      className={`conversation ${isActive ? 'active' : ''}`}
-                      onClick={() => handleSelectConversation(conversation)}
-                    >
-                      <div className="conversation-title-row">
-                        <strong>{label}</strong>
-
-                        {unreadCount > 0 && (
-                          <span className="unread-badge">{unreadCount}</span>
-                        )}
-                      </div>
-
-                      <span>{conversation.contact_phone}</span>
-
-                      <small className="conversation-meta">
-                        <span className="status-pill">{conversation.status || 'open'}</span>
-                        <span
-                          className={`assigned-badge ${getAssignedUserClass(
-                            conversation.assigned_to_user_id
-                          )}`}
-                        >
-                          {getAssignedUserLabel(conversation.assigned_to_user_id)}
-                        </span>
-                      </small>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </>
+            </form>
+          </div>
         )}
 
-        <button className="logout-button" onClick={handleLogout}>
-          Logout
-        </button>
-      </aside>
+        <div className="conversation-list">
+          {filteredConversations.length === 0 ? (
+            <div className="empty-state">
+              {inboxSearchQuery
+                ? `No conversations found for "${inboxSearchQuery}".`
+                : 'No conversations in this view.'}
+            </div>
+          ) : (
+            filteredConversations.map((conversation) => {
+              const isActive = selectedConversation?.id === conversation.id;
+              const label = conversation.contact_name || conversation.contact_phone;
+              const unreadCount = Number(conversation.unread_count || 0);
+
+              return (
+                <button
+                  key={conversation.id}
+                  className={`conversation ${isActive ? 'active' : ''}`}
+                  onClick={() => handleSelectConversation(conversation)}
+                >
+                  <div className="conversation-title-row">
+                    <strong>{label}</strong>
+
+                    {unreadCount > 0 && (
+                      <span className="unread-badge">{unreadCount}</span>
+                    )}
+                  </div>
+
+                  <span>{conversation.contact_phone}</span>
+
+                  <small className="conversation-meta">
+                    <span className="status-pill">{conversation.status || 'open'}</span>
+                    <span
+                      className={`assigned-badge ${getAssignedUserClass(
+                        conversation.assigned_to_user_id
+                      )}`}
+                    >
+                      {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                    </span>
+                  </small>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
 
       <main className="chat-panel">
         {activePage === APP_PAGES.SETTINGS ? (
@@ -926,6 +940,8 @@ function App() {
           <div className="no-chat-selected">Select a conversation to start.</div>
         )}
       </main>
+
+      <aside className="future-panel" aria-label="Future templates and quick replies panel" />
     </div>
   );
 }
