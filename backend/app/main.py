@@ -61,13 +61,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 WHATSAPP_ACCESS_TOKEN = get_required_env("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_PHONE_NUMBER_ID = get_required_env("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v25.0")
-
+WHATSAPP_SEND_ENABLED = os.getenv("WHATSAPP_SEND_ENABLED", "true").lower() == "true"
 
 def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
 
 
 def send_whatsapp_text_message(to_phone: str, text: str):
+    if not WHATSAPP_SEND_ENABLED:
+        print("⚠️ WHATSAPP SEND DISABLED - message not sent", flush=True)
+        return {"status": "disabled"}
+
     normalized_phone = normalize_whatsapp_phone(to_phone)
 
     url = (
