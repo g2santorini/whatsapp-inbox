@@ -21,7 +21,7 @@ from .database import Base, engine, get_db
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-debug-2026-04-28-01"
+APP_VERSION = "sendro-debug-2026-04-28-02"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
