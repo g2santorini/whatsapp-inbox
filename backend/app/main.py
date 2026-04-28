@@ -205,12 +205,14 @@ def send_whatsapp_text_message(to_phone: str, text: str):
     response = requests.post(url, headers=headers, json=payload, timeout=15)
 
     if response.status_code >= 400:
-        print("❌ WHATSAPP SEND ERROR:")
-        print(response.status_code)
-        print(response.text)
+        print("❌ WHATSAPP SEND ERROR:", flush=True)
+        print("Status:", response.status_code, flush=True)
+        print("Response:", response.text, flush=True)
+        print("Payload:", payload, flush=True)
+
         raise HTTPException(
             status_code=502,
-            detail="WhatsApp message could not be sent",
+            detail=f"WhatsApp send failed: {response.text}",
         )
 
     print("✅ WHATSAPP MESSAGE SENT:")
