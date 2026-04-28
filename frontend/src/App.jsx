@@ -14,6 +14,9 @@ import {
   sendMessage,
   takeConversation,
   releaseConversation,
+  closeConversation,
+  archiveConversation,
+  markConversationAsRead,
 } from './api';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
@@ -23,6 +26,8 @@ const INBOX_VIEWS = {
   ALL: 'all',
   OPEN: 'open',
   MINE: 'mine',
+  CLOSED: 'closed',
+  ARCHIVED: 'archived',
 };
 
 const APP_PAGES = {
@@ -83,16 +88,34 @@ function App() {
   const canUseConversationAction = canTakeConversation || canReleaseConversation;
 
   const canSendMessage =
-    Boolean(selectedConversation) && !isConversationTakenByAnotherUser && !isSending;
+    Boolean(selectedConversation) &&
+    !isConversationTakenByAnotherUser &&
+    selectedConversation?.status !== 'archived' &&
+    !isSending;
 
-  const allCount = conversations.length;
+  const activeConversations = conversations.filter(
+    (conversation) => conversation.status !== 'archived'
+  );
+
+  const allCount = activeConversations.length;
 
   const openUnreadCount = conversations.filter((conversation) => {
-    return !conversation.assigned_to_user_id;
+    return conversation.status !== 'archived' && conversation.status !== 'closed' && !conversation.assigned_to_user_id;
   }).length;
 
   const mineCount = conversations.filter(
-    (conversation) => conversation.assigned_to_user_id === user?.id
+    (conversation) =>
+      conversation.status !== 'archived' &&
+      conversation.status !== 'closed' &&
+      conversation.assigned_to_user_id === user?.id
+  ).length;
+
+  const closedCount = conversations.filter(
+    (conversation) => conversation.status === 'closed'
+  ).length;
+
+  const archivedCount = conversations.filter(
+    (conversation) => conversation.status === 'archived'
   ).length;
 
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
@@ -100,12 +123,30 @@ function App() {
   const filteredConversations = conversations.filter((conversation) => {
     let matchesActiveInboxView = true;
 
+    if (activeInboxView === INBOX_VIEWS.ALL) {
+      matchesActiveInboxView = conversation.status !== 'archived';
+    }
+
     if (activeInboxView === INBOX_VIEWS.OPEN) {
-      matchesActiveInboxView = !conversation.assigned_to_user_id;
+      matchesActiveInboxView =
+        conversation.status !== 'archived' &&
+        conversation.status !== 'closed' &&
+        !conversation.assigned_to_user_id;
     }
 
     if (activeInboxView === INBOX_VIEWS.MINE) {
-      matchesActiveInboxView = conversation.assigned_to_user_id === user?.id;
+      matchesActiveInboxView =
+        conversation.status !== 'archived' &&
+        conversation.status !== 'closed' &&
+        conversation.assigned_to_user_id === user?.id;
+    }
+
+    if (activeInboxView === INBOX_VIEWS.CLOSED) {
+      matchesActiveInboxView = conversation.status === 'closed';
+    }
+
+    if (activeInboxView === INBOX_VIEWS.ARCHIVED) {
+      matchesActiveInboxView = conversation.status === 'archived';
     }
 
     if (!matchesActiveInboxView) {
@@ -130,58 +171,35 @@ function App() {
   });
 
   function getAssignedUser(userId) {
-    if (!userId) {
-      return null;
-    }
-
+    if (!userId) return null;
     return users.find((singleUser) => singleUser.id === userId) || null;
   }
 
   function getAssignedUserLabel(userId) {
-    if (!userId) {
-      return 'Nobody';
-    }
+    if (!userId) return 'Nobody';
 
     const assignedUser = getAssignedUser(userId);
-
-    if (!assignedUser) {
-      return `User #${userId}`;
-    }
+    if (!assignedUser) return `User #${userId}`;
 
     return assignedUser.username || `User #${userId}`;
   }
 
   function getAssignedUserClass(userId) {
-    if (!userId) {
-      return 'assigned-nobody';
-    }
+    if (!userId) return 'assigned-nobody';
 
     const assignedUser = getAssignedUser(userId);
     const usernameValue = assignedUser?.username?.toLowerCase() || '';
 
-    if (usernameValue === 'george') {
-      return 'assigned-george';
-    }
-
-    if (usernameValue === 'panagiotis') {
-      return 'assigned-panagiotis';
-    }
+    if (usernameValue === 'george') return 'assigned-george';
+    if (usernameValue === 'panagiotis') return 'assigned-panagiotis';
 
     return 'assigned-other';
   }
 
   function getConversationActionLabel() {
-    if (!selectedConversation) {
-      return 'Take';
-    }
-
-    if (canTakeConversation) {
-      return 'Take';
-    }
-
-    if (canReleaseConversation) {
-      return 'Release';
-    }
+    if (!selectedConversation) return 'Take';
+    if (canTakeConversation) return 'Take';
+    if (canReleaseConversation) return 'Release';
 
     return `Taken by ${getAssignedUserLabel(selectedConversation.assigned_to_user_id)}`;
   }
@@ -225,20 +243,11 @@ function App() {
         return;
       }
 
-      if (conversationData.length > 0) {
-        setSelectedConversation(conversationData[0]);
-        return;
-      }
-
-      setSelectedConversation(null);
+      setSelectedConversation(conversationData[0] || null);
       return;
     }
 
-    if (conversationData.length > 0) {
-      setSelectedConversation(conversationData[0]);
-    } else {
-      setSelectedConversation(null);
-    }
+    setSelectedConversation(conversationData[0] || null);
   }
 
   async function handleLogin(event) {
@@ -303,6 +312,15 @@ function App() {
     setError('');
     setActivePage(APP_PAGES.INBOX);
     setSelectedConversation(conversation);
+
+    if (conversation.unread_count > 0) {
+      try {
+        await markConversationAsRead(conversation.id);
+        await refreshConversations(conversation.id);
+      } catch (err) {
+        setError(getErrorMessage(err, 'Could not mark conversation as read.'));
+      }
+    }
   }
 
   async function handleCreateConversation(event) {
@@ -354,13 +372,10 @@ function App() {
   }
 
   async function handleTakeConversation() {
-    if (!selectedConversation || !canTakeConversation) {
-      return;
-    }
+    if (!selectedConversation || !canTakeConversation) return;
 
     try {
       setError('');
-
       await takeConversation(selectedConversation.id);
       setActivePage(APP_PAGES.INBOX);
       setActiveInboxView(INBOX_VIEWS.MINE);
@@ -371,13 +386,10 @@ function App() {
   }
 
   async function handleReleaseConversation() {
-    if (!selectedConversation || !canReleaseConversation) {
-      return;
-    }
+    if (!selectedConversation || !canReleaseConversation) return;
 
     try {
       setError('');
-
       await releaseConversation(selectedConversation.id);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
@@ -396,12 +408,36 @@ function App() {
     }
   }
 
+  async function handleCloseConversation() {
+    if (!selectedConversation) return;
+
+    try {
+      setError('');
+      await closeConversation(selectedConversation.id);
+      setActiveInboxView(INBOX_VIEWS.CLOSED);
+      await refreshConversations(selectedConversation.id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not close conversation.'));
+    }
+  }
+
+  async function handleArchiveConversation() {
+    if (!selectedConversation) return;
+
+    try {
+      setError('');
+      await archiveConversation(selectedConversation.id);
+      setActiveInboxView(INBOX_VIEWS.ARCHIVED);
+      await refreshConversations(selectedConversation.id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not archive conversation.'));
+    }
+  }
+
   async function handleSendMessage(event) {
     event.preventDefault();
 
-    if (!selectedConversation || !newMessage.trim() || isSending) {
-      return;
-    }
+    if (!selectedConversation || !newMessage.trim() || isSending) return;
 
     if (isConversationTakenByAnotherUser) {
       setError(
@@ -445,9 +481,7 @@ function App() {
   }, [selectedConversation, activePage]);
 
   useEffect(() => {
-    if (activePage !== APP_PAGES.INBOX) {
-      return;
-    }
+    if (activePage !== APP_PAGES.INBOX) return;
 
     if (filteredConversations.length === 0) {
       setSelectedConversation(null);
@@ -476,15 +510,13 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!token) {
-      return undefined;
-    }
+    if (!token) return undefined;
 
     const intervalId = window.setInterval(() => {
       const selectedConversationId = selectedConversation?.id || null;
 
       refreshConversations(selectedConversationId).catch(() => {
-        // Silent auto-refresh failure. Manual actions will still show errors.
+        // Silent auto-refresh failure.
       });
     }, AUTO_REFRESH_INTERVAL_MS);
 
@@ -593,6 +625,24 @@ function App() {
               >
                 <span>Mine</span>
                 <strong>{mineCount}</strong>
+              </button>
+
+              <button
+                type="button"
+                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.CLOSED ? 'active' : ''}`}
+                onClick={() => setActiveInboxView(INBOX_VIEWS.CLOSED)}
+              >
+                <span>Closed</span>
+                <strong>{closedCount}</strong>
+              </button>
+
+              <button
+                type="button"
+                className={`inbox-tab ${activeInboxView === INBOX_VIEWS.ARCHIVED ? 'active' : ''}`}
+                onClick={() => setActiveInboxView(INBOX_VIEWS.ARCHIVED)}
+              >
+                <span>Archived</span>
+                <strong>{archivedCount}</strong>
               </button>
             </div>
 
@@ -772,12 +822,29 @@ function App() {
 
               <div className="chat-actions">
                 <button
-                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''
-                    }`}
+                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''}`}
                   onClick={handleConversationAction}
                   disabled={!canUseConversationAction}
                 >
                   {getConversationActionLabel()}
+                </button>
+
+                <button
+                  className="conversation-action-button"
+                  type="button"
+                  onClick={handleCloseConversation}
+                  disabled={selectedConversation.status === 'closed'}
+                >
+                  Close
+                </button>
+
+                <button
+                  className="conversation-action-button release-mode"
+                  type="button"
+                  onClick={handleArchiveConversation}
+                  disabled={selectedConversation.status === 'archived'}
+                >
+                  Archive
                 </button>
               </div>
             </header>
@@ -789,8 +856,9 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                      }`}
+                    className={`message ${
+                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                    }`}
                   >
                     {message.content}
                   </div>
@@ -803,11 +871,13 @@ function App() {
                 value={newMessage}
                 onChange={(event) => setNewMessage(event.target.value)}
                 placeholder={
-                  isConversationTakenByAnotherUser
-                    ? `Taken by ${getAssignedUserLabel(
-                      selectedConversation.assigned_to_user_id
-                    )}`
-                    : 'Type a message...'
+                  selectedConversation.status === 'archived'
+                    ? 'Archived conversation'
+                    : isConversationTakenByAnotherUser
+                      ? `Taken by ${getAssignedUserLabel(
+                          selectedConversation.assigned_to_user_id
+                        )}`
+                      : 'Type a message...'
                 }
                 disabled={!canSendMessage}
               />

@@ -84,7 +84,7 @@ export async function getUsers() {
 }
 
 export async function createUser(userData) {
-  return apiRequest('/users', {
+  return apiRequest('/users/', {
     method: 'POST',
     body: JSON.stringify(userData),
   });
@@ -134,14 +134,26 @@ export async function releaseConversation(conversationId) {
   });
 }
 
+export async function closeConversation(conversationId) {
+  return apiRequest(`/conversations/${conversationId}/close/`, {
+    method: 'POST',
+  });
+}
+
+export async function archiveConversation(conversationId) {
+  return apiRequest(`/conversations/${conversationId}/archive/`, {
+    method: 'POST',
+  });
+}
+
 export async function markConversationAsRead(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/mark-as-read`, {
+  return apiRequest(`/conversations/${conversationId}/mark-as-read/`, {
     method: 'POST',
   });
 }
 
 export async function simulateInboundMessage(conversationId, content) {
-  return apiRequest(`/conversations/${conversationId}/simulate-inbound`, {
+  return apiRequest(`/conversations/${conversationId}/simulate-inbound/`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   });
