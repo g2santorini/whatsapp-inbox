@@ -31,9 +31,7 @@ CORS_ALLOWED_ORIGINS = os.getenv(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        origin.strip()
-        for origin in CORS_ALLOWED_ORIGINS.split(",")
-        if origin.strip()
+        origin.strip() for origin in CORS_ALLOWED_ORIGINS.split(",") if origin.strip()
     ],
     allow_credentials=False,
     allow_methods=["*"],
@@ -62,6 +60,7 @@ WHATSAPP_ACCESS_TOKEN = get_required_env("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_PHONE_NUMBER_ID = get_required_env("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v25.0")
 WHATSAPP_SEND_ENABLED = os.getenv("WHATSAPP_SEND_ENABLED", "true").lower() == "true"
+
 
 def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
@@ -769,6 +768,98 @@ def take_conversation(
         "status": "ok",
         "conversation_id": conversation_id,
         "assigned_to_user_id": current_user.id,
+        "conversation_status": conversation.status,
+        "unread_count": conversation.unread_count,
+    }
+
+
+@app.post("/conversations/{conversation_id}/close/")
+def close_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id is not None
+        and conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned user, a power user, or an admin can close this conversation",
+        )
+
+    conversation.status = "closed"
+    conversation.unread_count = 0
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(
+        f"[CLOSE] conversation_id={conversation_id} closed_by={current_user.id}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "conversation_status": conversation.status,
+        "unread_count": conversation.unread_count,
+    }
+
+
+@app.post("/conversations/{conversation_id}/archive/")
+def archive_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id is not None
+        and conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned user, a power user, or an admin can archive this conversation",
+        )
+
+    conversation.status = "archived"
+    conversation.unread_count = 0
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(
+        f"[ARCHIVE] conversation_id={conversation_id} archived_by={current_user.id}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
         "conversation_status": conversation.status,
         "unread_count": conversation.unread_count,
     }
