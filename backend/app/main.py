@@ -710,8 +710,6 @@ def create_message(
 
     db.add(db_message)
 
-    conversation.assigned_to_user_id = current_user.id
-    conversation.status = "taken"
     conversation.unread_count = 0
     touch_conversation(conversation)
 
@@ -755,8 +753,7 @@ def take_conversation(
             detail="This conversation is already taken by another user",
         )
 
-    conversation.assigned_to_user_id = current_user.id
-    conversation.status = "taken"
+
     conversation.unread_count = 0
     touch_conversation(conversation)
 
@@ -932,7 +929,6 @@ def release_conversation(
         )
 
     conversation.assigned_to_user_id = None
-    conversation.status = "open"
     touch_conversation(conversation)
 
     db.commit()

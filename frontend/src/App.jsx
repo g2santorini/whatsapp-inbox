@@ -23,12 +23,12 @@ import {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 
-const INBOX_VIEWS = {
+const CONVERSATION_VIEWS = {
   ALL: 'all',
-  OPEN: 'open',
+  NEEDS_ACTION: 'needs_action',
   MINE: 'mine',
-  CLOSED: 'closed',
-  ARCHIVED: 'archived',
+  FOLLOW_UP: 'follow_up',
+  DONE: 'done',
 };
 
 const APP_PAGES = {
@@ -46,7 +46,10 @@ function App() {
 
   const [conversations, setConversations] = useState([]);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
-  const [activeInboxView, setActiveInboxView] = useState(INBOX_VIEWS.ALL);
+  const [activeConversationView, setActiveConversationView] = useState(
+    CONVERSATION_VIEWS.ALL
+  );
+  const [showDoneInAll, setShowDoneInAll] = useState(false);
   const [inboxSearchQuery, setInboxSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -80,67 +83,90 @@ function App() {
     selectedConversation?.status !== 'archived' &&
     !isSending;
 
-  const activeConversations = conversations.filter(
-    (conversation) => conversation.status !== 'archived'
-  );
+  function isDoneConversation(conversation) {
+    return conversation.status === 'closed';
+  }
 
-  const allCount = activeConversations.length;
+  function isArchivedConversation(conversation) {
+    return conversation.status === 'archived';
+  }
 
-  const openUnreadCount = conversations.filter((conversation) => {
+  function isActiveConversation(conversation) {
+    return !isDoneConversation(conversation) && !isArchivedConversation(conversation);
+  }
+
+  function isNeedsActionConversation(conversation) {
     return (
-      conversation.status !== 'archived' &&
-      conversation.status !== 'closed' &&
+      isActiveConversation(conversation) &&
       !conversation.assigned_to_user_id
+    );
+  }
+
+  function isMineConversation(conversation) {
+    return (
+      isNeedsActionConversation(conversation) &&
+      conversation.assigned_to_user_id === user?.id
+    );
+  }
+
+  function isFollowUpConversation(conversation) {
+    return (
+      isActiveConversation(conversation) &&
+      Boolean(conversation.follow_up)
+    );
+  }
+
+  const allCount = conversations.filter((conversation) => {
+    if (isArchivedConversation(conversation)) return false;
+    if (!showDoneInAll && isDoneConversation(conversation)) return false;
+    return true;
+  }).length;
+
+  const needsActionCount = conversations.filter(isNeedsActionConversation).length;
+
+  const mineCount = conversations.filter((conversation) => {
+    return (
+      isActiveConversation(conversation) &&
+      conversation.assigned_to_user_id === user?.id
     );
   }).length;
 
-  const mineCount = conversations.filter(
-    (conversation) =>
-      conversation.status !== 'archived' &&
-      conversation.status !== 'closed' &&
-      conversation.assigned_to_user_id === user?.id
-  ).length;
+  const followUpCount = conversations.filter(isFollowUpConversation).length;
 
-  const closedCount = conversations.filter(
-    (conversation) => conversation.status === 'closed'
-  ).length;
-
-  const archivedCount = conversations.filter(
-    (conversation) => conversation.status === 'archived'
-  ).length;
+  const doneCount = conversations.filter(isDoneConversation).length;
 
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
 
   const filteredConversations = conversations.filter((conversation) => {
-    let matchesActiveInboxView = true;
+    let matchesActiveView = true;
 
-    if (activeInboxView === INBOX_VIEWS.ALL) {
-      matchesActiveInboxView = conversation.status !== 'archived';
+    if (activeConversationView === CONVERSATION_VIEWS.ALL) {
+      matchesActiveView = !isArchivedConversation(conversation);
+
+      if (!showDoneInAll && isDoneConversation(conversation)) {
+        matchesActiveView = false;
+      }
     }
 
-    if (activeInboxView === INBOX_VIEWS.OPEN) {
-      matchesActiveInboxView =
-        conversation.status !== 'archived' &&
-        conversation.status !== 'closed' &&
-        !conversation.assigned_to_user_id;
+    if (activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION) {
+      matchesActiveView = isNeedsActionConversation(conversation);
     }
 
-    if (activeInboxView === INBOX_VIEWS.MINE) {
-      matchesActiveInboxView =
-        conversation.status !== 'archived' &&
-        conversation.status !== 'closed' &&
+    if (activeConversationView === CONVERSATION_VIEWS.MINE) {
+      matchesActiveView =
+        isActiveConversation(conversation) &&
         conversation.assigned_to_user_id === user?.id;
     }
 
-    if (activeInboxView === INBOX_VIEWS.CLOSED) {
-      matchesActiveInboxView = conversation.status === 'closed';
+    if (activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP) {
+      matchesActiveView = isFollowUpConversation(conversation);
     }
 
-    if (activeInboxView === INBOX_VIEWS.ARCHIVED) {
-      matchesActiveInboxView = conversation.status === 'archived';
+    if (activeConversationView === CONVERSATION_VIEWS.DONE) {
+      matchesActiveView = isDoneConversation(conversation);
     }
 
-    if (!matchesActiveInboxView) {
+    if (!matchesActiveView) {
       return false;
     }
 
@@ -265,7 +291,8 @@ function App() {
     setError('');
     setShowNewConversationForm(false);
     setActivePage(APP_PAGES.INBOX);
-    setActiveInboxView(INBOX_VIEWS.ALL);
+    setActiveConversationView(CONVERSATION_VIEWS.ALL);
+    setShowDoneInAll(false);
     setInboxSearchQuery('');
     resetNewConversationForm();
   }
@@ -369,7 +396,6 @@ function App() {
       setError('');
       await takeConversation(selectedConversation.id);
       setActivePage(APP_PAGES.INBOX);
-      setActiveInboxView(INBOX_VIEWS.MINE);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not take conversation.'));
@@ -399,16 +425,15 @@ function App() {
     }
   }
 
-  async function handleCloseConversation() {
+  async function handleDoneConversation() {
     if (!selectedConversation) return;
 
     try {
       setError('');
       await closeConversation(selectedConversation.id);
-      setActiveInboxView(INBOX_VIEWS.CLOSED);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
-      setError(getErrorMessage(err, 'Could not close conversation.'));
+      setError(getErrorMessage(err, 'Could not mark conversation as done.'));
     }
   }
 
@@ -418,7 +443,6 @@ function App() {
     try {
       setError('');
       await archiveConversation(selectedConversation.id);
-      setActiveInboxView(INBOX_VIEWS.ARCHIVED);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not archive conversation.'));
@@ -514,11 +538,12 @@ function App() {
       setSelectedConversation(filteredConversations[0]);
     }
   }, [
-    activeInboxView,
+    activeConversationView,
     conversations,
     user?.id,
     activePage,
     inboxSearchQuery,
+    showDoneInAll,
     selectedConversation?.id,
   ]);
 
@@ -588,15 +613,17 @@ function App() {
             <span>Sendro</span>
           </div>
 
-          <div className="blue-section-title">Inbox</div>
+          <div className="blue-section-title">Conversations</div>
 
           <div className="blue-filter-list">
             <button
               type="button"
-              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.ALL ? 'active' : ''}`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveInboxView(INBOX_VIEWS.ALL);
+                setActiveConversationView(CONVERSATION_VIEWS.ALL);
               }}
             >
               <span>All</span>
@@ -605,22 +632,26 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.OPEN ? 'active' : ''}`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveInboxView(INBOX_VIEWS.OPEN);
+                setActiveConversationView(CONVERSATION_VIEWS.NEEDS_ACTION);
               }}
             >
-              <span>Open / Unread</span>
-              <strong>{openUnreadCount}</strong>
+              <span>Needs Action</span>
+              <strong>{needsActionCount}</strong>
             </button>
 
             <button
               type="button"
-              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.MINE ? 'active' : ''}`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveInboxView(INBOX_VIEWS.MINE);
+                setActiveConversationView(CONVERSATION_VIEWS.MINE);
               }}
             >
               <span>Mine</span>
@@ -629,26 +660,30 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.CLOSED ? 'active' : ''}`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveInboxView(INBOX_VIEWS.CLOSED);
+                setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
               }}
             >
-              <span>Closed</span>
-              <strong>{closedCount}</strong>
+              <span>To Follow Up</span>
+              <strong>{followUpCount}</strong>
             </button>
 
             <button
               type="button"
-              className={`blue-filter-button ${activeInboxView === INBOX_VIEWS.ARCHIVED ? 'active' : ''}`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveInboxView(INBOX_VIEWS.ARCHIVED);
+                setActiveConversationView(CONVERSATION_VIEWS.DONE);
               }}
             >
-              <span>Archived</span>
-              <strong>{archivedCount}</strong>
+              <span>Done</span>
+              <strong>{doneCount}</strong>
             </button>
           </div>
 
@@ -710,6 +745,17 @@ function App() {
               </button>
             )}
           </div>
+
+          {activeConversationView === CONVERSATION_VIEWS.ALL && (
+            <label className="show-done-toggle">
+              <input
+                type="checkbox"
+                checked={showDoneInAll}
+                onChange={(event) => setShowDoneInAll(event.target.checked)}
+              />
+              <span>Show Done</span>
+            </label>
+          )}
         </div>
 
         {showNewConversationForm && (
@@ -797,7 +843,9 @@ function App() {
                   <span>{conversation.contact_phone}</span>
 
                   <small className="conversation-meta">
-                    <span className="status-pill">{conversation.status || 'open'}</span>
+                    <span className="status-pill">
+                      {isDoneConversation(conversation) ? 'done' : conversation.status || 'open'}
+                    </span>
                     <span
                       className={`assigned-badge ${getAssignedUserClass(
                         conversation.assigned_to_user_id
@@ -827,7 +875,7 @@ function App() {
                   to your role permissions.
                 </p>
                 <button type="button" onClick={() => setActivePage(APP_PAGES.INBOX)}>
-                  Back to inbox
+                  Back to conversations
                 </button>
               </div>
             </div>
@@ -841,7 +889,9 @@ function App() {
 
                 <p className="conversation-status-row">
                   <span className="status-pill">
-                    {selectedConversation.status || 'open'}
+                    {isDoneConversation(selectedConversation)
+                      ? 'done'
+                      : selectedConversation.status || 'open'}
                   </span>
 
                   <span
@@ -873,19 +923,10 @@ function App() {
                 <button
                   className="conversation-action-button"
                   type="button"
-                  onClick={handleCloseConversation}
+                  onClick={handleDoneConversation}
                   disabled={selectedConversation.status === 'closed'}
                 >
-                  Close
-                </button>
-
-                <button
-                  className="conversation-action-button release-mode"
-                  type="button"
-                  onClick={handleArchiveConversation}
-                  disabled={selectedConversation.status === 'archived'}
-                >
-                  Archive
+                  Done
                 </button>
 
                 <button

@@ -367,6 +367,38 @@ textarea {
   font-size: 18px;
 }
 
+/* Show Done toggle */
+
+.show-done-toggle {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.show-done-toggle:hover {
+  background: #f3f4f6;
+}
+
+.show-done-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #091c40;
+  cursor: pointer;
+}
+
+.show-done-toggle span {
+  color: #374151;
+}
 /* Conversation list */
 
 .conversation-list {
