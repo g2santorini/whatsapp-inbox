@@ -98,7 +98,7 @@ function App() {
   function isNeedsActionConversation(conversation) {
     return (
       isActiveConversation(conversation) &&
-      !conversation.assigned_to_user_id
+      (conversation.status === 'open' || conversation.status === 'taken')
     );
   }
 
@@ -124,12 +124,7 @@ function App() {
 
   const needsActionCount = conversations.filter(isNeedsActionConversation).length;
 
-  const mineCount = conversations.filter((conversation) => {
-    return (
-      isActiveConversation(conversation) &&
-      conversation.assigned_to_user_id === user?.id
-    );
-  }).length;
+  const mineCount = conversations.filter(isMineConversation).length;
 
   const followUpCount = conversations.filter(isFollowUpConversation).length;
 
@@ -153,9 +148,7 @@ function App() {
     }
 
     if (activeConversationView === CONVERSATION_VIEWS.MINE) {
-      matchesActiveView =
-        isActiveConversation(conversation) &&
-        conversation.assigned_to_user_id === user?.id;
+      matchesActiveView = isMineConversation(conversation);
     }
 
     if (activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP) {
@@ -618,9 +611,8 @@ function App() {
           <div className="blue-filter-list">
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.ALL);
@@ -632,9 +624,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.NEEDS_ACTION);
@@ -646,9 +637,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.MINE);
@@ -660,9 +650,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
@@ -674,9 +663,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.DONE);
@@ -843,9 +831,14 @@ function App() {
                   <span>{conversation.contact_phone}</span>
 
                   <small className="conversation-meta">
-                    <span className="status-pill">
-                      {isDoneConversation(conversation) ? 'done' : conversation.status || 'open'}
-                    </span>
+                    {isDoneConversation(conversation) && (
+                      <span className="status-pill">Done</span>
+                    )}
+
+                    {isArchivedConversation(conversation) && (
+                      <span className="status-pill">Archived</span>
+                    )}
+
                     <span
                       className={`assigned-badge ${getAssignedUserClass(
                         conversation.assigned_to_user_id
@@ -888,11 +881,13 @@ function App() {
                 <p>{selectedConversation.contact_phone}</p>
 
                 <p className="conversation-status-row">
-                  <span className="status-pill">
-                    {isDoneConversation(selectedConversation)
-                      ? 'done'
-                      : selectedConversation.status || 'open'}
-                  </span>
+                  {isDoneConversation(selectedConversation) && (
+                    <span className="status-pill">Done</span>
+                  )}
+
+                  {isArchivedConversation(selectedConversation) && (
+                    <span className="status-pill">Archived</span>
+                  )}
 
                   <span
                     className={`assigned-badge ${getAssignedUserClass(
@@ -946,9 +941,8 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${
-                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                    }`}
+                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                      }`}
                   >
                     {message.content}
                   </div>
@@ -965,8 +959,8 @@ function App() {
                     ? 'Archived conversation'
                     : isConversationTakenByAnotherUser
                       ? `Taken by ${getAssignedUserLabel(
-                          selectedConversation.assigned_to_user_id
-                        )}`
+                        selectedConversation.assigned_to_user_id
+                      )}`
                       : 'Type a message...'
                 }
                 disabled={!canSendMessage}
