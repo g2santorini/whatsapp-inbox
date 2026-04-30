@@ -113,7 +113,7 @@ function App() {
 
   function isFollowUpConversation(conversation) {
     return (
-      isActiveConversation(conversation) &&
+      !isArchivedConversation(conversation) &&
       Boolean(conversation.follow_up)
     );
   }

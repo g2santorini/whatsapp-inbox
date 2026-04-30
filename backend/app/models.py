@@ -27,6 +27,8 @@ class Conversation(Base):
     status = Column(String, default="open", nullable=False)
     assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    follow_up = Column(Boolean, default=False, nullable=False)
+
     unread_count = Column(Integer, default=0, nullable=False)
     last_message_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

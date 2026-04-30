@@ -72,6 +72,7 @@ class ConversationOut(ConversationBase):
     id: int
     status: str
     assigned_to_user_id: Optional[int]
+    follow_up: bool
     unread_count: int
     last_message_at: datetime
     created_at: datetime
