@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -41,6 +41,40 @@ app.add_middleware(
 VERIFY_TOKEN = "sendro_verify_token_123"
 
 Base.metadata.create_all(bind=engine)
+
+def ensure_follow_up_column():
+    inspector = inspect(engine)
+
+    try:
+        columns = [
+            column["name"]
+            for column in inspector.get_columns("conversations")
+        ]
+    except Exception as exc:
+        print("⚠️ Could not inspect conversations table:", exc, flush=True)
+        return
+
+    if "follow_up" in columns:
+        return
+
+    if engine.dialect.name == "postgresql":
+        statement = text(
+            "ALTER TABLE conversations "
+            "ADD COLUMN follow_up BOOLEAN NOT NULL DEFAULT false"
+        )
+    else:
+        statement = text(
+            "ALTER TABLE conversations "
+            "ADD COLUMN follow_up BOOLEAN NOT NULL DEFAULT 0"
+        )
+
+    with engine.begin() as connection:
+        connection.execute(statement)
+
+    print("✅ Added follow_up column to conversations table", flush=True)
+
+
+ensure_follow_up_column()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
