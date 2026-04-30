@@ -427,6 +427,7 @@ async def receive_whatsapp_message(
         db.add(db_message)
 
         conversation.status = "open"
+        conversation.follow_up = False
         conversation.unread_count = (conversation.unread_count or 0) + 1
         conversation.last_message_at = now
         conversation.updated_at = now
@@ -1051,6 +1052,7 @@ def simulate_inbound_message(
     db.add(db_message)
 
     conversation.status = "open"
+    conversation.follow_up = False
     conversation.unread_count = (conversation.unread_count or 0) + 1
     touch_conversation(conversation)
 

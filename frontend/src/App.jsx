@@ -441,6 +441,13 @@ function App() {
       setError('');
 
       await updateConversationFollowUp(selectedConversation.id, checked);
+
+      if (checked) {
+        setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
+      } else {
+        setActiveConversationView(CONVERSATION_VIEWS.DONE);
+      }
+
       await refreshConversations(selectedConversation.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not update follow up.'));
