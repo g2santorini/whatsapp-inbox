@@ -124,6 +124,8 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: str | None = None
 
+class FollowUpUpdate(BaseModel):
+    follow_up: bool    
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -813,6 +815,50 @@ def close_conversation(
         "conversation_id": conversation_id,
         "conversation_status": conversation.status,
         "unread_count": conversation.unread_count,
+    }
+
+
+@app.patch("/conversations/{conversation_id}/follow-up")
+def update_conversation_follow_up(
+    conversation_id: int,
+    follow_up_update: FollowUpUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if conversation.status != "closed":
+        raise HTTPException(
+            status_code=400,
+            detail="Only done conversations can be marked for follow up",
+        )
+
+    conversation.follow_up = follow_up_update.follow_up
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(
+        f"[FOLLOW_UP] conversation_id={conversation_id} "
+        f"follow_up={conversation.follow_up} "
+        f"updated_by={current_user.id}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "follow_up": conversation.follow_up,
+        "conversation_status": conversation.status,
     }
 
 

@@ -18,6 +18,7 @@ import {
   archiveConversation,
   deleteConversation,
   markConversationAsRead,
+  updateConversationFollowUp,
 } from './api';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
@@ -57,6 +58,7 @@ function App() {
   const [newMessage, setNewMessage] = useState('');
   const [error, setError] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -211,7 +213,7 @@ function App() {
     if (canTakeConversation) return 'Take';
     if (canReleaseConversation) return 'Release';
 
-    return `Taken by ${getAssignedUserLabel(selectedConversation.assigned_to_user_id)}`;
+    return 'Taken';
   }
 
   function getErrorMessage(err, fallbackMessage) {
@@ -368,6 +370,7 @@ function App() {
         resetNewConversationForm();
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
+        setActiveConversationView(CONVERSATION_VIEWS.DONE);
 
         await refreshConversations(createdConversation.id);
         await loadMessages(createdConversation.id);
@@ -430,6 +433,22 @@ function App() {
     }
   }
 
+  async function handleToggleFollowUp(checked) {
+    if (!selectedConversation || isUpdatingFollowUp) return;
+
+    try {
+      setIsUpdatingFollowUp(true);
+      setError('');
+
+      await updateConversationFollowUp(selectedConversation.id, checked);
+      await refreshConversations(selectedConversation.id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update follow up.'));
+    } finally {
+      setIsUpdatingFollowUp(false);
+    }
+  }
+
   async function handleArchiveConversation() {
     if (!selectedConversation) return;
 
@@ -485,6 +504,8 @@ function App() {
 
     try {
       await sendMessage(selectedConversation.id, messageToSend);
+      await closeConversation(selectedConversation.id);
+      setActiveConversationView(CONVERSATION_VIEWS.DONE);
       await loadMessages(selectedConversation.id);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
@@ -839,13 +860,15 @@ function App() {
                       <span className="status-pill">Archived</span>
                     )}
 
-                    <span
-                      className={`assigned-badge ${getAssignedUserClass(
-                        conversation.assigned_to_user_id
-                      )}`}
-                    >
-                      {getAssignedUserLabel(conversation.assigned_to_user_id)}
-                    </span>
+                    {conversation.assigned_to_user_id && (
+                      <span
+                        className={`assigned-badge ${getAssignedUserClass(
+                          conversation.assigned_to_user_id
+                        )}`}
+                      >
+                        Taken by {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                      </span>
+                    )}
                   </small>
                 </button>
               );
@@ -880,30 +903,43 @@ function App() {
                 <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
                 <p>{selectedConversation.contact_phone}</p>
 
-                <p className="conversation-status-row">
-                  {isDoneConversation(selectedConversation) && (
-                    <span className="status-pill">Done</span>
-                  )}
+                <div className="conversation-status-area">
+                  <p className="conversation-status-row">
+                    {isDoneConversation(selectedConversation) && (
+                      <span className="status-pill">Done</span>
+                    )}
 
-                  {isArchivedConversation(selectedConversation) && (
-                    <span className="status-pill">Archived</span>
-                  )}
+                    {isArchivedConversation(selectedConversation) && (
+                      <span className="status-pill">Archived</span>
+                    )}
 
-                  <span
-                    className={`assigned-badge ${getAssignedUserClass(
-                      selectedConversation.assigned_to_user_id
-                    )}`}
-                  >
-                    Assigned to: {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
-                  </span>
-                </p>
-
-                {isConversationTakenByAnotherUser && (
-                  <p className="conversation-locked-message">
-                    This conversation is taken by{' '}
-                    {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}.
+                    {selectedConversation.assigned_to_user_id ? (
+                      <span
+                        className={`assigned-badge ${getAssignedUserClass(
+                          selectedConversation.assigned_to_user_id
+                        )}`}
+                      >
+                        Taken by {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
+                      </span>
+                    ) : (
+                      <span className="assigned-badge assigned-nobody">Available</span>
+                    )}
                   </p>
-                )}
+
+                  {isDoneConversation(selectedConversation) && (
+                    <label className="follow-up-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedConversation.follow_up)}
+                        onChange={(event) => handleToggleFollowUp(event.target.checked)}
+                        disabled={isUpdatingFollowUp}
+                      />
+                      <span>To Follow Up</span>
+                    </label>
+                  )}
+                </div>
+
+
               </div>
 
               <div className="chat-actions">

@@ -164,3 +164,12 @@ export async function simulateInboundMessage(conversationId, content) {
     body: JSON.stringify({ content }),
   });
 }
+
+export async function updateConversationFollowUp(conversationId, followUp) {
+  return apiRequest(`/conversations/${conversationId}/follow-up`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      follow_up: followUp,
+    }),
+  });
+}
