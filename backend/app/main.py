@@ -21,7 +21,7 @@ from .database import Base, engine, get_db
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-debug-2026-04-28-02"
+APP_VERSION = "sendro-whatsapp-verify-token-env-2026-05-01"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -38,7 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VERIFY_TOKEN = "sendro_verify_token_123"
+VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "sendro_verify_token_123")
 
 Base.metadata.create_all(bind=engine)
 
