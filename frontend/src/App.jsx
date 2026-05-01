@@ -37,6 +37,38 @@ const APP_PAGES = {
   SETTINGS: 'settings',
 };
 
+const NEW_CONVERSATION_TEMPLATES = [
+  {
+    id: 'cruise_pickup_reminder',
+    label: 'Cruise pickup reminder',
+    metaTemplateName: 'cruise_pickup_reminder',
+    languageCode: 'en',
+    fields: [
+      { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
+      { key: 'cruiseName', label: 'Cruise', placeholder: 'Diamond Sunset Cruise' },
+      { key: 'reservationNumber', label: 'Reservation number', placeholder: 'ABC123' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12 May 2026' },
+      { key: 'pickupTime', label: 'Pickup time', placeholder: '14:00' },
+      { key: 'pickupPoint', label: 'Pickup point', placeholder: 'Canaves Oia' },
+      { key: 'googleMapsLink', label: 'Google Maps link', placeholder: 'https://maps.google.com/...' },
+    ],
+    buildPreview: (values) =>
+      `Dear ${values.guestName || '{{1}}'},
+
+We are contacting you from Sunset Oia regarding your sailing cruise ${values.cruiseName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
+
+We would like to remind you that your pick-up time for your cruise on ${values.cruiseDate || '{{4}}'} will be:
+
+Pickup time & point: at ${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}
+Google Maps: ${values.googleMapsLink || '{{7}}'}
+
+Should you need any additional information, feel free to contact us on WhatsApp.
+
+Best regards,  
+Sunset Oia Sailing Team`,
+  },
+];
+
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
@@ -63,7 +95,13 @@ function App() {
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
   const [newContactPhone, setNewContactPhone] = useState('');
-  const [newConversationMessage, setNewConversationMessage] = useState('');
+
+  const [selectedNewConversationTemplateId, setSelectedNewConversationTemplateId] =
+    useState('cruise_pickup_reminder');
+
+  const [newConversationTemplateValues, setNewConversationTemplateValues] =
+    useState({});
+
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
 
   const assignedToUserId = selectedConversation?.assigned_to_user_id || null;
@@ -112,10 +150,7 @@ function App() {
   }
 
   function isFollowUpConversation(conversation) {
-    return (
-      !isArchivedConversation(conversation) &&
-      Boolean(conversation.follow_up)
-    );
+    return !isArchivedConversation(conversation) && Boolean(conversation.follow_up);
   }
 
   const allCount = conversations.filter((conversation) => {
@@ -125,11 +160,8 @@ function App() {
   }).length;
 
   const needsActionCount = conversations.filter(isNeedsActionConversation).length;
-
   const mineCount = conversations.filter(isMineConversation).length;
-
   const followUpCount = conversations.filter(isFollowUpConversation).length;
-
   const doneCount = conversations.filter(isDoneConversation).length;
 
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
@@ -232,7 +264,44 @@ function App() {
   function resetNewConversationForm() {
     setNewContactName('');
     setNewContactPhone('');
-    setNewConversationMessage('');
+    setSelectedNewConversationTemplateId('cruise_pickup_reminder');
+    setNewConversationTemplateValues({});
+  }
+
+  function getSelectedNewConversationTemplate() {
+    return NEW_CONVERSATION_TEMPLATES.find(
+      (template) => template.id === selectedNewConversationTemplateId
+    );
+  }
+
+  function updateNewConversationTemplateValue(fieldKey, value) {
+    setNewConversationTemplateValues((currentValues) => ({
+      ...currentValues,
+      [fieldKey]: value,
+    }));
+  }
+
+  function getNewConversationTemplatePreview() {
+    const selectedTemplate = getSelectedNewConversationTemplate();
+
+    if (!selectedTemplate) {
+      return '';
+    }
+
+    return selectedTemplate.buildPreview(newConversationTemplateValues);
+  }
+
+  function getNewConversationTemplateMissingFields() {
+    const selectedTemplate = getSelectedNewConversationTemplate();
+
+    if (!selectedTemplate) {
+      return [];
+    }
+
+    return selectedTemplate.fields.filter((field) => {
+      const value = newConversationTemplateValues[field.key];
+      return !String(value || '').trim();
+    });
   }
 
   function closeNewConversationOverlay() {
@@ -339,9 +408,13 @@ function App() {
   async function handleCreateConversation(event) {
     event.preventDefault();
 
+    const selectedTemplate = getSelectedNewConversationTemplate();
+    const missingTemplateFields = getNewConversationTemplateMissingFields();
+
     const contactPhone = newContactPhone.trim();
-    const contactName = newContactName.trim() || contactPhone;
-    const firstMessage = newConversationMessage.trim();
+    const guestName = String(newConversationTemplateValues.guestName || '').trim();
+    const contactName = newContactName.trim() || guestName || contactPhone;
+    const firstMessage = getNewConversationTemplatePreview().trim();
 
     if (!contactPhone || isCreatingConversation) {
       setError('Phone number is required.');
@@ -353,8 +426,22 @@ function App() {
       return;
     }
 
+    if (!selectedTemplate) {
+      setError('Please select a template.');
+      return;
+    }
+
+    if (missingTemplateFields.length > 0) {
+      setError(
+        `Please fill in: ${missingTemplateFields
+          .map((field) => field.label)
+          .join(', ')}.`
+      );
+      return;
+    }
+
     if (!firstMessage) {
-      setError('First message is required.');
+      setError('Template preview is required.');
       return;
     }
 
@@ -366,6 +453,7 @@ function App() {
 
       if (createdConversation?.id) {
         await sendMessage(createdConversation.id, firstMessage);
+        await closeConversation(createdConversation.id);
 
         resetNewConversationForm();
         setShowNewConversationForm(false);
@@ -639,8 +727,9 @@ function App() {
           <div className="blue-filter-list">
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
-                }`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.ALL);
@@ -652,8 +741,11 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION ? 'active' : ''
-                }`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION
+                  ? 'active'
+                  : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.NEEDS_ACTION);
@@ -665,8 +757,9 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
-                }`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.MINE);
@@ -678,8 +771,11 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
-                }`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
+                  ? 'active'
+                  : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
@@ -691,8 +787,9 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
-                }`}
+              className={`blue-filter-button ${
+                activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
+              }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.DONE);
@@ -779,7 +876,7 @@ function App() {
             <div className="new-conversation-overlay-header">
               <div>
                 <h3>New conversation</h3>
-                <p>Create a chat and send the first message.</p>
+                <p>Create a chat and send an approved template preview.</p>
               </div>
 
               <button
@@ -807,23 +904,54 @@ function App() {
                 disabled={isCreatingConversation}
               />
 
-              <textarea
-                value={newConversationMessage}
-                onChange={(event) => setNewConversationMessage(event.target.value)}
-                placeholder="First message"
-                disabled={isCreatingConversation}
-                rows="3"
-              />
+              <div className="new-template-box">
+                <label className="new-template-field">
+                  <span>Template</span>
+                  <select
+                    value={selectedNewConversationTemplateId}
+                    onChange={(event) => {
+                      setSelectedNewConversationTemplateId(event.target.value);
+                      setNewConversationTemplateValues({});
+                    }}
+                    disabled={isCreatingConversation}
+                  >
+                    {NEW_CONVERSATION_TEMPLATES.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {getSelectedNewConversationTemplate()?.fields.map((field) => (
+                  <label className="new-template-field" key={field.key}>
+                    <span>{field.label}</span>
+                    <input
+                      value={newConversationTemplateValues[field.key] || ''}
+                      onChange={(event) =>
+                        updateNewConversationTemplateValue(field.key, event.target.value)
+                      }
+                      placeholder={field.placeholder}
+                      disabled={isCreatingConversation}
+                    />
+                  </label>
+                ))}
+
+                <label className="new-template-field">
+                  <span>Preview</span>
+                  <textarea value={getNewConversationTemplatePreview()} readOnly rows="10" />
+                </label>
+              </div>
 
               <button
                 type="submit"
                 disabled={
                   isCreatingConversation ||
                   !newContactPhone.trim() ||
-                  !newConversationMessage.trim()
+                  getNewConversationTemplateMissingFields().length > 0
                 }
               >
-                {isCreatingConversation ? 'Creating...' : 'Create & Send'}
+                {isCreatingConversation ? 'Creating...' : 'Create & Send Template'}
               </button>
             </form>
           </div>
@@ -945,13 +1073,13 @@ function App() {
                     </label>
                   )}
                 </div>
-
-
               </div>
 
               <div className="chat-actions">
                 <button
-                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''}`}
+                  className={`conversation-action-button ${
+                    canReleaseConversation ? 'release-mode' : ''
+                  }`}
                   onClick={handleConversationAction}
                   disabled={!canUseConversationAction}
                 >
@@ -984,8 +1112,9 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                      }`}
+                    className={`message ${
+                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                    }`}
                   >
                     {message.content}
                   </div>
@@ -1002,8 +1131,8 @@ function App() {
                     ? 'Archived conversation'
                     : isConversationTakenByAnotherUser
                       ? `Taken by ${getAssignedUserLabel(
-                        selectedConversation.assigned_to_user_id
-                      )}`
+                          selectedConversation.assigned_to_user_id
+                        )}`
                       : 'Type a message...'
                 }
                 disabled={!canSendMessage}
