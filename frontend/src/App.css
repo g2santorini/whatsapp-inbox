@@ -247,6 +247,7 @@ textarea {
 .new-conversation-overlay {
   position: absolute;
   top: 82px;
+  bottom: 16px;
   left: 16px;
   right: 16px;
   z-index: 40;
@@ -255,6 +256,9 @@ textarea {
   border-radius: 20px;
   padding: 16px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .new-conversation-overlay-header {
@@ -291,6 +295,46 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.new-template-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.new-template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.new-template-field span {
+  line-height: 1.2;
+}
+
+.new-template-field select {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  padding: 11px 12px;
+  font-size: 14px;
+  outline: none;
+  background: #ffffff;
+}
+
+.new-template-field select:focus {
+  border-color: #091c40;
+  box-shadow: 0 0 0 3px rgba(9, 28, 64, 0.12);
 }
 
 .new-conversation-form input,
@@ -306,6 +350,11 @@ textarea {
 .new-conversation-form textarea {
   resize: vertical;
   min-height: 82px;
+}
+
+.new-template-field textarea {
+  min-height: 105px;
+  max-height: 130px;
 }
 
 .new-conversation-form input:focus,
@@ -327,6 +376,13 @@ textarea {
 .new-conversation-form button:disabled {
   background: #9ca3af;
   cursor: not-allowed;
+}
+
+.new-conversation-form button[type='submit'] {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 4px;
 }
 
 /* Search */
@@ -399,6 +455,7 @@ textarea {
 .show-done-toggle span {
   color: #374151;
 }
+
 /* Conversation list */
 
 .conversation-list {
@@ -552,7 +609,7 @@ textarea {
   overflow: hidden;
 }
 
-.chat-header > div:first-child {
+.chat-header>div:first-child {
   min-width: 0;
 }
 
@@ -634,6 +691,7 @@ textarea {
   font-size: 15px;
   line-height: 1.4;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .message.incoming {
@@ -840,7 +898,7 @@ textarea {
   background: #f3f4f6;
 }
 
-.settings-access-denied > div {
+.settings-access-denied>div {
   width: 100%;
   max-width: 440px;
   background: #ffffff;
@@ -886,6 +944,7 @@ textarea {
 /* Mobile basic - θα το φτιάξουμε καλύτερα αργότερα */
 
 @media (max-width: 1000px) {
+
   html,
   body,
   #root {

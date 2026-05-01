@@ -727,9 +727,8 @@ function App() {
           <div className="blue-filter-list">
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.ALL);
@@ -741,11 +740,10 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION
                   ? 'active'
                   : ''
-              }`}
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.NEEDS_ACTION);
@@ -757,9 +755,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.MINE);
@@ -771,11 +768,10 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
                   ? 'active'
                   : ''
-              }`}
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
@@ -787,9 +783,8 @@ function App() {
 
             <button
               type="button"
-              className={`blue-filter-button ${
-                activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
-              }`}
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
+                }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
                 setActiveConversationView(CONVERSATION_VIEWS.DONE);
@@ -878,15 +873,6 @@ function App() {
                 <h3>New conversation</h3>
                 <p>Create a chat and send an approved template preview.</p>
               </div>
-
-              <button
-                className="new-conversation-close"
-                type="button"
-                onClick={closeNewConversationOverlay}
-                aria-label="Close new conversation form"
-              >
-                ×
-              </button>
             </div>
 
             <form className="new-conversation-form" onSubmit={handleCreateConversation}>
@@ -906,7 +892,8 @@ function App() {
 
               <div className="new-template-box">
                 <label className="new-template-field">
-                  <span>Template</span>
+                  <span>Choose template</span>
+
                   <select
                     value={selectedNewConversationTemplateId}
                     onChange={(event) => {
@@ -926,6 +913,7 @@ function App() {
                 {getSelectedNewConversationTemplate()?.fields.map((field) => (
                   <label className="new-template-field" key={field.key}>
                     <span>{field.label}</span>
+
                     <input
                       value={newConversationTemplateValues[field.key] || ''}
                       onChange={(event) =>
@@ -1077,9 +1065,8 @@ function App() {
 
               <div className="chat-actions">
                 <button
-                  className={`conversation-action-button ${
-                    canReleaseConversation ? 'release-mode' : ''
-                  }`}
+                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''
+                    }`}
                   onClick={handleConversationAction}
                   disabled={!canUseConversationAction}
                 >
@@ -1112,9 +1099,8 @@ function App() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`message ${
-                      message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                    }`}
+                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                      }`}
                   >
                     {message.content}
                   </div>
@@ -1131,8 +1117,8 @@ function App() {
                     ? 'Archived conversation'
                     : isConversationTakenByAnotherUser
                       ? `Taken by ${getAssignedUserLabel(
-                          selectedConversation.assigned_to_user_id
-                        )}`
+                        selectedConversation.assigned_to_user_id
+                      )}`
                       : 'Type a message...'
                 }
                 disabled={!canSendMessage}
