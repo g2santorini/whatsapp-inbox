@@ -21,7 +21,7 @@ from .database import Base, engine, get_db
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-whatsapp-verify-token-env-2026-05-01"
+APP_VERSION = "sendro-template-endpoint-2026-05-01"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -41,6 +41,7 @@ app.add_middleware(
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "sendro_verify_token_123")
 
 Base.metadata.create_all(bind=engine)
+
 
 def ensure_follow_up_column():
     inspector = inspect(engine)
@@ -150,6 +151,78 @@ def send_whatsapp_text_message(to_phone: str, text: str):
     return response.json()
 
 
+def send_whatsapp_template_message(
+    to_phone: str,
+    template_name: str,
+    language_code: str,
+    variables: list[str],
+):
+    if not WHATSAPP_SEND_ENABLED:
+        print("⚠️ WHATSAPP TEMPLATE SEND DISABLED - message not sent", flush=True)
+        return {"status": "disabled"}
+
+    normalized_phone = normalize_whatsapp_phone(to_phone)
+
+    url = (
+        f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/"
+        f"{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": normalized_phone,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {
+                "code": language_code,
+            },
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": str(value),
+                        }
+                        for value in variables
+                    ],
+                }
+            ],
+        },
+    }
+
+    print("📨 SENDING WHATSAPP TEMPLATE MESSAGE:", flush=True)
+    print("URL:", url, flush=True)
+    print("To:", normalized_phone, flush=True)
+    print("Template:", template_name, flush=True)
+    print("Language:", language_code, flush=True)
+    print("Variables:", variables, flush=True)
+
+    response = requests.post(url, headers=headers, json=payload, timeout=15)
+
+    if response.status_code >= 400:
+        print("❌ WHATSAPP TEMPLATE SEND ERROR:", flush=True)
+        print("Status:", response.status_code, flush=True)
+        print("Response:", response.text, flush=True)
+        print("Payload:", payload, flush=True)
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"WhatsApp template send failed: {response.text}",
+        )
+
+    print("✅ WHATSAPP TEMPLATE MESSAGE SENT:", flush=True)
+    print(response.json(), flush=True)
+
+    return response.json()
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -158,8 +231,19 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: str | None = None
 
+
 class FollowUpUpdate(BaseModel):
-    follow_up: bool    
+    follow_up: bool
+
+
+class TemplateMessageRequest(BaseModel):
+    contact_name: str | None = None
+    contact_phone: str
+    template_name: str = "cruise_pickup_reminder"
+    language_code: str = "en"
+    variables: list[str]
+    preview_content: str
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -638,6 +722,124 @@ def get_conversations(
 
 
 @app.post(
+    "/conversations/send-template/",
+    response_model=schemas.ConversationOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_conversation_and_send_template(
+    template_request: TemplateMessageRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    contact_phone = template_request.contact_phone.strip()
+    normalized_phone = normalize_whatsapp_phone(contact_phone)
+
+    contact_name = (
+        template_request.contact_name.strip()
+        if template_request.contact_name and template_request.contact_name.strip()
+        else f"+{normalized_phone}"
+    )
+
+    if not normalized_phone.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number must include country code, for example +306900000000",
+        )
+
+    if template_request.template_name != "cruise_pickup_reminder":
+        raise HTTPException(
+            status_code=400,
+            detail="Only cruise_pickup_reminder is supported for now",
+        )
+
+    if len(template_request.variables) != 7:
+        raise HTTPException(
+            status_code=400,
+            detail="cruise_pickup_reminder requires exactly 7 variables",
+        )
+
+    preview_content = template_request.preview_content.strip()
+
+    if not preview_content:
+        raise HTTPException(
+            status_code=400,
+            detail="Preview content is required",
+        )
+
+    whatsapp_result = send_whatsapp_template_message(
+        to_phone=f"+{normalized_phone}",
+        template_name=template_request.template_name,
+        language_code=template_request.language_code,
+        variables=template_request.variables,
+    )
+
+    now = datetime.utcnow()
+
+    conversation = (
+        db.query(models.Conversation)
+        .filter(
+            or_(
+                models.Conversation.contact_phone == contact_phone,
+                models.Conversation.contact_phone == normalized_phone,
+                models.Conversation.contact_phone == f"+{normalized_phone}",
+            )
+        )
+        .order_by(models.Conversation.updated_at.desc())
+        .first()
+    )
+
+    if conversation is None:
+        conversation = models.Conversation(
+            contact_name=contact_name,
+            contact_phone=f"+{normalized_phone}",
+            status="closed",
+            assigned_to_user_id=None,
+            unread_count=0,
+            follow_up=False,
+            last_message_at=now,
+            created_at=now,
+            updated_at=now,
+            user_id=current_user.id,
+        )
+
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+
+    else:
+        conversation.contact_name = contact_name
+        conversation.contact_phone = f"+{normalized_phone}"
+        conversation.status = "closed"
+        conversation.assigned_to_user_id = None
+        conversation.unread_count = 0
+        conversation.follow_up = False
+        conversation.last_message_at = now
+        conversation.updated_at = now
+
+    db_message = models.Message(
+        content=preview_content,
+        direction="outbound",
+        is_read=True,
+        user_id=current_user.id,
+        conversation_id=conversation.id,
+    )
+
+    db.add(db_message)
+    db.commit()
+    db.refresh(conversation)
+
+    print(
+        f"[SEND_TEMPLATE] conversation_id={conversation.id} "
+        f"user_id={current_user.id} "
+        f"template={template_request.template_name} "
+        f"whatsapp_result={whatsapp_result}",
+        flush=True,
+    )
+
+    return conversation
+
+
+@app.post(
     "/conversations/",
     response_model=schemas.ConversationOut,
     status_code=status.HTTP_201_CREATED,
@@ -789,7 +991,6 @@ def take_conversation(
             status_code=403,
             detail="This conversation is already taken by another user",
         )
-
 
     conversation.unread_count = 0
     touch_conversation(conversation)
