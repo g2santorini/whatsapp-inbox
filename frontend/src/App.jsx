@@ -9,7 +9,7 @@ import {
   getCurrentUser,
   getUsers,
   getConversations,
-  createConversation,
+  createTemplateConversation,
   getMessages,
   sendMessage,
   takeConversation,
@@ -445,16 +445,24 @@ function App() {
       return;
     }
 
+    const templateVariables = selectedTemplate.fields.map((field) =>
+      String(newConversationTemplateValues[field.key] || '').trim()
+    );
+
     try {
       setIsCreatingConversation(true);
       setError('');
 
-      const createdConversation = await createConversation(contactName, contactPhone);
+      const createdConversation = await createTemplateConversation({
+        contactName,
+        contactPhone,
+        templateName: selectedTemplate.metaTemplateName,
+        languageCode: selectedTemplate.languageCode,
+        variables: templateVariables,
+        previewContent: firstMessage,
+      });
 
       if (createdConversation?.id) {
-        await sendMessage(createdConversation.id, firstMessage);
-        await closeConversation(createdConversation.id);
-
         resetNewConversationForm();
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
@@ -463,16 +471,15 @@ function App() {
         await refreshConversations(createdConversation.id);
         await loadMessages(createdConversation.id);
       } else {
-        setError('Conversation was created, but it could not be opened.');
+        setError('Template was sent, but the conversation could not be opened.');
         await refreshConversations();
       }
     } catch (err) {
-      setError(getErrorMessage(err, 'Could not create conversation.'));
+      setError(getErrorMessage(err, 'Could not send template conversation.'));
     } finally {
       setIsCreatingConversation(false);
     }
   }
-
   async function handleTakeConversation() {
     if (!selectedConversation || !canTakeConversation) return;
 
@@ -741,8 +748,8 @@ function App() {
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION
-                  ? 'active'
-                  : ''
+                ? 'active'
+                : ''
                 }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
@@ -769,8 +776,8 @@ function App() {
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
-                  ? 'active'
-                  : ''
+                ? 'active'
+                : ''
                 }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);

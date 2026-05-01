@@ -111,6 +111,27 @@ export async function createConversation(contactName, contactPhone) {
   });
 }
 
+export async function createTemplateConversation({
+  contactName,
+  contactPhone,
+  templateName,
+  languageCode,
+  variables,
+  previewContent,
+}) {
+  return apiRequest('/conversations/send-template/', {
+    method: 'POST',
+    body: JSON.stringify({
+      contact_name: contactName,
+      contact_phone: contactPhone,
+      template_name: templateName,
+      language_code: languageCode,
+      variables,
+      preview_content: previewContent,
+    }),
+  });
+}
+
 export async function getMessages(conversationId) {
   return apiRequest(`/conversations/${conversationId}/messages/`);
 }
