@@ -320,7 +320,7 @@ function App() {
     }).format(date);
   }
 
-    function getMessageStatusLabel(message) {
+  function getMessageStatusLabel(message) {
     if (!message || message.direction !== 'outbound') {
       return '';
     }
@@ -797,12 +797,18 @@ function App() {
       refreshConversations(selectedConversationId).catch(() => {
         // Silent auto-refresh failure.
       });
+
+      if (selectedConversationId && activePage === APP_PAGES.INBOX) {
+        loadMessages(selectedConversationId).catch(() => {
+          // Silent messages auto-refresh failure.
+        });
+      }
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [token, selectedConversation?.id]);
+  }, [token, selectedConversation?.id, activePage]);
 
   if (!token) {
     return (
