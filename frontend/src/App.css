@@ -1000,6 +1000,47 @@ textarea {
   text-align: left;
 }
 
+.message-content {
+  white-space: pre-wrap;
+}
+
+.message-meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.message.incoming .message-meta {
+  justify-content: flex-start;
+}
+
+.message-status {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.message-status-sent,
+.message-status-delivered {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.message-status-read {
+  color: #2563eb;
+}
+
+.message-status-failed {
+  letter-spacing: 0;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .message-day-separator {
   display: flex;
   justify-content: center;

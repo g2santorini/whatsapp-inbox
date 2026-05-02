@@ -320,6 +320,58 @@ function App() {
     }).format(date);
   }
 
+    function getMessageStatusLabel(message) {
+    if (!message || message.direction !== 'outbound') {
+      return '';
+    }
+
+    const statusValue = String(message.whatsapp_status || '').toLowerCase();
+
+    if (statusValue === 'sent') {
+      return '✓';
+    }
+
+    if (statusValue === 'delivered') {
+      return '✓✓';
+    }
+
+    if (statusValue === 'read') {
+      return '✓✓';
+    }
+
+    if (statusValue === 'failed') {
+      return 'failed';
+    }
+
+    return '';
+  }
+
+  function getMessageStatusClass(message) {
+    if (!message || message.direction !== 'outbound') {
+      return '';
+    }
+
+    const statusValue = String(message.whatsapp_status || '').toLowerCase();
+
+    if (statusValue === 'sent') {
+      return 'message-status-sent';
+    }
+
+    if (statusValue === 'delivered') {
+      return 'message-status-delivered';
+    }
+
+    if (statusValue === 'read') {
+      return 'message-status-read';
+    }
+
+    if (statusValue === 'failed') {
+      return 'message-status-failed';
+    }
+
+    return '';
+  }
+
   function getErrorMessage(err, fallbackMessage) {
     let errorMessage = fallbackMessage;
 
@@ -1199,8 +1251,20 @@ function App() {
                       >
                         <div className="message-content">{message.content}</div>
 
-                        {messageTime && (
-                          <div className="message-meta">{messageTime}</div>
+                        {(messageTime || getMessageStatusLabel(message)) && (
+                          <div className="message-meta">
+                            {messageTime && <span>{messageTime}</span>}
+
+                            {getMessageStatusLabel(message) && (
+                              <span
+                                className={`message-status ${getMessageStatusClass(
+                                  message
+                                )}`}
+                              >
+                                {getMessageStatusLabel(message)}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </Fragment>
