@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import './App.css';
 import sendroLogo from './assets/sendro_logo_clean.svg';
 import SettingsPanel from './components/SettingsPanel';
@@ -87,6 +87,8 @@ function App() {
   const [inboxSearchQuery, setInboxSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+
+  const messagesEndRef = useRef(null);
 
   const [newMessage, setNewMessage] = useState('');
   const [error, setError] = useState('');
@@ -247,6 +249,15 @@ function App() {
     if (canReleaseConversation) return 'Release';
 
     return 'Taken';
+  }
+
+  function scrollMessagesToBottom() {
+    window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    }, 50);
   }
 
   function getMessageDate(createdAt) {
@@ -758,6 +769,14 @@ function App() {
       setMessages([]);
     }
   }, [selectedConversation?.id, activePage]);
+
+  useEffect(() => {
+    if (!selectedConversation?.id || messages.length === 0) {
+      return;
+    }
+
+    scrollMessagesToBottom();
+  }, [selectedConversation?.id, messages.length]);
 
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
@@ -1308,6 +1327,8 @@ function App() {
                   );
                 })
               )}
+
+              <div ref={messagesEndRef} />
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
