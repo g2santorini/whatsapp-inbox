@@ -254,10 +254,10 @@ function App() {
   function scrollMessagesToBottom() {
     window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({
-        behavior: 'smooth',
+        behavior: 'auto',
         block: 'end',
       });
-    }, 50);
+    }, 100);
   }
 
   function getMessageDate(createdAt) {
@@ -770,13 +770,16 @@ function App() {
     }
   }, [selectedConversation?.id, activePage]);
 
+  const lastMessageId =
+    messages.length > 0 ? messages[messages.length - 1]?.id : null;
+
   useEffect(() => {
-    if (!selectedConversation?.id || messages.length === 0) {
+    if (!selectedConversation?.id || !lastMessageId) {
       return;
     }
 
     scrollMessagesToBottom();
-  }, [selectedConversation?.id, messages.length]);
+  }, [selectedConversation?.id, lastMessageId]);
 
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
