@@ -1112,6 +1112,8 @@ def create_message(
 
     db.add(db_message)
 
+    conversation.status = "closed"
+    conversation.assigned_to_user_id = None
     conversation.unread_count = 0
     touch_conversation(conversation)
 
@@ -1155,6 +1157,8 @@ def take_conversation(
             detail="This conversation is already taken by another user",
         )
 
+    conversation.assigned_to_user_id = current_user.id
+    conversation.status = "open"
     conversation.unread_count = 0
     touch_conversation(conversation)
 
@@ -1199,6 +1203,7 @@ def close_conversation(
         )
 
     conversation.status = "closed"
+    conversation.assigned_to_user_id = None
     conversation.unread_count = 0
     touch_conversation(conversation)
 
