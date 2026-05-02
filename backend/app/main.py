@@ -16,7 +16,7 @@ from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
-
+from .database import Base, engine, get_db
 from .template_registry import (
     build_template_variables,
     get_template_definition,
@@ -27,12 +27,10 @@ from .whatsapp_sender import (
     send_whatsapp_template_message as send_meta_template_message,
 )
 
-from .database import Base, engine, get_db
-
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-template-endpoint-2026-05-01"
+APP_VERSION = "sendro-message-status-2026-05-02"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -50,7 +48,6 @@ app.add_middleware(
 )
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "sendro_verify_token_123")
-
 SENDRO_WEBHOOK_API_KEY = os.getenv("SENDRO_WEBHOOK_API_KEY")
 
 Base.metadata.create_all(bind=engine)
@@ -85,7 +82,56 @@ def ensure_follow_up_column():
     print("✅ Added follow_up column to conversations table", flush=True)
 
 
+def ensure_message_status_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = [column["name"] for column in inspector.get_columns("messages")]
+    except Exception as exc:
+        print("⚠️ Could not inspect messages table:", exc, flush=True)
+        return
+
+    columns_to_add = []
+
+    if "whatsapp_message_id" not in columns:
+        columns_to_add.append(("whatsapp_message_id", "string"))
+
+    if "whatsapp_status" not in columns:
+        columns_to_add.append(("whatsapp_status", "string"))
+
+    if "whatsapp_status_updated_at" not in columns:
+        columns_to_add.append(("whatsapp_status_updated_at", "datetime"))
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            if engine.dialect.name == "postgresql":
+                if column_type == "datetime":
+                    statement = text(
+                        f"ALTER TABLE messages ADD COLUMN {column_name} TIMESTAMP"
+                    )
+                else:
+                    statement = text(
+                        f"ALTER TABLE messages ADD COLUMN {column_name} VARCHAR"
+                    )
+            else:
+                if column_type == "datetime":
+                    statement = text(
+                        f"ALTER TABLE messages ADD COLUMN {column_name} DATETIME"
+                    )
+                else:
+                    statement = text(
+                        f"ALTER TABLE messages ADD COLUMN {column_name} VARCHAR"
+                    )
+
+            connection.execute(statement)
+            print(f"✅ Added {column_name} column to messages table", flush=True)
+
+
 ensure_follow_up_column()
+ensure_message_status_columns()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -109,6 +155,23 @@ WHATSAPP_SEND_ENABLED = os.getenv("WHATSAPP_SEND_ENABLED", "true").lower() == "t
 
 def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
+
+
+def extract_whatsapp_message_id(whatsapp_result: dict | None) -> str | None:
+    if not isinstance(whatsapp_result, dict):
+        return None
+
+    messages = whatsapp_result.get("messages")
+
+    if not isinstance(messages, list) or not messages:
+        return None
+
+    first_message = messages[0]
+
+    if not isinstance(first_message, dict):
+        return None
+
+    return first_message.get("id")
 
 
 def send_whatsapp_text_message(to_phone: str, text: str):
@@ -532,16 +595,7 @@ def send_template_webhook(
                 body_variables=body_variables,
             )
 
-            whatsapp_message_id = None
-
-            if isinstance(whatsapp_result, dict):
-                messages = whatsapp_result.get("messages")
-
-                if isinstance(messages, list) and messages:
-                    first_message = messages[0]
-
-                    if isinstance(first_message, dict):
-                        whatsapp_message_id = first_message.get("id")
+            whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
 
             sent_count += 1
             results.append(
@@ -603,6 +657,57 @@ async def receive_whatsapp_message(
         entry = data["entry"][0]
         change = entry["changes"][0]
         value = change["value"]
+
+        if "statuses" in value:
+            statuses = value.get("statuses", [])
+
+            for status_item in statuses:
+                whatsapp_message_id = status_item.get("id")
+                whatsapp_status = status_item.get("status")
+                timestamp_value = status_item.get("timestamp")
+
+                if not whatsapp_message_id or not whatsapp_status:
+                    continue
+
+                status_updated_at = datetime.utcnow()
+
+                if timestamp_value:
+                    try:
+                        status_updated_at = datetime.utcfromtimestamp(
+                            int(timestamp_value)
+                        )
+                    except (TypeError, ValueError):
+                        status_updated_at = datetime.utcnow()
+
+                db_message = (
+                    db.query(models.Message)
+                    .filter(
+                        models.Message.whatsapp_message_id == whatsapp_message_id
+                    )
+                    .first()
+                )
+
+                if db_message is None:
+                    print(
+                        f"⚠️ WHATSAPP STATUS FOR UNKNOWN MESSAGE: "
+                        f"{whatsapp_message_id} -> {whatsapp_status}",
+                        flush=True,
+                    )
+                    continue
+
+                db_message.whatsapp_status = whatsapp_status
+                db_message.whatsapp_status_updated_at = status_updated_at
+
+                print(
+                    f"✅ WHATSAPP STATUS UPDATED: "
+                    f"message_id={db_message.id} "
+                    f"wamid={whatsapp_message_id} "
+                    f"status={whatsapp_status}",
+                    flush=True,
+                )
+
+            db.commit()
+            return {"status": "ok"}
 
         if "messages" not in value:
             print("ℹ️ WHATSAPP WEBHOOK RECEIVED WITHOUT MESSAGE", flush=True)
@@ -936,6 +1041,7 @@ def create_conversation_and_send_template(
         variables=template_request.variables,
     )
 
+    whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
     now = datetime.utcnow()
 
     conversation = (
@@ -983,6 +1089,9 @@ def create_conversation_and_send_template(
         content=preview_content,
         direction="outbound",
         is_read=True,
+        whatsapp_message_id=whatsapp_message_id,
+        whatsapp_status="sent" if whatsapp_message_id else None,
+        whatsapp_status_updated_at=now if whatsapp_message_id else None,
         user_id=current_user.id,
         conversation_id=conversation.id,
     )
@@ -995,6 +1104,7 @@ def create_conversation_and_send_template(
         f"[SEND_TEMPLATE] conversation_id={conversation.id} "
         f"user_id={current_user.id} "
         f"template={template_request.template_name} "
+        f"wamid={whatsapp_message_id} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
     )
@@ -1102,10 +1212,16 @@ def create_message(
         text=message.content,
     )
 
+    whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
+    now = datetime.utcnow()
+
     db_message = models.Message(
         content=message.content,
         direction="outbound",
         is_read=True,
+        whatsapp_message_id=whatsapp_message_id,
+        whatsapp_status="sent" if whatsapp_message_id else None,
+        whatsapp_status_updated_at=now if whatsapp_message_id else None,
         user_id=current_user.id,
         conversation_id=conversation_id,
     )
@@ -1122,7 +1238,8 @@ def create_message(
 
     print(
         f"[SEND] conversation_id={conversation_id} "
-        f"user_id={current_user.id} assigned_to={current_user.id} "
+        f"user_id={current_user.id} "
+        f"wamid={whatsapp_message_id} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
     )

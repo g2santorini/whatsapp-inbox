@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import './App.css';
 import sendroLogo from './assets/sendro_logo_clean.svg';
 import SettingsPanel from './components/SettingsPanel';
@@ -248,6 +248,78 @@ function App() {
     return 'Taken';
   }
 
+  function getMessageDate(createdAt) {
+    if (!createdAt) return null;
+
+    const rawValue = String(createdAt);
+    const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(rawValue);
+    const safeValue = hasTimezone ? rawValue : `${rawValue}Z`;
+    const date = new Date(safeValue);
+
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date;
+  }
+
+  function formatMessageTime(createdAt) {
+    const date = getMessageDate(createdAt);
+
+    if (!date) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('el-GR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  }
+
+  function isSameMessageDay(dateA, dateB) {
+    if (!dateA || !dateB) return false;
+
+    return (
+      dateA.getFullYear() === dateB.getFullYear() &&
+      dateA.getMonth() === dateB.getMonth() &&
+      dateA.getDate() === dateB.getDate()
+    );
+  }
+
+  function formatMessageDayLabel(createdAt) {
+    const date = getMessageDate(createdAt);
+
+    if (!date) {
+      return '';
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const messageDay = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    );
+
+    if (messageDay.getTime() === today.getTime()) {
+      return 'Σήμερα';
+    }
+
+    if (messageDay.getTime() === yesterday.getTime()) {
+      return 'Χθες';
+    }
+
+    return new Intl.DateTimeFormat('el-GR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  }
+
   function getErrorMessage(err, fallbackMessage) {
     let errorMessage = fallbackMessage;
 
@@ -480,6 +552,7 @@ function App() {
       setIsCreatingConversation(false);
     }
   }
+
   async function handleTakeConversation() {
     if (!selectedConversation || !canTakeConversation) return;
 
@@ -1103,15 +1176,36 @@ function App() {
               {messages.length === 0 ? (
                 <div className="empty-state">No messages yet.</div>
               ) : (
-                messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                      }`}
-                  >
-                    {message.content}
-                  </div>
-                ))
+                messages.map((message, index) => {
+                  const previousMessage = messages[index - 1];
+                  const currentMessageDate = getMessageDate(message.created_at);
+                  const previousMessageDate = getMessageDate(previousMessage?.created_at);
+                  const shouldShowDaySeparator =
+                    currentMessageDate &&
+                    !isSameMessageDay(currentMessageDate, previousMessageDate);
+                  const messageTime = formatMessageTime(message.created_at);
+
+                  return (
+                    <Fragment key={message.id}>
+                      {shouldShowDaySeparator && (
+                        <div className="message-day-separator">
+                          <span>{formatMessageDayLabel(message.created_at)}</span>
+                        </div>
+                      )}
+
+                      <div
+                        className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                          }`}
+                      >
+                        <div className="message-content">{message.content}</div>
+
+                        {messageTime && (
+                          <div className="message-meta">{messageTime}</div>
+                        )}
+                      </div>
+                    </Fragment>
+                  );
+                })
               )}
             </section>
 

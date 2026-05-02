@@ -47,6 +47,10 @@ class Message(Base):
     direction = Column(String, nullable=False, default="outbound")
     is_read = Column(Boolean, default=False, nullable=False)
 
+    whatsapp_message_id = Column(String, index=True, nullable=True)
+    whatsapp_status = Column(String, nullable=True)
+    whatsapp_status_updated_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

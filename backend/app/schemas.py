@@ -49,6 +49,9 @@ class MessageOut(MessageBase):
     id: int
     direction: str
     is_read: bool
+    whatsapp_message_id: Optional[str] = None
+    whatsapp_status: Optional[str] = None
+    whatsapp_status_updated_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
@@ -81,10 +84,10 @@ class ConversationOut(ConversationBase):
     class Config:
         orm_mode = True
 
+
 # =====================
 # WEBHOOK TEMPLATE API
 # =====================
-
 
 class TemplateBatchItem(BaseModel):
     external_id: str
@@ -136,4 +139,4 @@ class TemplateBatchResponse(BaseModel):
     no_number: int
     invalid_number: int
     validation_failed: int
-    results: list[TemplateBatchResult]        
+    results: list[TemplateBatchResult]
