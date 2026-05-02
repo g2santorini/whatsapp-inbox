@@ -795,20 +795,32 @@ function App() {
       const selectedConversationId = selectedConversation?.id || null;
 
       refreshConversations(selectedConversationId).catch(() => {
-        // Silent auto-refresh failure.
+        // Silent conversations auto-refresh failure.
       });
-
-      if (selectedConversationId && activePage === APP_PAGES.INBOX) {
-        loadMessages(selectedConversationId).catch(() => {
-          // Silent messages auto-refresh failure.
-        });
-      }
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [token, selectedConversation?.id, activePage]);
+  }, [token, selectedConversation?.id]);
+
+  useEffect(() => {
+    if (!token || activePage !== APP_PAGES.INBOX || !selectedConversation?.id) {
+      return undefined;
+    }
+
+    const selectedConversationId = selectedConversation.id;
+
+    const intervalId = window.setInterval(() => {
+      loadMessages(selectedConversationId).catch(() => {
+        // Silent messages auto-refresh failure.
+      });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [token, activePage, selectedConversation?.id]);
 
   if (!token) {
     return (
