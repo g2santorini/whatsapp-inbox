@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -16,6 +16,17 @@ from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
+
+from .template_registry import (
+    build_template_variables,
+    get_template_definition,
+    missing_required_fields,
+)
+from .whatsapp_sender import (
+    is_valid_e164_phone,
+    send_whatsapp_template_message as send_meta_template_message,
+)
+
 from .database import Base, engine, get_db
 
 load_dotenv()
@@ -40,6 +51,8 @@ app.add_middleware(
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "sendro_verify_token_123")
 
+SENDRO_WEBHOOK_API_KEY = os.getenv("SENDRO_WEBHOOK_API_KEY")
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -47,10 +60,7 @@ def ensure_follow_up_column():
     inspector = inspect(engine)
 
     try:
-        columns = [
-            column["name"]
-            for column in inspector.get_columns("conversations")
-        ]
+        columns = [column["name"] for column in inspector.get_columns("conversations")]
     except Exception as exc:
         print("⚠️ Could not inspect conversations table:", exc, flush=True)
         return
@@ -415,6 +425,159 @@ async def get_current_active_user(
 @app.get("/debug/version")
 def debug_version():
     return {"version": APP_VERSION}
+
+
+@app.post(
+    "/webhooks/send-template",
+    response_model=schemas.TemplateBatchResponse,
+)
+def send_template_webhook(
+    batch: schemas.TemplateBatchRequest,
+    x_sendro_webhook_key: str | None = Header(
+        default=None,
+        alias="X-Sendro-Webhook-Key",
+    ),
+):
+    if SENDRO_WEBHOOK_API_KEY:
+        if x_sendro_webhook_key != SENDRO_WEBHOOK_API_KEY:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid webhook API key",
+            )
+    else:
+        print(
+            "⚠️ SENDRO_WEBHOOK_API_KEY is not set. "
+            "Webhook endpoint is not protected.",
+            flush=True,
+        )
+
+    results: list[schemas.TemplateBatchResult] = []
+
+    sent_count = 0
+    failed_count = 0
+    no_number_count = 0
+    invalid_number_count = 0
+    validation_failed_count = 0
+
+    for item in batch.items:
+        item_data = item.dict()
+
+        external_id = item.external_id
+        template_type = item.template_type
+        phone = item.phone.strip() if item.phone else None
+
+        if not phone:
+            no_number_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=item.phone,
+                    status="no_number",
+                    reason="Phone number is empty or missing",
+                )
+            )
+            continue
+
+        if not is_valid_e164_phone(phone):
+            invalid_number_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="invalid_number",
+                    reason="Phone number must be in E.164 format, for example +306900000000",
+                )
+            )
+            continue
+
+        try:
+            template_definition = get_template_definition(template_type)
+        except KeyError as exc:
+            validation_failed_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="validation_failed",
+                    reason=str(exc),
+                )
+            )
+            continue
+
+        missing_fields = missing_required_fields(template_type, item_data)
+
+        if missing_fields:
+            validation_failed_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="validation_failed",
+                    reason=f"Missing required fields: {', '.join(missing_fields)}",
+                )
+            )
+            continue
+
+        body_variables = build_template_variables(template_type, item_data)
+
+        try:
+            whatsapp_result = send_meta_template_message(
+                to_phone=phone,
+                template_name=template_definition.meta_template_name,
+                language_code=template_definition.language_code,
+                body_variables=body_variables,
+            )
+
+            whatsapp_message_id = None
+
+            if isinstance(whatsapp_result, dict):
+                messages = whatsapp_result.get("messages")
+
+                if isinstance(messages, list) and messages:
+                    first_message = messages[0]
+
+                    if isinstance(first_message, dict):
+                        whatsapp_message_id = first_message.get("id")
+
+            sent_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="sent",
+                    reason=None,
+                    whatsapp_message_id=whatsapp_message_id,
+                )
+            )
+
+        except Exception as exc:
+            failed_count += 1
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="failed",
+                    reason=str(exc),
+                )
+            )
+
+    return schemas.TemplateBatchResponse(
+        batch_id=batch.batch_id,
+        batch_label=batch.batch_label,
+        total=len(batch.items),
+        sent=sent_count,
+        failed=failed_count,
+        no_number=no_number_count,
+        invalid_number=invalid_number_count,
+        validation_failed=validation_failed_count,
+        results=results,
+    )
 
 
 @app.get("/webhook/whatsapp")

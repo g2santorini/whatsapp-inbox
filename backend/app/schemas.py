@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # =====================
@@ -80,3 +80,60 @@ class ConversationOut(ConversationBase):
 
     class Config:
         orm_mode = True
+
+# =====================
+# WEBHOOK TEMPLATE API
+# =====================
+
+
+class TemplateBatchItem(BaseModel):
+    external_id: str
+    template_type: str
+    phone: Optional[str] = None
+
+    guest_name: Optional[str] = None
+    tour_name: Optional[str] = None
+    reservation_number: Optional[str] = None
+    cruise_date: Optional[str] = None
+    pickup_time: Optional[str] = None
+    pickup_point: Optional[str] = None
+
+    google_maps: Optional[str] = None
+    passenger_info_link: Optional[str] = None
+
+
+class TemplateBatchRequest(BaseModel):
+    batch_id: str
+    batch_label: Optional[str] = None
+    source: Optional[str] = None
+    event: Optional[str] = None
+
+    option_code: Optional[str] = None
+    vessel_name: Optional[str] = None
+    cruise_type: Optional[str] = None
+    cruise_slot: Optional[str] = None
+    operation_date: Optional[str] = None
+
+    items: list[TemplateBatchItem] = Field(default_factory=list)
+
+
+class TemplateBatchResult(BaseModel):
+    external_id: str
+    template_type: Optional[str] = None
+    phone: Optional[str] = None
+
+    status: str
+    reason: Optional[str] = None
+    whatsapp_message_id: Optional[str] = None
+
+
+class TemplateBatchResponse(BaseModel):
+    batch_id: str
+    batch_label: Optional[str] = None
+    total: int
+    sent: int
+    failed: int
+    no_number: int
+    invalid_number: int
+    validation_failed: int
+    results: list[TemplateBatchResult]        
