@@ -22,6 +22,7 @@ import {
 } from './api';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 
 const CONVERSATION_VIEWS = {
@@ -798,6 +799,24 @@ function App() {
         // Silent conversations auto-refresh failure.
       });
     }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [token, selectedConversation?.id]);
+
+  useEffect(() => {
+    if (!token || !selectedConversation?.id) {
+      return undefined;
+    }
+
+    const selectedConversationId = selectedConversation.id;
+
+    const intervalId = window.setInterval(() => {
+      loadMessages(selectedConversationId).catch(() => {
+        // Silent active chat refresh failure.
+      });
+    }, ACTIVE_CHAT_REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
