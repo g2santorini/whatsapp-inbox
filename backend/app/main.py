@@ -173,6 +173,28 @@ def extract_whatsapp_message_id(whatsapp_result: dict | None) -> str | None:
 
     return first_message.get("id")
 
+WHATSAPP_STATUS_PRIORITY = {
+    "sent": 1,
+    "delivered": 2,
+    "read": 3,
+    "failed": 4,
+}
+
+
+def should_update_whatsapp_status(
+    current_status: str | None,
+    new_status: str | None,
+) -> bool:
+    if not new_status:
+        return False
+
+    if not current_status:
+        return True
+
+    current_priority = WHATSAPP_STATUS_PRIORITY.get(current_status.lower(), 0)
+    new_priority = WHATSAPP_STATUS_PRIORITY.get(new_status.lower(), 0)
+
+    return new_priority >= current_priority
 
 def send_whatsapp_text_message(to_phone: str, text: str):
     if not WHATSAPP_SEND_ENABLED:
@@ -695,6 +717,20 @@ async def receive_whatsapp_message(
                     )
                     continue
 
+                if not should_update_whatsapp_status(
+                    db_message.whatsapp_status,
+                    whatsapp_status,
+                ):
+                    print(
+                        f"ℹ️ WHATSAPP STATUS IGNORED DOWNGRADE: "
+                        f"message_id={db_message.id} "
+                        f"wamid={whatsapp_message_id} "
+                        f"current={db_message.whatsapp_status} "
+                        f"new={whatsapp_status}",
+                        flush=True,
+                    )
+                    continue
+
                 db_message.whatsapp_status = whatsapp_status
                 db_message.whatsapp_status_updated_at = status_updated_at
 
@@ -717,7 +753,33 @@ async def receive_whatsapp_message(
         message = value["messages"][0]
         contact = value["contacts"][0]
 
-        text = message["text"]["body"]
+        message_type = message.get("type", "unknown")
+
+        if message_type == "text":
+            text = message.get("text", {}).get("body", "")
+        elif message_type == "button":
+            button = message.get("button", {})
+            text = button.get("text") or button.get("payload") or "[Button reply]"
+        elif message_type == "interactive":
+            interactive = message.get("interactive", {})
+            button_reply = interactive.get("button_reply") or {}
+            list_reply = interactive.get("list_reply") or {}
+
+            text = (
+                button_reply.get("title")
+                or list_reply.get("title")
+                or "[Interactive message]"
+            )
+        elif message_type == "reaction":
+            reaction = message.get("reaction", {})
+            emoji = reaction.get("emoji") or ""
+            text = f"[Reaction: {emoji}]" if emoji else "[Reaction]"
+        else:
+            text = f"[Unsupported WhatsApp message type: {message_type}]"
+
+        if not text:
+            text = f"[Unsupported WhatsApp message type: {message_type}]"
+
         phone = message["from"]
         normalized_phone = normalize_whatsapp_phone(phone)
         name = contact["profile"]["name"]
@@ -792,6 +854,7 @@ async def receive_whatsapp_message(
         print("Message ID:", db_message.id, flush=True)
         print("Name:", name, flush=True)
         print("Phone:", phone, flush=True)
+        print("Message type:", message_type, flush=True)
         print("Text:", text, flush=True)
 
     except Exception as e:
