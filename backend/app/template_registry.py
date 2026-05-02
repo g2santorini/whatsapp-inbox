@@ -37,7 +37,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     ),
     "pickup_reminder_meeting_point": TemplateDefinition(
         template_type="pickup_reminder_meeting_point",
-        meta_template_name="pickup_reminder_meeting_point",
+        meta_template_name="cruise_pickup_reminder",
         language_code="en",
         required_fields=(
             "external_id",
