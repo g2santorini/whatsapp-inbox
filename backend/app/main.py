@@ -179,12 +179,8 @@ def apply_customer_service_window_fields(
     conversation: models.Conversation,
     fields: dict,
 ):
-    conversation.customer_service_expires_at = fields[
-        "customer_service_expires_at"
-    ]
-    conversation.customer_service_window_open = fields[
-        "customer_service_window_open"
-    ]
+    conversation.customer_service_expires_at = fields["customer_service_expires_at"]
+    conversation.customer_service_window_open = fields["customer_service_window_open"]
     conversation.customer_service_time_left_seconds = fields[
         "customer_service_time_left_seconds"
     ]
@@ -231,6 +227,7 @@ def attach_customer_service_window_to_conversation(
     attach_customer_service_window_data(db, [conversation])
     return conversation
 
+
 def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
 
@@ -250,6 +247,7 @@ def extract_whatsapp_message_id(whatsapp_result: dict | None) -> str | None:
         return None
 
     return first_message.get("id")
+
 
 WHATSAPP_STATUS_PRIORITY = {
     "sent": 1,
@@ -273,6 +271,7 @@ def should_update_whatsapp_status(
     new_priority = WHATSAPP_STATUS_PRIORITY.get(new_status.lower(), 0)
 
     return new_priority >= current_priority
+
 
 def send_whatsapp_text_message(to_phone: str, text: str):
     if not WHATSAPP_SEND_ENABLED:
@@ -781,9 +780,7 @@ async def receive_whatsapp_message(
 
                 db_message = (
                     db.query(models.Message)
-                    .filter(
-                        models.Message.whatsapp_message_id == whatsapp_message_id
-                    )
+                    .filter(models.Message.whatsapp_message_id == whatsapp_message_id)
                     .first()
                 )
 
