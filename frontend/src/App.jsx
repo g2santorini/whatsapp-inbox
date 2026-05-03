@@ -26,11 +26,10 @@ const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 
 const CONVERSATION_VIEWS = {
-  ALL: 'all',
-  NEEDS_ACTION: 'needs_action',
+  INBOX: 'inbox',
   MINE: 'mine',
   FOLLOW_UP: 'follow_up',
-  DONE: 'done',
+  ARCHIVED: 'archived',
 };
 
 const APP_PAGES = {
@@ -81,9 +80,8 @@ function App() {
   const [conversations, setConversations] = useState([]);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
   const [activeConversationView, setActiveConversationView] = useState(
-    CONVERSATION_VIEWS.ALL
+    CONVERSATION_VIEWS.INBOX
   );
-  const [showDoneInAll, setShowDoneInAll] = useState(false);
   const [inboxSearchQuery, setInboxSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -140,19 +138,12 @@ function App() {
   }
 
   function isActiveConversation(conversation) {
-    return !isDoneConversation(conversation) && !isArchivedConversation(conversation);
-  }
-
-  function isNeedsActionConversation(conversation) {
-    return (
-      isActiveConversation(conversation) &&
-      (conversation.status === 'open' || conversation.status === 'taken')
-    );
+    return !isArchivedConversation(conversation);
   }
 
   function isMineConversation(conversation) {
     return (
-      isNeedsActionConversation(conversation) &&
+      isActiveConversation(conversation) &&
       conversation.assigned_to_user_id === user?.id
     );
   }
@@ -161,32 +152,22 @@ function App() {
     return !isArchivedConversation(conversation) && Boolean(conversation.follow_up);
   }
 
-  const allCount = conversations.filter((conversation) => {
-    if (isArchivedConversation(conversation)) return false;
-    if (!showDoneInAll && isDoneConversation(conversation)) return false;
-    return true;
+  const inboxUnreadCount = conversations.filter((conversation) => {
+    return (
+      !isArchivedConversation(conversation) &&
+      Number(conversation.unread_count || 0) > 0
+    );
   }).length;
 
-  const needsActionCount = conversations.filter(isNeedsActionConversation).length;
   const mineCount = conversations.filter(isMineConversation).length;
-  const followUpCount = conversations.filter(isFollowUpConversation).length;
-  const doneCount = conversations.filter(isDoneConversation).length;
 
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
 
   const filteredConversations = conversations.filter((conversation) => {
     let matchesActiveView = true;
 
-    if (activeConversationView === CONVERSATION_VIEWS.ALL) {
+    if (activeConversationView === CONVERSATION_VIEWS.INBOX) {
       matchesActiveView = !isArchivedConversation(conversation);
-
-      if (!showDoneInAll && isDoneConversation(conversation)) {
-        matchesActiveView = false;
-      }
-    }
-
-    if (activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION) {
-      matchesActiveView = isNeedsActionConversation(conversation);
     }
 
     if (activeConversationView === CONVERSATION_VIEWS.MINE) {
@@ -197,8 +178,8 @@ function App() {
       matchesActiveView = isFollowUpConversation(conversation);
     }
 
-    if (activeConversationView === CONVERSATION_VIEWS.DONE) {
-      matchesActiveView = isDoneConversation(conversation);
+    if (activeConversationView === CONVERSATION_VIEWS.ARCHIVED) {
+      matchesActiveView = isArchivedConversation(conversation);
     }
 
     if (!matchesActiveView) {
@@ -428,6 +409,48 @@ function App() {
     return 'customer-service-open';
   }
 
+  function getResponseIndicatorLabel(conversation) {
+    const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
+
+    if (lastDirection === 'inbound') {
+      return 'Customer replied last';
+    }
+
+    if (lastDirection === 'outbound') {
+      return 'We replied last';
+    }
+
+    return 'No messages yet';
+  }
+
+  function getResponseIndicatorClass(conversation) {
+    const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
+
+    if (lastDirection === 'inbound') {
+      return 'response-indicator-customer';
+    }
+
+    if (lastDirection === 'outbound') {
+      return 'response-indicator-team';
+    }
+
+    return 'response-indicator-neutral';
+  }
+
+  function getConversationResponseDotClass(conversation) {
+    const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
+
+    if (lastDirection === 'inbound') {
+      return 'conversation-response-dot-customer';
+    }
+
+    if (lastDirection === 'outbound') {
+      return 'conversation-response-dot-team';
+    }
+
+    return 'conversation-response-dot-neutral';
+  }
+
   function getErrorMessage(err, fallbackMessage) {
     let errorMessage = fallbackMessage;
 
@@ -535,8 +558,7 @@ function App() {
     setError('');
     setShowNewConversationForm(false);
     setActivePage(APP_PAGES.INBOX);
-    setActiveConversationView(CONVERSATION_VIEWS.ALL);
-    setShowDoneInAll(false);
+    setActiveConversationView(CONVERSATION_VIEWS.INBOX);
     setInboxSearchQuery('');
     resetNewConversationForm();
   }
@@ -646,7 +668,7 @@ function App() {
         resetNewConversationForm();
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
-        setActiveConversationView(CONVERSATION_VIEWS.DONE);
+        setActiveConversationView(CONVERSATION_VIEWS.INBOX);
 
         await refreshConversations(createdConversation.id);
         await loadMessages(createdConversation.id);
@@ -721,7 +743,7 @@ function App() {
       if (checked) {
         setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
       } else {
-        setActiveConversationView(CONVERSATION_VIEWS.DONE);
+        setActiveConversationView(CONVERSATION_VIEWS.INBOX);
       }
 
       await refreshConversations(selectedConversation.id);
@@ -788,7 +810,7 @@ function App() {
     try {
       await sendMessage(selectedConversation.id, messageToSend);
       await closeConversation(selectedConversation.id);
-      setActiveConversationView(CONVERSATION_VIEWS.DONE);
+      setActiveConversationView(CONVERSATION_VIEWS.INBOX);
       await loadMessages(selectedConversation.id);
       await refreshConversations(selectedConversation.id);
     } catch (err) {
@@ -851,7 +873,6 @@ function App() {
     user?.id,
     activePage,
     inboxSearchQuery,
-    showDoneInAll,
     selectedConversation?.id,
   ]);
 
@@ -962,30 +983,15 @@ function App() {
           <div className="blue-filter-list">
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ALL ? 'active' : ''
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''
                 }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.ALL);
+                setActiveConversationView(CONVERSATION_VIEWS.INBOX);
               }}
             >
-              <span>All</span>
-              <strong>{allCount}</strong>
-            </button>
-
-            <button
-              type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.NEEDS_ACTION
-                ? 'active'
-                : ''
-                }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.NEEDS_ACTION);
-              }}
-            >
-              <span>Needs Action</span>
-              <strong>{needsActionCount}</strong>
+              <span>Inbox</span>
+              {inboxUnreadCount > 0 && <strong>{inboxUnreadCount}</strong>}
             </button>
 
             <button
@@ -998,14 +1004,12 @@ function App() {
               }}
             >
               <span>Mine</span>
-              <strong>{mineCount}</strong>
+              {mineCount > 0 && <strong>{mineCount}</strong>}
             </button>
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
-                ? 'active'
-                : ''
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
                 }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
@@ -1013,20 +1017,18 @@ function App() {
               }}
             >
               <span>To Follow Up</span>
-              <strong>{followUpCount}</strong>
             </button>
 
             <button
               type="button"
-              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.DONE ? 'active' : ''
+              className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ARCHIVED ? 'active' : ''
                 }`}
               onClick={() => {
                 setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.DONE);
+                setActiveConversationView(CONVERSATION_VIEWS.ARCHIVED);
               }}
             >
-              <span>Done</span>
-              <strong>{doneCount}</strong>
+              <span>Archived</span>
             </button>
           </div>
 
@@ -1088,17 +1090,6 @@ function App() {
               </button>
             )}
           </div>
-
-          {activeConversationView === CONVERSATION_VIEWS.ALL && (
-            <label className="show-done-toggle">
-              <input
-                type="checkbox"
-                checked={showDoneInAll}
-                onChange={(event) => setShowDoneInAll(event.target.checked)}
-              />
-              <span>Show Done</span>
-            </label>
-          )}
         </div>
 
         {showNewConversationForm && (
@@ -1200,7 +1191,17 @@ function App() {
                   onClick={() => handleSelectConversation(conversation)}
                 >
                   <div className="conversation-title-row">
-                    <strong>{label}</strong>
+                    <div className="conversation-title-main">
+                      <span
+                        className={`conversation-response-dot ${getConversationResponseDotClass(
+                          conversation
+                        )}`}
+                        title={getResponseIndicatorLabel(conversation)}
+                        aria-label={getResponseIndicatorLabel(conversation)}
+                      />
+
+                      <strong>{label}</strong>
+                    </div>
 
                     {unreadCount > 0 && (
                       <span className="unread-badge">{unreadCount}</span>
@@ -1210,9 +1211,6 @@ function App() {
                   <span>{conversation.contact_phone}</span>
 
                   <small className="conversation-meta">
-                    {isDoneConversation(conversation) && (
-                      <span className="status-pill">Done</span>
-                    )}
 
                     {isArchivedConversation(conversation) && (
                       <span className="status-pill">Archived</span>
@@ -1263,9 +1261,6 @@ function App() {
 
                 <div className="conversation-status-area">
                   <p className="conversation-status-row">
-                    {isDoneConversation(selectedConversation) && (
-                      <span className="status-pill">Done</span>
-                    )}
 
                     {isArchivedConversation(selectedConversation) && (
                       <span className="status-pill">Archived</span>
@@ -1290,6 +1285,7 @@ function App() {
                     >
                       {formatCustomerServiceWindow(selectedConversation)}
                     </span>
+
                   </p>
 
                   {isDoneConversation(selectedConversation) && (
@@ -1319,10 +1315,10 @@ function App() {
                 <button
                   className="conversation-action-button"
                   type="button"
-                  onClick={handleDoneConversation}
-                  disabled={selectedConversation.status === 'closed'}
+                  onClick={handleArchiveConversation}
+                  disabled={selectedConversation.status === 'archived'}
                 >
-                  Done
+                  Archive
                 </button>
 
                 <button

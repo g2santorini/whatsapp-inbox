@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-block-expired-free-text-2026-05-03"
+APP_VERSION = "sendro-last-message-direction-2026-05-03"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -212,10 +212,40 @@ def attach_customer_service_window_data(
         row.conversation_id: row.last_inbound_at for row in last_inbound_rows
     }
 
+    latest_message_rows = (
+        db.query(
+            models.Message.conversation_id,
+            func.max(models.Message.id).label("last_message_id"),
+        )
+        .filter(models.Message.conversation_id.in_(conversation_ids))
+        .group_by(models.Message.conversation_id)
+        .subquery()
+    )
+
+    last_message_direction_rows = (
+        db.query(
+            models.Message.conversation_id,
+            models.Message.direction,
+        )
+        .join(
+            latest_message_rows,
+            models.Message.id == latest_message_rows.c.last_message_id,
+        )
+        .all()
+    )
+
+    last_message_direction_by_conversation_id = {
+        row.conversation_id: row.direction for row in last_message_direction_rows
+    }
+
     for conversation in conversations:
         last_inbound_at = last_inbound_by_conversation_id.get(conversation.id)
         fields = build_customer_service_window_fields(last_inbound_at)
         apply_customer_service_window_fields(conversation, fields)
+
+        conversation.last_message_direction = (
+            last_message_direction_by_conversation_id.get(conversation.id)
+        )
 
     return conversations
 
