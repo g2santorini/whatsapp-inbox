@@ -87,6 +87,7 @@ function App() {
   const [messages, setMessages] = useState([]);
 
   const messagesEndRef = useRef(null);
+  const latestConversationRequestIdRef = useRef(0);
 
   const [newMessage, setNewMessage] = useState('');
   const [error, setError] = useState('');
@@ -187,7 +188,7 @@ function App() {
     }
 
     return true;
-    
+
   });
 
   function getAssignedUser(userId) {
@@ -500,8 +501,19 @@ function App() {
     setError('');
   }
 
-  async function refreshConversations(selectedConversationId = null) {
-    const conversationData = await getConversations(inboxSearchQuery);
+  async function refreshConversations(
+    selectedConversationId = null,
+    searchQueryOverride = inboxSearchQuery
+  ) {
+    const requestId = latestConversationRequestIdRef.current + 1;
+    latestConversationRequestIdRef.current = requestId;
+
+    const conversationData = await getConversations(searchQueryOverride);
+
+    if (requestId !== latestConversationRequestIdRef.current) {
+      return;
+    }
+
     setConversations(conversationData);
 
     if (selectedConversationId) {
@@ -842,7 +854,7 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       const selectedConversationId = selectedConversation?.id || null;
 
-      refreshConversations(selectedConversationId).catch(() => {
+      refreshConversations(selectedConversationId, inboxSearchQuery).catch(() => {
         // Silent search refresh failure.
       });
     }, 350);
@@ -850,7 +862,7 @@ function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [token, activePage, inboxSearchQuery]);
+  }, [token, activePage, inboxSearchQuery, selectedConversation?.id]);
 
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
@@ -887,7 +899,7 @@ function App() {
     const intervalId = window.setInterval(() => {
       const selectedConversationId = selectedConversation?.id || null;
 
-      refreshConversations(selectedConversationId).catch(() => {
+      refreshConversations(selectedConversationId, inboxSearchQuery).catch(() => {
         // Silent conversations auto-refresh failure.
       });
     }, AUTO_REFRESH_INTERVAL_MS);
@@ -895,7 +907,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [token, selectedConversation?.id]);
+  }, [token, selectedConversation?.id, inboxSearchQuery]);
 
   useEffect(() => {
     if (!token || !selectedConversation?.id) {
