@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-customer-service-window-2026-05-03"
+APP_VERSION = "sendro-block-expired-free-text-2026-05-03"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -226,6 +226,36 @@ def attach_customer_service_window_to_conversation(
 ):
     attach_customer_service_window_data(db, [conversation])
     return conversation
+
+
+def get_last_inbound_message_at(
+    db: Session,
+    conversation_id: int,
+) -> datetime | None:
+    return (
+        db.query(func.max(models.Message.created_at))
+        .filter(
+            models.Message.conversation_id == conversation_id,
+            models.Message.direction == "inbound",
+        )
+        .scalar()
+    )
+
+
+def ensure_customer_service_window_is_open(
+    db: Session,
+    conversation_id: int,
+):
+    last_inbound_at = get_last_inbound_message_at(db, conversation_id)
+    customer_service_fields = build_customer_service_window_fields(last_inbound_at)
+
+    if customer_service_fields["customer_service_window_open"]:
+        return
+
+    raise HTTPException(
+        status_code=400,
+        detail="Customer service session expired. Please send an approved template message.",
+    )
 
 
 def normalize_whatsapp_phone(phone: str) -> str:
@@ -1344,6 +1374,8 @@ def create_message(
             status_code=403,
             detail="This conversation is taken by another user",
         )
+
+    ensure_customer_service_window_is_open(db, conversation_id)
 
     whatsapp_result = send_whatsapp_text_message(
         to_phone=conversation.contact_phone,
