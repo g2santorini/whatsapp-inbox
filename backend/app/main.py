@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from sqlalchemy import inspect, or_, text
+from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-message-status-2026-05-02"
+APP_VERSION = "sendro-customer-service-window-2026-05-03"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -152,6 +152,84 @@ WHATSAPP_PHONE_NUMBER_ID = get_required_env("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v25.0")
 WHATSAPP_SEND_ENABLED = os.getenv("WHATSAPP_SEND_ENABLED", "true").lower() == "true"
 
+CUSTOMER_SERVICE_WINDOW_HOURS = 24
+
+
+def build_customer_service_window_fields(last_inbound_at: datetime | None) -> dict:
+    if last_inbound_at is None:
+        return {
+            "customer_service_expires_at": None,
+            "customer_service_window_open": False,
+            "customer_service_time_left_seconds": None,
+        }
+
+    expires_at = last_inbound_at + timedelta(hours=CUSTOMER_SERVICE_WINDOW_HOURS)
+    now = datetime.utcnow()
+    seconds_left = int((expires_at - now).total_seconds())
+    window_open = seconds_left > 0
+
+    return {
+        "customer_service_expires_at": expires_at,
+        "customer_service_window_open": window_open,
+        "customer_service_time_left_seconds": max(seconds_left, 0),
+    }
+
+
+def apply_customer_service_window_fields(
+    conversation: models.Conversation,
+    fields: dict,
+):
+    conversation.customer_service_expires_at = fields[
+        "customer_service_expires_at"
+    ]
+    conversation.customer_service_window_open = fields[
+        "customer_service_window_open"
+    ]
+    conversation.customer_service_time_left_seconds = fields[
+        "customer_service_time_left_seconds"
+    ]
+
+
+def attach_customer_service_window_data(
+    db: Session,
+    conversations: list[models.Conversation],
+):
+    if not conversations:
+        return conversations
+
+    conversation_ids = [conversation.id for conversation in conversations]
+
+    last_inbound_rows = (
+        db.query(
+            models.Message.conversation_id,
+            func.max(models.Message.created_at).label("last_inbound_at"),
+        )
+        .filter(
+            models.Message.conversation_id.in_(conversation_ids),
+            models.Message.direction == "inbound",
+        )
+        .group_by(models.Message.conversation_id)
+        .all()
+    )
+
+    last_inbound_by_conversation_id = {
+        row.conversation_id: row.last_inbound_at for row in last_inbound_rows
+    }
+
+    for conversation in conversations:
+        last_inbound_at = last_inbound_by_conversation_id.get(conversation.id)
+        fields = build_customer_service_window_fields(last_inbound_at)
+        apply_customer_service_window_fields(conversation, fields)
+
+    return conversations
+
+
+def attach_customer_service_window_to_conversation(
+    db: Session,
+    conversation: models.Conversation,
+):
+    attach_customer_service_window_data(db, [conversation])
+    return conversation
 
 def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
@@ -1049,7 +1127,7 @@ def get_conversations(
 
     conversations = query.order_by(models.Conversation.updated_at.desc()).all()
 
-    return conversations
+    return attach_customer_service_window_data(db, conversations)
 
 
 @app.post(
@@ -1172,7 +1250,7 @@ def create_conversation_and_send_template(
         flush=True,
     )
 
-    return conversation
+    return attach_customer_service_window_to_conversation(db, conversation)
 
 
 @app.post(
@@ -1205,7 +1283,7 @@ def create_conversation(
     db.commit()
     db.refresh(db_conversation)
 
-    return db_conversation
+    return attach_customer_service_window_to_conversation(db, db_conversation)
 
 
 @app.get(

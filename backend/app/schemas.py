@@ -81,6 +81,10 @@ class ConversationOut(ConversationBase):
     created_at: datetime
     updated_at: datetime
 
+    customer_service_expires_at: Optional[datetime] = None
+    customer_service_window_open: bool = False
+    customer_service_time_left_seconds: Optional[int] = None
+
     class Config:
         orm_mode = True
 
