@@ -97,8 +97,18 @@ export async function updateUser(userId, updates) {
   });
 }
 
-export async function getConversations() {
-  return apiRequest('/conversations/');
+export async function getConversations(searchQuery = '') {
+  const trimmedSearchQuery = String(searchQuery || '').trim();
+
+  if (!trimmedSearchQuery) {
+    return apiRequest('/conversations/');
+  }
+
+  const params = new URLSearchParams({
+    q: trimmedSearchQuery,
+  });
+
+  return apiRequest(`/conversations/?${params.toString()}`);
 }
 
 export async function createConversation(contactName, contactPhone) {

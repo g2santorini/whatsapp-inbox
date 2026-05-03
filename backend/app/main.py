@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-last-message-direction-2026-05-03"
+APP_VERSION = "sendro-backend-message-search-2026-05-03"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -1171,6 +1171,7 @@ async def read_users_me(
 def get_conversations(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
+    q: str | None = Query(default=None),
 ):
     query = db.query(models.Conversation)
 
@@ -1179,6 +1180,26 @@ def get_conversations(
             or_(
                 models.Conversation.assigned_to_user_id.is_(None),
                 models.Conversation.assigned_to_user_id == current_user.id,
+            )
+        )
+
+    search_query = q.strip() if q else ""
+
+    if search_query:
+        search_pattern = f"%{search_query}%"
+
+        matching_message_conversation_ids = (
+            db.query(models.Message.conversation_id)
+            .filter(models.Message.content.ilike(search_pattern))
+            .subquery()
+        )
+
+        query = query.filter(
+            or_(
+                models.Conversation.contact_name.ilike(search_pattern),
+                models.Conversation.contact_phone.ilike(search_pattern),
+                models.Conversation.status.ilike(search_pattern),
+                models.Conversation.id.in_(matching_message_conversation_ids),
             )
         )
 

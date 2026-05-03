@@ -21,7 +21,7 @@ import {
   updateConversationFollowUp,
 } from './api';
 
-const AUTO_REFRESH_INTERVAL_MS = 5000;
+const AUTO_REFRESH_INTERVAL_MS = 3000;
 const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 
@@ -186,21 +186,8 @@ function App() {
       return false;
     }
 
-    if (!normalizedInboxSearchQuery) {
-      return true;
-    }
-
-    const searchableText = [
-      conversation.contact_name,
-      conversation.contact_phone,
-      conversation.status,
-      getAssignedUserLabel(conversation.assigned_to_user_id),
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    return searchableText.includes(normalizedInboxSearchQuery);
+    return true;
+    
   });
 
   function getAssignedUser(userId) {
@@ -514,7 +501,7 @@ function App() {
   }
 
   async function refreshConversations(selectedConversationId = null) {
-    const conversationData = await getConversations();
+    const conversationData = await getConversations(inboxSearchQuery);
     setConversations(conversationData);
 
     if (selectedConversationId) {
@@ -848,6 +835,24 @@ function App() {
   }, [selectedConversation?.id, lastMessageId]);
 
   useEffect(() => {
+    if (!token || activePage !== APP_PAGES.INBOX) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const selectedConversationId = selectedConversation?.id || null;
+
+      refreshConversations(selectedConversationId).catch(() => {
+        // Silent search refresh failure.
+      });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [token, activePage, inboxSearchQuery]);
+
+  useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
 
     if (filteredConversations.length === 0) {
@@ -1077,7 +1082,7 @@ function App() {
             <input
               value={inboxSearchQuery}
               onChange={(event) => setInboxSearchQuery(event.target.value)}
-              placeholder="Search by name, phone, status..."
+              placeholder="Search name, phone, message..."
             />
 
             {inboxSearchQuery && (
