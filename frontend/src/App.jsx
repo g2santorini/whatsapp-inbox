@@ -120,8 +120,13 @@ function App() {
 
   const canUseConversationAction = canTakeConversation || canReleaseConversation;
 
+  const isCustomerServiceSessionExpired =
+    Boolean(selectedConversation) &&
+    !selectedConversation.customer_service_window_open;
+
   const canSendMessage =
     Boolean(selectedConversation) &&
+    !isCustomerServiceSessionExpired &&
     !isConversationTakenByAnotherUser &&
     selectedConversation?.status !== 'archived' &&
     !isSending;
@@ -1388,11 +1393,13 @@ function App() {
                 placeholder={
                   selectedConversation.status === 'archived'
                     ? 'Archived conversation'
-                    : isConversationTakenByAnotherUser
-                      ? `Taken by ${getAssignedUserLabel(
-                        selectedConversation.assigned_to_user_id
-                      )}`
-                      : 'Type a message...'
+                    : isCustomerServiceSessionExpired
+                      ? 'Session expired — template required'
+                      : isConversationTakenByAnotherUser
+                        ? `Taken by ${getAssignedUserLabel(
+                          selectedConversation.assigned_to_user_id
+                        )}`
+                        : 'Type a message...'
                 }
                 disabled={!canSendMessage}
               />
