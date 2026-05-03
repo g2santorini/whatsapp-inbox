@@ -384,6 +384,45 @@ function App() {
     return '';
   }
 
+  function formatCustomerServiceWindow(conversation) {
+    if (!conversation?.customer_service_window_open) {
+      return 'Session expired — template required';
+    }
+
+    const secondsLeft = Number(
+      conversation.customer_service_time_left_seconds || 0
+    );
+
+    if (secondsLeft <= 0) {
+      return 'Session expired — template required';
+    }
+
+    const hours = Math.floor(secondsLeft / 3600);
+    const minutes = Math.floor((secondsLeft % 3600) / 60);
+
+    return `${hours}h ${minutes}m left`;
+  }
+
+  function getCustomerServiceWindowClass(conversation) {
+    if (!conversation?.customer_service_window_open) {
+      return 'customer-service-expired';
+    }
+
+    const secondsLeft = Number(
+      conversation.customer_service_time_left_seconds || 0
+    );
+
+    if (secondsLeft <= 0) {
+      return 'customer-service-expired';
+    }
+
+    if (secondsLeft <= 2 * 60 * 60) {
+      return 'customer-service-warning';
+    }
+
+    return 'customer-service-open';
+  }
+
   function getErrorMessage(err, fallbackMessage) {
     let errorMessage = fallbackMessage;
 
@@ -1238,6 +1277,14 @@ function App() {
                     ) : (
                       <span className="assigned-badge assigned-nobody">Available</span>
                     )}
+
+                    <span
+                      className={`customer-service-badge ${getCustomerServiceWindowClass(
+                        selectedConversation
+                      )}`}
+                    >
+                      {formatCustomerServiceWindow(selectedConversation)}
+                    </span>
                   </p>
 
                   {isDoneConversation(selectedConversation) && (
