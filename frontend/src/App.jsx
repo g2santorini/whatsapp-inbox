@@ -526,11 +526,8 @@ function App() {
         return;
       }
 
-      setSelectedConversation(conversationData[0] || null);
-      return;
+      setSelectedConversation(null);
     }
-
-    setSelectedConversation(conversationData[0] || null);
   }
 
   async function handleLogin(event) {
@@ -587,7 +584,8 @@ function App() {
       const messageData = await getMessages(conversationId);
       setMessages(messageData);
     } catch (err) {
-      setError('Could not load messages.');
+      handleLogout();
+      setError('Connection lost or session expired. Please login again.');
     }
   }
 
@@ -1193,7 +1191,13 @@ function App() {
             <div className="empty-state">
               {inboxSearchQuery
                 ? `No conversations found for "${inboxSearchQuery}".`
-                : 'No conversations in this view.'}
+                : activeConversationView === CONVERSATION_VIEWS.MINE
+                  ? 'No conversations assigned to you.'
+                  : activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
+                    ? 'No conversations marked for follow up.'
+                    : activeConversationView === CONVERSATION_VIEWS.ARCHIVED
+                      ? 'No archived conversations.'
+                      : 'No conversations in Inbox.'}
             </div>
           ) : (
             filteredConversations.map((conversation) => {
