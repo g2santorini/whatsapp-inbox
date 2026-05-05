@@ -12,6 +12,22 @@ class TemplateDefinition:
 
 
 TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
+    "missing_hotel_details": TemplateDefinition(
+        template_type="missing_hotel_details",
+        meta_template_name="missing_hotel_details",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "reservation_number",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "reservation_number",
+        ),
+    ),
+
     "pickup_reminder_hotel": TemplateDefinition(
         template_type="pickup_reminder_hotel",
         meta_template_name="pickup_reminder_hotel",
@@ -35,8 +51,90 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "pickup_point",
         ),
     ),
+
+    "pickup_reminder_hotel_missing_details": TemplateDefinition(
+        template_type="pickup_reminder_hotel_missing_details",
+        meta_template_name="pickup_reminder_hotel_missing_details",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "passenger_info_link",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "passenger_info_link",
+        ),
+    ),
+
     "pickup_reminder_meeting_point": TemplateDefinition(
         template_type="pickup_reminder_meeting_point",
+        meta_template_name="pickup_reminder_meeting_point",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "google_maps",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "google_maps",
+        ),
+    ),
+
+    "pickup_reminder_meeting_point_missing_details": TemplateDefinition(
+        template_type="pickup_reminder_meeting_point_missing_details",
+        meta_template_name="pickup_reminder_meeting_point_missing_details",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "google_maps",
+            "passenger_info_link",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "tour_name",
+            "reservation_number",
+            "cruise_date",
+            "pickup_time",
+            "pickup_point",
+            "google_maps",
+            "passenger_info_link",
+        ),
+    ),
+
+    # Old template. Keep for compatibility while we phase it out.
+    "cruise_pickup_reminder": TemplateDefinition(
+        template_type="cruise_pickup_reminder",
         meta_template_name="cruise_pickup_reminder",
         language_code="en",
         required_fields=(
@@ -60,29 +158,19 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "google_maps",
         ),
     ),
-    "pickup_reminder_passenger_info": TemplateDefinition(
-        template_type="pickup_reminder_passenger_info",
-        meta_template_name="pickup_reminder_passenger_info",
+
+    # Manual Sendro template. Not expected from Giannis / CRM for now.
+    "post_call_followup_request": TemplateDefinition(
+        template_type="post_call_followup_request",
+        meta_template_name="post_call_followup_request",
         language_code="en",
         required_fields=(
             "external_id",
             "phone",
             "guest_name",
-            "tour_name",
-            "reservation_number",
-            "cruise_date",
-            "pickup_time",
-            "pickup_point",
-            "passenger_info_link",
         ),
         body_variable_order=(
             "guest_name",
-            "tour_name",
-            "reservation_number",
-            "cruise_date",
-            "pickup_time",
-            "pickup_point",
-            "passenger_info_link",
         ),
     ),
 }
