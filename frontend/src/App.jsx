@@ -584,8 +584,44 @@ function App() {
       const messageData = await getMessages(conversationId);
       setMessages(messageData);
     } catch (err) {
-      handleLogout();
-      setError('Connection lost or session expired. Please login again.');
+      const errorMessage = getErrorMessage(err, 'Could not load messages.');
+      const normalizedErrorMessage = String(errorMessage).toLowerCase();
+
+      const conversationWasDeleted =
+        normalizedErrorMessage.includes('conversation not found') ||
+        normalizedErrorMessage.includes('404');
+
+      if (conversationWasDeleted) {
+        setSelectedConversation((currentConversation) => {
+          if (currentConversation?.id === conversationId) {
+            return null;
+          }
+
+          return currentConversation;
+        });
+
+        setMessages([]);
+
+        refreshConversations(null, inboxSearchQuery).catch(() => {
+          // Silent refresh failure after deleted conversation.
+        });
+
+        return;
+      }
+
+      const sessionProblem =
+        normalizedErrorMessage.includes('could not validate credentials') ||
+        normalizedErrorMessage.includes('not authenticated') ||
+        normalizedErrorMessage.includes('session expired') ||
+        normalizedErrorMessage.includes('401');
+
+      if (sessionProblem) {
+        handleLogout();
+        setError('Session expired. Please login again.');
+        return;
+      }
+
+      setError(errorMessage);
     }
   }
 
