@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-template-webhook-stores-messages-2026-05-05"
+APP_VERSION = "sendro-template-customer-preview-2026-05-05"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -361,34 +361,154 @@ def find_conversation_by_whatsapp_phone(
 
 
 def build_template_preview_content(template_type: str, item_data: dict) -> str:
-    lines = [f"📨 WhatsApp template sent: {template_type}"]
+    def value(field_name: str) -> str:
+        raw_value = item_data.get(field_name)
 
-    fields = [
-        ("external_id", "External ID"),
-        ("guest_name", "Guest"),
-        ("reservation_number", "Reservation"),
-        ("tour_name", "Tour"),
-        ("cruise_date", "Cruise date"),
-        ("pickup_time", "Pickup time"),
-        ("pickup_point", "Pickup point"),
-        ("google_maps", "Google Maps"),
-        ("passenger_info_link", "Passenger info link"),
-    ]
+        if raw_value is None:
+            return ""
 
-    for field_name, label in fields:
-        value = item_data.get(field_name)
+        return str(raw_value).strip()
 
-        if value is None:
-            continue
+    def fallback_preview() -> str:
+        lines = [f"WhatsApp template sent: {template_type}"]
 
-        value = str(value).strip()
+        fields = [
+            ("external_id", "External ID"),
+            ("guest_name", "Guest"),
+            ("reservation_number", "Reservation"),
+            ("tour_name", "Tour"),
+            ("cruise_date", "Cruise date"),
+            ("pickup_time", "Pickup time"),
+            ("pickup_point", "Pickup point"),
+            ("google_maps", "Google Maps"),
+            ("passenger_info_link", "Passenger info link"),
+        ]
 
-        if not value:
-            continue
+        for field_name, label in fields:
+            field_value = value(field_name)
 
-        lines.append(f"{label}: {value}")
+            if field_value:
+                lines.append(f"{label}: {field_value}")
 
-    return "\n".join(lines)
+        return "\n".join(lines)
+
+    guest_name = value("guest_name")
+    tour_name = value("tour_name")
+    reservation_number = value("reservation_number")
+    cruise_date = value("cruise_date")
+    pickup_time = value("pickup_time")
+    pickup_point = value("pickup_point")
+    google_maps = value("google_maps")
+    passenger_info_link = value("passenger_info_link")
+
+    if template_type == "missing_hotel_details":
+        return f"""Dear {guest_name},
+
+Greetings from the beautiful Santorini, and thank you for choosing Sunset Oia for your sailing experience.
+
+Regarding your reservation number {reservation_number}, please send us the name of your hotel so that we can arrange your pick-up time and meeting point.
+
+If you are staying at an Airbnb, please send us the name of the accommodation, along with the contact details of your host.
+
+We remain at your disposal for any additional information or clarification.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_meeting_point_missing_details":
+        return f"""Dear {guest_name},
+
+We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+
+We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
+
+Pickup time & point: at {pickup_time} from {pickup_point}
+
+Google Maps:
+{google_maps}
+
+Please click the link below to fill in the passenger details required by the port authorities:
+{passenger_info_link}
+
+Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_meeting_point":
+        return f"""Dear {guest_name},
+
+We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+
+We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
+
+Pickup time & point: at {pickup_time} from {pickup_point}
+
+Google Maps:
+{google_maps}
+
+Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_hotel_missing_details":
+        return f"""Dear {guest_name},
+
+We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+
+We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
+
+Pickup time & point: at {pickup_time} from {pickup_point}
+
+Please click the link below to fill in the passenger details required by the port authorities:
+{passenger_info_link}
+
+Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_hotel":
+        return f"""Dear {guest_name},
+
+We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+
+We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
+
+Pickup time & point: at {pickup_time} from {pickup_point}
+
+Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "cruise_pickup_reminder":
+        return f"""Dear {guest_name},
+
+We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+
+We would like to remind you that your pick-up time for your cruise on {cruise_date} will be:
+
+Pickup time & point: at {pickup_time} from {pickup_point}
+Google Maps: {google_maps}
+
+Should you need any additional information, feel free to contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "post_call_followup_request":
+        return f"""Dear {guest_name},
+
+Following our recent phone conversation regarding your interest in a sailing cruise, we kindly ask you to send us a message on WhatsApp so we can share the available options with you.
+
+We look forward to assisting you.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    return fallback_preview()
 
 
 def save_sent_template_message_to_sendro(
