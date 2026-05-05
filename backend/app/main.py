@@ -30,7 +30,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-backend-message-search-2026-05-03"
+APP_VERSION = "sendro-template-webhook-stores-messages-2026-05-05"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -307,6 +307,156 @@ def extract_whatsapp_message_id(whatsapp_result: dict | None) -> str | None:
         return None
 
     return first_message.get("id")
+
+
+def get_or_create_sendro_webhook_user(db: Session) -> models.User:
+    webhook_user = (
+        db.query(models.User)
+        .filter(
+            or_(
+                models.User.username == "sendro_webhook",
+                models.User.email == "sendro_webhook@sendro.local",
+            )
+        )
+        .first()
+    )
+
+    if webhook_user is not None:
+        return webhook_user
+
+    webhook_user = models.User(
+        username="sendro_webhook",
+        email="sendro_webhook@sendro.local",
+        full_name="Sendro CRM Webhook",
+        hashed_password=get_password_hash("not-for-login"),
+        role="user",
+        disabled=True,
+    )
+
+    db.add(webhook_user)
+    db.commit()
+    db.refresh(webhook_user)
+
+    return webhook_user
+
+
+def find_conversation_by_whatsapp_phone(
+    db: Session,
+    phone: str,
+) -> models.Conversation | None:
+    normalized_phone = normalize_whatsapp_phone(phone)
+
+    return (
+        db.query(models.Conversation)
+        .filter(
+            or_(
+                models.Conversation.contact_phone == phone,
+                models.Conversation.contact_phone == normalized_phone,
+                models.Conversation.contact_phone == f"+{normalized_phone}",
+            )
+        )
+        .order_by(models.Conversation.updated_at.desc())
+        .first()
+    )
+
+
+def build_template_preview_content(template_type: str, item_data: dict) -> str:
+    lines = [f"📨 WhatsApp template sent: {template_type}"]
+
+    fields = [
+        ("external_id", "External ID"),
+        ("guest_name", "Guest"),
+        ("reservation_number", "Reservation"),
+        ("tour_name", "Tour"),
+        ("cruise_date", "Cruise date"),
+        ("pickup_time", "Pickup time"),
+        ("pickup_point", "Pickup point"),
+        ("google_maps", "Google Maps"),
+        ("passenger_info_link", "Passenger info link"),
+    ]
+
+    for field_name, label in fields:
+        value = item_data.get(field_name)
+
+        if value is None:
+            continue
+
+        value = str(value).strip()
+
+        if not value:
+            continue
+
+        lines.append(f"{label}: {value}")
+
+    return "\n".join(lines)
+
+
+def save_sent_template_message_to_sendro(
+    db: Session,
+    item: schemas.TemplateBatchItem,
+    phone: str,
+    whatsapp_message_id: str | None,
+) -> models.Message:
+    normalized_phone = normalize_whatsapp_phone(phone)
+    now = datetime.utcnow()
+
+    webhook_user = get_or_create_sendro_webhook_user(db)
+
+    guest_name = item.guest_name.strip() if item.guest_name else None
+    contact_name = guest_name or f"+{normalized_phone}"
+
+    conversation = find_conversation_by_whatsapp_phone(db, phone)
+
+    if conversation is None:
+        conversation = models.Conversation(
+            contact_name=contact_name,
+            contact_phone=f"+{normalized_phone}",
+            status="closed",
+            assigned_to_user_id=None,
+            unread_count=0,
+            follow_up=False,
+            last_message_at=now,
+            created_at=now,
+            updated_at=now,
+            user_id=webhook_user.id,
+        )
+
+        db.add(conversation)
+        db.flush()
+
+    else:
+        if guest_name:
+            conversation.contact_name = guest_name
+
+        conversation.contact_phone = f"+{normalized_phone}"
+        conversation.status = "closed"
+        conversation.assigned_to_user_id = None
+        conversation.unread_count = 0
+        conversation.follow_up = False
+        conversation.last_message_at = now
+        conversation.updated_at = now
+
+    preview_content = build_template_preview_content(
+        template_type=item.template_type,
+        item_data=item.dict(),
+    )
+
+    db_message = models.Message(
+        content=preview_content,
+        direction="outbound",
+        is_read=True,
+        whatsapp_message_id=whatsapp_message_id,
+        whatsapp_status="sent" if whatsapp_message_id else None,
+        whatsapp_status_updated_at=now if whatsapp_message_id else None,
+        user_id=webhook_user.id,
+        conversation_id=conversation.id,
+    )
+
+    db.add(db_message)
+    db.commit()
+    db.refresh(db_message)
+
+    return db_message
 
 
 WHATSAPP_STATUS_PRIORITY = {
@@ -644,11 +794,6 @@ async def get_current_active_user(
     return current_user
 
 
-@app.get("/debug/version")
-def debug_version():
-    return {"version": APP_VERSION}
-
-
 @app.post(
     "/webhooks/send-template",
     response_model=schemas.TemplateBatchResponse,
@@ -659,6 +804,7 @@ def send_template_webhook(
         default=None,
         alias="X-Sendro-Webhook-Key",
     ),
+    db: Session = Depends(get_db),
 ):
     if SENDRO_WEBHOOK_API_KEY:
         if x_sendro_webhook_key != SENDRO_WEBHOOK_API_KEY:
@@ -756,18 +902,6 @@ def send_template_webhook(
 
             whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
 
-            sent_count += 1
-            results.append(
-                schemas.TemplateBatchResult(
-                    external_id=external_id,
-                    template_type=template_type,
-                    phone=phone,
-                    status="sent",
-                    reason=None,
-                    whatsapp_message_id=whatsapp_message_id,
-                )
-            )
-
         except Exception as exc:
             failed_count += 1
             results.append(
@@ -779,6 +913,53 @@ def send_template_webhook(
                     reason=str(exc),
                 )
             )
+            continue
+
+        save_warning = None
+
+        try:
+            saved_message = save_sent_template_message_to_sendro(
+                db=db,
+                item=item,
+                phone=phone,
+                whatsapp_message_id=whatsapp_message_id,
+            )
+
+            print(
+                f"✅ TEMPLATE SAVED IN SENDRO: "
+                f"conversation_id={saved_message.conversation_id} "
+                f"message_id={saved_message.id} "
+                f"wamid={whatsapp_message_id}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            db.rollback()
+            save_warning = (
+                "WhatsApp template was sent, but Sendro could not save "
+                "the message. Check backend logs."
+            )
+
+            print(
+                f"⚠️ TEMPLATE SENT BUT NOT SAVED IN SENDRO: "
+                f"external_id={external_id} "
+                f"phone={phone} "
+                f"wamid={whatsapp_message_id} "
+                f"error={exc}",
+                flush=True,
+            )
+
+        sent_count += 1
+        results.append(
+            schemas.TemplateBatchResult(
+                external_id=external_id,
+                template_type=template_type,
+                phone=phone,
+                status="sent",
+                reason=save_warning,
+                whatsapp_message_id=whatsapp_message_id,
+            )
+        )
 
     return schemas.TemplateBatchResponse(
         batch_id=batch.batch_id,
