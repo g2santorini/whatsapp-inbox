@@ -684,24 +684,12 @@ def get_or_reset_template_batch_report(
     )
 
     if db_batch is not None:
-        db.query(models.TemplateBatchItem).filter(
-            models.TemplateBatchItem.batch_id == batch.batch_id
-        ).delete(synchronize_session=False)
-
         db_batch.batch_label = batch.batch_label
         db_batch.source = batch.source
         db_batch.event = batch.event
         db_batch.option_code = batch.option_code
         db_batch.operation_date = batch.operation_date
         db_batch.tour_name = tour_name
-
-        db_batch.total = 0
-        db_batch.sent = 0
-        db_batch.failed = 0
-        db_batch.no_number = 0
-        db_batch.invalid_number = 0
-        db_batch.validation_failed = 0
-        db_batch.duplicate = 0
         db_batch.updated_at = now
 
     else:
@@ -731,6 +719,25 @@ def get_or_reset_template_batch_report(
 
     return db_batch
 
+def find_existing_sent_template_duplicate(
+    db: Session,
+    batch: schemas.TemplateBatchRequest,
+    item: schemas.TemplateBatchItem,
+    phone: str | None,
+) -> models.TemplateBatchItem | None:
+    duplicate_key = build_template_duplicate_key(batch, item, phone)
+    content_hash = build_template_content_hash(item)
+
+    return (
+        db.query(models.TemplateBatchItem)
+        .filter(
+            models.TemplateBatchItem.duplicate_key == duplicate_key,
+            models.TemplateBatchItem.content_hash == content_hash,
+            models.TemplateBatchItem.status == "sent",
+        )
+        .order_by(models.TemplateBatchItem.created_at.desc())
+        .first()
+    )
 
 def add_template_batch_item_report(
     db: Session,
@@ -1233,6 +1240,7 @@ def send_template_webhook(
     no_number_count = 0
     invalid_number_count = 0
     validation_failed_count = 0
+    duplicate_count = 0
 
     for item in batch.items:
         item_data = item.dict()
@@ -1351,6 +1359,46 @@ def send_template_webhook(
 
         body_variables = build_template_variables(template_type, item_data)
 
+        existing_duplicate = find_existing_sent_template_duplicate(
+            db=db,
+            batch=batch,
+            item=item,
+            phone=phone,
+        )
+
+        if existing_duplicate is not None:
+            duplicate_count += 1
+
+            reason = (
+                "Duplicate template blocked. "
+                f"Already sent in batch {existing_duplicate.batch_id}, "
+                f"item_id {existing_duplicate.id}, "
+                f"message_id {existing_duplicate.message_id}, "
+                f"whatsapp_message_id {existing_duplicate.whatsapp_message_id}."
+            )
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="duplicate",
+                reason=reason,
+                phone=phone,
+            )
+
+            results.append(
+                schemas.TemplateBatchResult(
+                    external_id=external_id,
+                    template_type=template_type,
+                    phone=phone,
+                    status="duplicate",
+                    reason=reason,
+                    whatsapp_message_id=None,
+                )
+            )
+            continue
+
         try:
             whatsapp_result = send_meta_template_message(
                 to_phone=phone,
@@ -1458,8 +1506,10 @@ def send_template_webhook(
         no_number=no_number_count,
         invalid_number=invalid_number_count,
         validation_failed=validation_failed_count,
+        duplicate=duplicate_count,
         results=results,
     )
+
 
 @app.get(
     "/template-batches/",
@@ -1570,6 +1620,7 @@ def get_template_batch_detail(
     db_batch.items = items_query.order_by(models.TemplateBatchItem.id.asc()).all()
 
     return db_batch
+
 
 @app.get("/webhook/whatsapp")
 def verify_whatsapp_webhook(

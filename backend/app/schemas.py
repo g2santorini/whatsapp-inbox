@@ -144,6 +144,7 @@ class TemplateBatchResponse(BaseModel):
     no_number: int
     invalid_number: int
     validation_failed: int
+    duplicate: int = 0
     results: list[TemplateBatchResult]
 
 
