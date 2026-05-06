@@ -719,6 +719,7 @@ def get_or_reset_template_batch_report(
 
     return db_batch
 
+
 def find_existing_sent_template_duplicate(
     db: Session,
     batch: schemas.TemplateBatchRequest,
@@ -738,6 +739,7 @@ def find_existing_sent_template_duplicate(
         .order_by(models.TemplateBatchItem.created_at.desc())
         .first()
     )
+
 
 def add_template_batch_item_report(
     db: Session,
@@ -1523,6 +1525,7 @@ def get_template_batches(
     date_to: str | None = Query(default=None),
     option_code: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
+    whatsapp_status: str | None = Query(default=None),
     q: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -1552,6 +1555,19 @@ def get_template_batches(
     if normalized_status:
         status_column = getattr(models.TemplateBatch, normalized_status)
         query = query.filter(status_column > 0)
+
+    if whatsapp_status:
+        normalized_whatsapp_status = whatsapp_status.strip().lower()
+
+        matching_batch_ids = (
+            db.query(models.TemplateBatchItem.batch_id)
+            .filter(
+                models.TemplateBatchItem.whatsapp_status == normalized_whatsapp_status
+            )
+            .subquery()
+        )
+
+        query = query.filter(models.TemplateBatch.batch_id.in_(matching_batch_ids))
 
     search_query = q.strip() if q else ""
 
@@ -1673,7 +1689,16 @@ async def receive_whatsapp_message(
                     .first()
                 )
 
-                if db_message is None:
+                db_batch_items = (
+                    db.query(models.TemplateBatchItem)
+                    .filter(
+                        models.TemplateBatchItem.whatsapp_message_id
+                        == whatsapp_message_id
+                    )
+                    .all()
+                )
+
+                if db_message is None and not db_batch_items:
                     print(
                         f"⚠️ WHATSAPP STATUS FOR UNKNOWN MESSAGE: "
                         f"{whatsapp_message_id} -> {whatsapp_status}",
@@ -1681,30 +1706,62 @@ async def receive_whatsapp_message(
                     )
                     continue
 
-                if not should_update_whatsapp_status(
-                    db_message.whatsapp_status,
-                    whatsapp_status,
-                ):
+                if db_message is not None:
+                    if not should_update_whatsapp_status(
+                        db_message.whatsapp_status,
+                        whatsapp_status,
+                    ):
+                        print(
+                            f"ℹ️ WHATSAPP STATUS IGNORED DOWNGRADE: "
+                            f"message_id={db_message.id} "
+                            f"wamid={whatsapp_message_id} "
+                            f"current={db_message.whatsapp_status} "
+                            f"new={whatsapp_status}",
+                            flush=True,
+                        )
+                        continue
+
+                    db_message.whatsapp_status = whatsapp_status
+                    db_message.whatsapp_status_updated_at = status_updated_at
+
                     print(
-                        f"ℹ️ WHATSAPP STATUS IGNORED DOWNGRADE: "
+                        f"✅ WHATSAPP MESSAGE STATUS UPDATED: "
                         f"message_id={db_message.id} "
                         f"wamid={whatsapp_message_id} "
-                        f"current={db_message.whatsapp_status} "
-                        f"new={whatsapp_status}",
+                        f"status={whatsapp_status}",
                         flush=True,
                     )
-                    continue
 
-                db_message.whatsapp_status = whatsapp_status
-                db_message.whatsapp_status_updated_at = status_updated_at
+                failure_reason = None
 
-                print(
-                    f"✅ WHATSAPP STATUS UPDATED: "
-                    f"message_id={db_message.id} "
-                    f"wamid={whatsapp_message_id} "
-                    f"status={whatsapp_status}",
-                    flush=True,
-                )
+                if whatsapp_status and whatsapp_status.lower() == "failed":
+                    failure_reason = extract_whatsapp_status_failure_reason(status_item)
+
+                updated_batch_items_count = 0
+
+                for db_batch_item in db_batch_items:
+                    if not should_update_whatsapp_status(
+                        db_batch_item.whatsapp_status,
+                        whatsapp_status,
+                    ):
+                        continue
+
+                    db_batch_item.whatsapp_status = whatsapp_status
+                    db_batch_item.whatsapp_status_updated_at = status_updated_at
+
+                    if failure_reason:
+                        db_batch_item.reason = failure_reason
+
+                    updated_batch_items_count += 1
+
+                if updated_batch_items_count:
+                    print(
+                        f"✅ TEMPLATE BATCH ITEM STATUS UPDATED: "
+                        f"wamid={whatsapp_message_id} "
+                        f"status={whatsapp_status} "
+                        f"items={updated_batch_items_count}",
+                        flush=True,
+                    )
 
             db.commit()
             return {"status": "ok"}
