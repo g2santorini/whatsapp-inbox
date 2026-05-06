@@ -33,7 +33,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-template-batch-reporting-2026-05-06"
+APP_VERSION = "sendro-template-status-reporting-2026-05-06"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
