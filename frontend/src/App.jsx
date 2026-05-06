@@ -19,6 +19,7 @@ import {
   deleteConversation,
   markConversationAsRead,
   updateConversationFollowUp,
+  getTemplateReportItems,
 } from './api';
 
 const AUTO_REFRESH_INTERVAL_MS = 3000;
@@ -34,6 +35,7 @@ const CONVERSATION_VIEWS = {
 
 const APP_PAGES = {
   INBOX: 'inbox',
+  REPORTS: 'reports',
   SETTINGS: 'settings',
 };
 
@@ -79,6 +81,20 @@ function App() {
 
   const [conversations, setConversations] = useState([]);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
+
+  const [reportFilters, setReportFilters] = useState({
+    operation_date: '',
+    date_from: '',
+    date_to: '',
+    option_code: '',
+    status: '',
+    whatsapp_status: '',
+    q: '',
+    problems_only: false,
+  });
+  const [reportData, setReportData] = useState(null);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [reportsError, setReportsError] = useState('');
   const [activeConversationView, setActiveConversationView] = useState(
     CONVERSATION_VIEWS.INBOX
   );
@@ -439,6 +455,110 @@ function App() {
     return 'conversation-response-dot-neutral';
   }
 
+  function formatReportDate(value) {
+    if (!value) return '-';
+
+    const parts = String(value).split('-');
+
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    return value;
+  }
+
+  function formatReportDateTime(value) {
+    if (!value) return '-';
+
+    const rawValue = String(value);
+    const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(rawValue);
+    const safeValue = hasTimezone ? rawValue : `${rawValue}Z`;
+    const date = new Date(safeValue);
+
+    if (Number.isNaN(date.getTime())) {
+      return rawValue;
+    }
+
+    return new Intl.DateTimeFormat('el-GR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  }
+
+  function getReportResultClass(item) {
+    const statusValue = String(item?.status || '').toLowerCase();
+    const whatsappStatusValue = String(item?.whatsapp_status || '').toLowerCase();
+
+    if (whatsappStatusValue === 'read') return 'report-badge-read';
+    if (whatsappStatusValue === 'delivered') return 'report-badge-delivered';
+
+    if (
+      statusValue === 'failed' ||
+      statusValue === 'no_number' ||
+      statusValue === 'invalid_number' ||
+      statusValue === 'validation_failed' ||
+      whatsappStatusValue === 'failed'
+    ) {
+      return 'report-badge-problem';
+    }
+
+    if (statusValue === 'duplicate') return 'report-badge-duplicate';
+    if (statusValue === 'sent') return 'report-badge-sent';
+
+    return 'report-badge-neutral';
+  }
+
+  function updateReportFilter(key, value) {
+    setReportFilters((currentFilters) => ({
+      ...currentFilters,
+      [key]: value,
+    }));
+  }
+
+  async function loadTemplateReports(filtersOverride = reportFilters) {
+    try {
+      setIsLoadingReports(true);
+      setReportsError('');
+
+      const data = await getTemplateReportItems({
+        ...filtersOverride,
+        limit: 300,
+        offset: 0,
+      });
+
+      setReportData(data);
+    } catch (err) {
+      setReportsError(getErrorMessage(err, 'Could not load reports.'));
+    } finally {
+      setIsLoadingReports(false);
+    }
+  }
+
+  async function handleReportsSubmit(event) {
+    event.preventDefault();
+    await loadTemplateReports(reportFilters);
+  }
+
+  async function handleReportsReset() {
+    const resetFilters = {
+      operation_date: '',
+      date_from: '',
+      date_to: '',
+      option_code: '',
+      status: '',
+      whatsapp_status: '',
+      q: '',
+      problems_only: false,
+    };
+
+    setReportFilters(resetFilters);
+    await loadTemplateReports(resetFilters);
+  }
+
   function getErrorMessage(err, fallbackMessage) {
     let errorMessage = fallbackMessage;
 
@@ -557,6 +677,19 @@ function App() {
     setActiveConversationView(CONVERSATION_VIEWS.INBOX);
     setInboxSearchQuery('');
     resetNewConversationForm();
+
+    setReportData(null);
+    setReportsError('');
+    setReportFilters({
+      operation_date: '',
+      date_from: '',
+      date_to: '',
+      option_code: '',
+      status: '',
+      whatsapp_status: '',
+      q: '',
+      problems_only: false,
+    });
   }
 
   async function loadInitialData() {
@@ -861,6 +994,16 @@ function App() {
   }, [token]);
 
   useEffect(() => {
+    if (!token || activePage !== APP_PAGES.REPORTS) {
+      return;
+    }
+
+    loadTemplateReports().catch(() => {
+      // Report loading errors are handled inside loadTemplateReports.
+    });
+  }, [token, activePage]);
+
+  useEffect(() => {
     if (selectedConversation && activePage === APP_PAGES.INBOX) {
       setError('');
       loadMessages(selectedConversation.id);
@@ -979,6 +1122,250 @@ function App() {
     };
   }, [token, activePage, selectedConversation?.id]);
 
+  function renderReportsPanel() {
+    const summary = reportData?.summary || {};
+    const reportItems = reportData?.items || [];
+
+    return (
+      <div className="reports-panel">
+        <div className="reports-header">
+          <div>
+            <span>Operations reports</span>
+            <h2>Template message reports</h2>
+            <p>
+              View which guests were informed, which messages were read, and which
+              reservations need attention.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="reports-refresh-button"
+            onClick={() => loadTemplateReports(reportFilters)}
+            disabled={isLoadingReports}
+          >
+            {isLoadingReports ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+
+        <form className="reports-filters" onSubmit={handleReportsSubmit}>
+          <label>
+            <span>Tour date</span>
+            <input
+              type="date"
+              value={reportFilters.operation_date}
+              onChange={(event) =>
+                updateReportFilter('operation_date', event.target.value)
+              }
+            />
+          </label>
+
+          <label>
+            <span>Date from</span>
+            <input
+              type="date"
+              value={reportFilters.date_from}
+              onChange={(event) => updateReportFilter('date_from', event.target.value)}
+            />
+          </label>
+
+          <label>
+            <span>Date to</span>
+            <input
+              type="date"
+              value={reportFilters.date_to}
+              onChange={(event) => updateReportFilter('date_to', event.target.value)}
+            />
+          </label>
+
+          <label>
+            <span>Tour / option</span>
+            <input
+              value={reportFilters.option_code}
+              onChange={(event) => updateReportFilter('option_code', event.target.value)}
+              placeholder="DIAMOND_MORNING"
+            />
+          </label>
+
+          <label>
+            <span>Search</span>
+            <input
+              value={reportFilters.q}
+              onChange={(event) => updateReportFilter('q', event.target.value)}
+              placeholder="Reservation, name, phone..."
+            />
+          </label>
+
+          <label>
+            <span>Send result</span>
+            <select
+              value={reportFilters.status}
+              onChange={(event) => updateReportFilter('status', event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="sent">Sent</option>
+              <option value="no_number">Missing phone</option>
+              <option value="invalid_number">Invalid phone</option>
+              <option value="validation_failed">Missing details</option>
+              <option value="failed">Failed</option>
+              <option value="duplicate">Duplicate</option>
+            </select>
+          </label>
+
+          <label>
+            <span>WhatsApp status</span>
+            <select
+              value={reportFilters.whatsapp_status}
+              onChange={(event) =>
+                updateReportFilter('whatsapp_status', event.target.value)
+              }
+            >
+              <option value="">All</option>
+              <option value="sent">Sent</option>
+              <option value="delivered">Delivered</option>
+              <option value="read">Read</option>
+              <option value="failed">Failed</option>
+            </select>
+          </label>
+
+          <label className="reports-checkbox">
+            <input
+              type="checkbox"
+              checked={reportFilters.problems_only}
+              onChange={(event) =>
+                updateReportFilter('problems_only', event.target.checked)
+              }
+            />
+            <span>Problems only</span>
+          </label>
+
+          <div className="reports-filter-actions">
+            <button type="submit" disabled={isLoadingReports}>
+              Apply filters
+            </button>
+
+            <button type="button" onClick={handleReportsReset} disabled={isLoadingReports}>
+              Reset
+            </button>
+          </div>
+        </form>
+
+        {reportsError && <div className="reports-error">{reportsError}</div>}
+
+        <div className="reports-summary-grid">
+          <div className="reports-summary-card">
+            <span>Total</span>
+            <strong>{summary.total || 0}</strong>
+          </div>
+
+          <div className="reports-summary-card">
+            <span>Sent</span>
+            <strong>{summary.sent || 0}</strong>
+          </div>
+
+          <div className="reports-summary-card good">
+            <span>Read</span>
+            <strong>{summary.read || 0}</strong>
+          </div>
+
+          <div className="reports-summary-card warning">
+            <span>Waiting</span>
+            <strong>{summary.waiting_status || 0}</strong>
+          </div>
+
+          <div className="reports-summary-card danger">
+            <span>Problems</span>
+            <strong>{summary.problems || 0}</strong>
+          </div>
+
+          <div className="reports-summary-card muted">
+            <span>Duplicates</span>
+            <strong>{summary.duplicates || 0}</strong>
+          </div>
+        </div>
+
+        <div className="reports-table-card">
+          <div className="reports-table-header">
+            <h3>Report items</h3>
+            <span>{reportItems.length} rows shown</span>
+          </div>
+
+          {isLoadingReports ? (
+            <div className="empty-state">Loading reports...</div>
+          ) : reportItems.length === 0 ? (
+            <div className="empty-state">No report items found.</div>
+          ) : (
+            <div className="reports-table-wrap">
+              <table className="reports-table">
+                <thead>
+                  <tr>
+                    <th>Tour date</th>
+                    <th>Tour / option</th>
+                    <th>Reservation</th>
+                    <th>Full name</th>
+                    <th>Phone</th>
+                    <th>Template</th>
+                    <th>Result</th>
+                    <th>WhatsApp</th>
+                    <th>Problem / Reason</th>
+                    <th>Sent at</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {reportItems.map((item) => (
+                    <tr key={item.id}>
+                      <td>{formatReportDate(item.operation_date)}</td>
+
+                      <td>
+                        <strong>{item.tour_name || '-'}</strong>
+                        {item.option_code && <small>{item.option_code}</small>}
+                      </td>
+
+                      <td>
+                        <strong>{item.reservation_number || '-'}</strong>
+                        {item.batch_label && <small>{item.batch_label}</small>}
+                      </td>
+
+                      <td>{item.guest_name || '-'}</td>
+                      <td>{item.phone || '-'}</td>
+                      <td>{item.template_label || item.template_type}</td>
+
+                      <td>
+                        <span className={`report-badge ${getReportResultClass(item)}`}>
+                          {item.result_label || item.status_label}
+                        </span>
+                      </td>
+
+                      <td>{item.whatsapp_status_label || '-'}</td>
+
+                      <td>
+                        {item.problem_label ? (
+                          <>
+                            <strong className="report-problem-label">
+                              {item.problem_label}
+                            </strong>
+                            {item.reason && <small>{item.reason}</small>}
+                          </>
+                        ) : item.reason ? (
+                          <small>{item.reason}</small>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+
+                      <td>{formatReportDateTime(item.sent_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!token) {
     return (
       <div className="login-page">
@@ -1017,7 +1404,7 @@ function App() {
   }
 
   return (
-    <div className="app sendro-shell">
+    <div className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''}`}>
       {error && <div className="app-error">{error}</div>}
 
       <aside className="blue-sidebar">
@@ -1082,6 +1469,17 @@ function App() {
               <span>Archived</span>
             </button>
           </div>
+
+          <button
+            type="button"
+            className={`blue-settings-button ${activePage === APP_PAGES.REPORTS ? 'active' : ''}`}
+            onClick={() => {
+              setActivePage(APP_PAGES.REPORTS);
+              setSelectedConversation(null);
+            }}
+          >
+            Reports
+          </button>
 
           <button
             type="button"
@@ -1291,7 +1689,9 @@ function App() {
       </section>
 
       <main className="chat-panel">
-        {activePage === APP_PAGES.SETTINGS ? (
+        {activePage === APP_PAGES.REPORTS ? (
+          renderReportsPanel()
+        ) : activePage === APP_PAGES.SETTINGS ? (
           user?.role === 'admin' ? (
             <SettingsPanel />
           ) : (

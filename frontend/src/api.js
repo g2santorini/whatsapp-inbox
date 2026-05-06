@@ -204,3 +204,39 @@ export async function updateConversationFollowUp(conversationId, followUp) {
     }),
   });
 }
+
+export async function getTemplateReportItems(filters = {}) {
+  const params = new URLSearchParams();
+
+  const allowedFilters = [
+    'operation_date',
+    'date_from',
+    'date_to',
+    'option_code',
+    'status',
+    'whatsapp_status',
+    'q',
+    'limit',
+    'offset',
+  ];
+
+  allowedFilters.forEach((key) => {
+    const value = filters[key];
+
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      params.append(key, String(value).trim());
+    }
+  });
+
+  if (filters.problems_only === true) {
+    params.append('problems_only', 'true');
+  }
+
+  const queryString = params.toString();
+
+  if (!queryString) {
+    return apiRequest('/template-report-items/');
+  }
+
+  return apiRequest(`/template-report-items/?${queryString}`);
+}
