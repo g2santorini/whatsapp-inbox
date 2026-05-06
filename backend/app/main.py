@@ -29,11 +29,12 @@ from .whatsapp_sender import (
     is_valid_e164_phone,
     send_whatsapp_template_message as send_meta_template_message,
 )
+from .reporting_service import get_template_report_items_data
 
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-template-status-reporting-2026-05-06"
+APP_VERSION = "sendro-flat-reports-2026-05-06"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -1637,6 +1638,43 @@ def get_template_batch_detail(
 
     return db_batch
 
+@app.get(
+    "/template-report-items/",
+    response_model=schemas.TemplateReportItemsResponse,
+)
+def get_template_report_items(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    operation_date: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    option_code: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    whatsapp_status: str | None = Query(default=None),
+    problems_only: bool = Query(default=False),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    if not can_override_conversation_assignment(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins and power users can view template reports",
+        )
+
+    return get_template_report_items_data(
+        db=db,
+        operation_date=operation_date,
+        date_from=date_from,
+        date_to=date_to,
+        option_code=option_code,
+        status_filter=status_filter,
+        whatsapp_status=whatsapp_status,
+        problems_only=problems_only,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
 
 @app.get("/webhook/whatsapp")
 def verify_whatsapp_webhook(

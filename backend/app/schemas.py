@@ -218,3 +218,66 @@ class TemplateBatchReportSummaryOut(BaseModel):
 
 class TemplateBatchReportDetailOut(TemplateBatchReportSummaryOut):
     items: list[TemplateBatchReportItemOut] = Field(default_factory=list)
+
+# =====================
+# TEMPLATE REPORT ITEMS - FLAT OPERATIONS REPORT
+# =====================
+
+class TemplateReportSummaryOut(BaseModel):
+    total: int = 0
+
+    sent: int = 0
+    delivered: int = 0
+    read: int = 0
+    failed: int = 0
+
+    problems: int = 0
+    missing_phone: int = 0
+    invalid_phone: int = 0
+    missing_details: int = 0
+
+    duplicates: int = 0
+    waiting_status: int = 0
+
+
+class TemplateReportItemOut(BaseModel):
+    id: int
+
+    batch_id: str
+    batch_label: Optional[str] = None
+
+    operation_date: Optional[str] = None
+    option_code: Optional[str] = None
+    tour_name: Optional[str] = None
+
+    reservation_number: Optional[str] = None
+    external_id: Optional[str] = None
+
+    guest_name: Optional[str] = None
+    phone: Optional[str] = None
+
+    template_type: str
+    template_label: str
+
+    status: str
+    status_label: str
+
+    whatsapp_status: Optional[str] = None
+    whatsapp_status_label: str
+
+    result_label: str
+    problem_label: Optional[str] = None
+    reason: Optional[str] = None
+
+    whatsapp_message_id: Optional[str] = None
+
+    conversation_id: Optional[int] = None
+    message_id: Optional[int] = None
+
+    sent_at: Optional[datetime] = None
+    whatsapp_status_updated_at: Optional[datetime] = None
+
+
+class TemplateReportItemsResponse(BaseModel):
+    summary: TemplateReportSummaryOut
+    items: list[TemplateReportItemOut] = Field(default_factory=list)    
