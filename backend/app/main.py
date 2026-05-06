@@ -1,4 +1,7 @@
+import hashlib
+import json
 import os
+
 import requests
 from datetime import datetime, timedelta
 from typing import Annotated
@@ -30,7 +33,7 @@ from .whatsapp_sender import (
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-template-customer-preview-2026-05-05"
+APP_VERSION = "sendro-template-batch-reporting-2026-05-06"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -579,6 +582,288 @@ def save_sent_template_message_to_sendro(
     return db_message
 
 
+TEMPLATE_BATCH_STATUSES = {
+    "sent",
+    "failed",
+    "no_number",
+    "invalid_number",
+    "validation_failed",
+    "duplicate",
+}
+
+
+def normalize_template_batch_status(status_value: str | None) -> str | None:
+    if not status_value:
+        return None
+
+    normalized_status = status_value.strip().lower()
+
+    if normalized_status not in TEMPLATE_BATCH_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid status filter. Allowed values: "
+                "sent, failed, no_number, invalid_number, validation_failed, duplicate"
+            ),
+        )
+
+    return normalized_status
+
+
+def build_template_batch_tour_name(batch: schemas.TemplateBatchRequest) -> str | None:
+    for item in batch.items:
+        if item.tour_name and item.tour_name.strip():
+            return item.tour_name.strip()
+
+    parts = [
+        batch.vessel_name,
+        batch.cruise_type,
+        batch.cruise_slot,
+    ]
+
+    clean_parts = [part.strip() for part in parts if part and part.strip()]
+
+    if clean_parts:
+        return " ".join(clean_parts)
+
+    return None
+
+
+def build_template_duplicate_key(
+    batch: schemas.TemplateBatchRequest,
+    item: schemas.TemplateBatchItem,
+    phone: str | None,
+) -> str:
+    parts = [
+        batch.operation_date or "",
+        batch.option_code or "",
+        item.external_id or "",
+        item.template_type or "",
+        phone or item.phone or "",
+    ]
+
+    return "|".join(str(part).strip() for part in parts)
+
+
+def build_template_content_hash(item: schemas.TemplateBatchItem) -> str:
+    item_data = item.dict()
+
+    hash_payload = {
+        "template_type": item.template_type,
+        "guest_name": item_data.get("guest_name"),
+        "tour_name": item_data.get("tour_name"),
+        "reservation_number": item_data.get("reservation_number"),
+        "cruise_date": item_data.get("cruise_date"),
+        "pickup_time": item_data.get("pickup_time"),
+        "pickup_point": item_data.get("pickup_point"),
+        "google_maps": item_data.get("google_maps"),
+        "passenger_info_link": item_data.get("passenger_info_link"),
+    }
+
+    raw_payload = json.dumps(
+        hash_payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+    return hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+
+
+def get_or_reset_template_batch_report(
+    db: Session,
+    batch: schemas.TemplateBatchRequest,
+) -> models.TemplateBatch:
+    now = datetime.utcnow()
+    tour_name = build_template_batch_tour_name(batch)
+
+    db_batch = (
+        db.query(models.TemplateBatch)
+        .filter(models.TemplateBatch.batch_id == batch.batch_id)
+        .first()
+    )
+
+    if db_batch is not None:
+        db.query(models.TemplateBatchItem).filter(
+            models.TemplateBatchItem.batch_id == batch.batch_id
+        ).delete(synchronize_session=False)
+
+        db_batch.batch_label = batch.batch_label
+        db_batch.source = batch.source
+        db_batch.event = batch.event
+        db_batch.option_code = batch.option_code
+        db_batch.operation_date = batch.operation_date
+        db_batch.tour_name = tour_name
+
+        db_batch.total = 0
+        db_batch.sent = 0
+        db_batch.failed = 0
+        db_batch.no_number = 0
+        db_batch.invalid_number = 0
+        db_batch.validation_failed = 0
+        db_batch.duplicate = 0
+        db_batch.updated_at = now
+
+    else:
+        db_batch = models.TemplateBatch(
+            batch_id=batch.batch_id,
+            batch_label=batch.batch_label,
+            source=batch.source,
+            event=batch.event,
+            option_code=batch.option_code,
+            operation_date=batch.operation_date,
+            tour_name=tour_name,
+            total=0,
+            sent=0,
+            failed=0,
+            no_number=0,
+            invalid_number=0,
+            validation_failed=0,
+            duplicate=0,
+            created_at=now,
+            updated_at=now,
+        )
+
+        db.add(db_batch)
+
+    db.commit()
+    db.refresh(db_batch)
+
+    return db_batch
+
+
+def add_template_batch_item_report(
+    db: Session,
+    db_batch: models.TemplateBatch,
+    batch: schemas.TemplateBatchRequest,
+    item: schemas.TemplateBatchItem,
+    status_value: str,
+    reason: str | None = None,
+    phone: str | None = None,
+    whatsapp_message_id: str | None = None,
+    saved_message: models.Message | None = None,
+) -> models.TemplateBatchItem:
+    now = datetime.utcnow()
+
+    db_item = models.TemplateBatchItem(
+        batch_db_id=db_batch.id,
+        batch_id=batch.batch_id,
+        external_id=item.external_id,
+        reservation_number=item.reservation_number,
+        guest_name=item.guest_name,
+        phone=phone or item.phone,
+        option_code=batch.option_code,
+        operation_date=batch.operation_date,
+        tour_name=item.tour_name or db_batch.tour_name,
+        template_type=item.template_type,
+        status=status_value,
+        reason=reason,
+        whatsapp_message_id=whatsapp_message_id,
+        whatsapp_status="sent" if whatsapp_message_id else None,
+        whatsapp_status_updated_at=now if whatsapp_message_id else None,
+        conversation_id=saved_message.conversation_id if saved_message else None,
+        message_id=saved_message.id if saved_message else None,
+        duplicate_key=build_template_duplicate_key(batch, item, phone),
+        content_hash=build_template_content_hash(item),
+        created_at=now,
+    )
+
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+
+    return db_item
+
+
+def recalculate_template_batch_counts(
+    db: Session,
+    batch_id: str,
+) -> models.TemplateBatch | None:
+    db_batch = (
+        db.query(models.TemplateBatch)
+        .filter(models.TemplateBatch.batch_id == batch_id)
+        .first()
+    )
+
+    if db_batch is None:
+        return None
+
+    status_counts = {
+        "sent": 0,
+        "failed": 0,
+        "no_number": 0,
+        "invalid_number": 0,
+        "validation_failed": 0,
+        "duplicate": 0,
+    }
+
+    rows = (
+        db.query(
+            models.TemplateBatchItem.status,
+            func.count(models.TemplateBatchItem.id),
+        )
+        .filter(models.TemplateBatchItem.batch_id == batch_id)
+        .group_by(models.TemplateBatchItem.status)
+        .all()
+    )
+
+    for status_name, count_value in rows:
+        normalized_status = (status_name or "").strip().lower()
+
+        if normalized_status in status_counts:
+            status_counts[normalized_status] = count_value
+
+    db_batch.total = (
+        db.query(models.TemplateBatchItem)
+        .filter(models.TemplateBatchItem.batch_id == batch_id)
+        .count()
+    )
+    db_batch.sent = status_counts["sent"]
+    db_batch.failed = status_counts["failed"]
+    db_batch.no_number = status_counts["no_number"]
+    db_batch.invalid_number = status_counts["invalid_number"]
+    db_batch.validation_failed = status_counts["validation_failed"]
+    db_batch.duplicate = status_counts["duplicate"]
+    db_batch.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(db_batch)
+
+    return db_batch
+
+
+def extract_whatsapp_status_failure_reason(status_item: dict) -> str | None:
+    errors = status_item.get("errors")
+
+    if not isinstance(errors, list) or not errors:
+        return None
+
+    first_error = errors[0]
+
+    if not isinstance(first_error, dict):
+        return None
+
+    error_title = first_error.get("title")
+    error_message = first_error.get("message")
+    error_code = first_error.get("code")
+
+    parts = []
+
+    if error_code:
+        parts.append(f"Code: {error_code}")
+
+    if error_title:
+        parts.append(str(error_title))
+
+    if error_message:
+        parts.append(str(error_message))
+
+    if not parts:
+        return None
+
+    return " - ".join(parts)
+
+
 WHATSAPP_STATUS_PRIORITY = {
     "sent": 1,
     "delivered": 2,
@@ -939,6 +1224,8 @@ def send_template_webhook(
             flush=True,
         )
 
+    db_batch = get_or_reset_template_batch_report(db, batch)
+
     results: list[schemas.TemplateBatchResult] = []
 
     sent_count = 0
@@ -956,26 +1243,52 @@ def send_template_webhook(
 
         if not phone:
             no_number_count += 1
+
+            reason = "Phone number is empty or missing"
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="no_number",
+                reason=reason,
+                phone=item.phone,
+            )
+
             results.append(
                 schemas.TemplateBatchResult(
                     external_id=external_id,
                     template_type=template_type,
                     phone=item.phone,
                     status="no_number",
-                    reason="Phone number is empty or missing",
+                    reason=reason,
                 )
             )
             continue
 
         if not is_valid_e164_phone(phone):
             invalid_number_count += 1
+
+            reason = "Phone number must be in E.164 format, for example +306900000000"
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="invalid_number",
+                reason=reason,
+                phone=phone,
+            )
+
             results.append(
                 schemas.TemplateBatchResult(
                     external_id=external_id,
                     template_type=template_type,
                     phone=phone,
                     status="invalid_number",
-                    reason="Phone number must be in E.164 format, for example +306900000000",
+                    reason=reason,
                 )
             )
             continue
@@ -984,13 +1297,26 @@ def send_template_webhook(
             template_definition = get_template_definition(template_type)
         except KeyError as exc:
             validation_failed_count += 1
+
+            reason = str(exc)
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="validation_failed",
+                reason=reason,
+                phone=phone,
+            )
+
             results.append(
                 schemas.TemplateBatchResult(
                     external_id=external_id,
                     template_type=template_type,
                     phone=phone,
                     status="validation_failed",
-                    reason=str(exc),
+                    reason=reason,
                 )
             )
             continue
@@ -999,13 +1325,26 @@ def send_template_webhook(
 
         if missing_fields:
             validation_failed_count += 1
+
+            reason = f"Missing required fields: {', '.join(missing_fields)}"
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="validation_failed",
+                reason=reason,
+                phone=phone,
+            )
+
             results.append(
                 schemas.TemplateBatchResult(
                     external_id=external_id,
                     template_type=template_type,
                     phone=phone,
                     status="validation_failed",
-                    reason=f"Missing required fields: {', '.join(missing_fields)}",
+                    reason=reason,
                 )
             )
             continue
@@ -1024,18 +1363,32 @@ def send_template_webhook(
 
         except Exception as exc:
             failed_count += 1
+
+            reason = str(exc)
+
+            add_template_batch_item_report(
+                db=db,
+                db_batch=db_batch,
+                batch=batch,
+                item=item,
+                status_value="failed",
+                reason=reason,
+                phone=phone,
+            )
+
             results.append(
                 schemas.TemplateBatchResult(
                     external_id=external_id,
                     template_type=template_type,
                     phone=phone,
                     status="failed",
-                    reason=str(exc),
+                    reason=reason,
                 )
             )
             continue
 
         save_warning = None
+        saved_message = None
 
         try:
             saved_message = save_sent_template_message_to_sendro(
@@ -1070,6 +1423,19 @@ def send_template_webhook(
             )
 
         sent_count += 1
+
+        add_template_batch_item_report(
+            db=db,
+            db_batch=db_batch,
+            batch=batch,
+            item=item,
+            status_value="sent",
+            reason=save_warning,
+            phone=phone,
+            whatsapp_message_id=whatsapp_message_id,
+            saved_message=saved_message,
+        )
+
         results.append(
             schemas.TemplateBatchResult(
                 external_id=external_id,
@@ -1080,6 +1446,8 @@ def send_template_webhook(
                 whatsapp_message_id=whatsapp_message_id,
             )
         )
+
+    recalculate_template_batch_counts(db, batch.batch_id)
 
     return schemas.TemplateBatchResponse(
         batch_id=batch.batch_id,
@@ -1093,6 +1461,115 @@ def send_template_webhook(
         results=results,
     )
 
+@app.get(
+    "/template-batches/",
+    response_model=list[schemas.TemplateBatchReportSummaryOut],
+)
+def get_template_batches(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    operation_date: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    option_code: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    if not can_override_conversation_assignment(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins and power users can view template batch reports",
+        )
+
+    query = db.query(models.TemplateBatch)
+
+    if operation_date:
+        query = query.filter(models.TemplateBatch.operation_date == operation_date)
+
+    if date_from:
+        query = query.filter(models.TemplateBatch.operation_date >= date_from)
+
+    if date_to:
+        query = query.filter(models.TemplateBatch.operation_date <= date_to)
+
+    if option_code:
+        query = query.filter(models.TemplateBatch.option_code == option_code.strip())
+
+    normalized_status = normalize_template_batch_status(status_filter)
+
+    if normalized_status:
+        status_column = getattr(models.TemplateBatch, normalized_status)
+        query = query.filter(status_column > 0)
+
+    search_query = q.strip() if q else ""
+
+    if search_query:
+        search_pattern = f"%{search_query}%"
+
+        query = query.filter(
+            or_(
+                models.TemplateBatch.batch_id.ilike(search_pattern),
+                models.TemplateBatch.batch_label.ilike(search_pattern),
+                models.TemplateBatch.option_code.ilike(search_pattern),
+                models.TemplateBatch.tour_name.ilike(search_pattern),
+            )
+        )
+
+    return (
+        query.order_by(models.TemplateBatch.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+@app.get(
+    "/template-batches/{batch_id}",
+    response_model=schemas.TemplateBatchReportDetailOut,
+)
+def get_template_batch_detail(
+    batch_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    status_filter: str | None = Query(default=None, alias="status"),
+    whatsapp_status: str | None = Query(default=None),
+):
+    if not can_override_conversation_assignment(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins and power users can view template batch reports",
+        )
+
+    db_batch = (
+        db.query(models.TemplateBatch)
+        .filter(models.TemplateBatch.batch_id == batch_id)
+        .first()
+    )
+
+    if db_batch is None:
+        raise HTTPException(status_code=404, detail="Template batch not found")
+
+    items_query = db.query(models.TemplateBatchItem).filter(
+        models.TemplateBatchItem.batch_id == batch_id
+    )
+
+    normalized_status = normalize_template_batch_status(status_filter)
+
+    if normalized_status:
+        items_query = items_query.filter(
+            models.TemplateBatchItem.status == normalized_status
+        )
+
+    if whatsapp_status:
+        items_query = items_query.filter(
+            models.TemplateBatchItem.whatsapp_status == whatsapp_status.strip().lower()
+        )
+
+    db_batch.items = items_query.order_by(models.TemplateBatchItem.id.asc()).all()
+
+    return db_batch
 
 @app.get("/webhook/whatsapp")
 def verify_whatsapp_webhook(

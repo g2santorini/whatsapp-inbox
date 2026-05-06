@@ -145,3 +145,75 @@ class TemplateBatchResponse(BaseModel):
     invalid_number: int
     validation_failed: int
     results: list[TemplateBatchResult]
+
+
+# =====================
+# TEMPLATE BATCH REPORTING
+# =====================
+
+class TemplateBatchReportItemOut(BaseModel):
+    id: int
+
+    batch_id: str
+
+    external_id: Optional[str] = None
+    reservation_number: Optional[str] = None
+
+    guest_name: Optional[str] = None
+    phone: Optional[str] = None
+
+    option_code: Optional[str] = None
+    operation_date: Optional[str] = None
+    tour_name: Optional[str] = None
+
+    template_type: str
+
+    status: str
+    reason: Optional[str] = None
+
+    whatsapp_message_id: Optional[str] = None
+    whatsapp_status: Optional[str] = None
+    whatsapp_status_updated_at: Optional[datetime] = None
+
+    conversation_id: Optional[int] = None
+    message_id: Optional[int] = None
+
+    duplicate_key: Optional[str] = None
+    content_hash: Optional[str] = None
+
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class TemplateBatchReportSummaryOut(BaseModel):
+    id: int
+
+    batch_id: str
+    batch_label: Optional[str] = None
+
+    source: Optional[str] = None
+    event: Optional[str] = None
+
+    option_code: Optional[str] = None
+    operation_date: Optional[str] = None
+    tour_name: Optional[str] = None
+
+    total: int
+    sent: int
+    failed: int
+    no_number: int
+    invalid_number: int
+    validation_failed: int
+    duplicate: int
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class TemplateBatchReportDetailOut(TemplateBatchReportSummaryOut):
+    items: list[TemplateBatchReportItemOut] = Field(default_factory=list)
