@@ -25,6 +25,7 @@ import {
 const AUTO_REFRESH_INTERVAL_MS = 3000;
 const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
+const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 
 const CONVERSATION_VIEWS = {
   INBOX: 'inbox',
@@ -38,6 +39,62 @@ const APP_PAGES = {
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
+
+function playNotificationSound() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const audioContext = new AudioContextClass();
+
+    const playTone = (frequency, startTime, duration) => {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, startTime);
+
+      gainNode.gain.setValueAtTime(0.0001, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.22, startTime + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+
+    const startSound = () => {
+      const now = audioContext.currentTime;
+
+      playTone(880, now, 0.18);
+      playTone(1175, now + 0.16, 0.22);
+
+      window.setTimeout(() => {
+        audioContext.close().catch(() => {
+          // Ignore audio close errors.
+        });
+      }, 600);
+    };
+
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().then(startSound).catch(() => {
+        audioContext.close().catch(() => {
+          // Ignore audio close errors.
+        });
+      });
+      return;
+    }
+
+    startSound();
+  } catch {
+    // Browsers may block sound until the user interacts with the page.
+  }
+}
 
 const NEW_CONVERSATION_TEMPLATES = [
   {
@@ -104,6 +161,8 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const latestConversationRequestIdRef = useRef(0);
+  const previousBrowserUnreadCountRef = useRef(0);
+  const hasInitializedUnreadSoundRef = useRef(false);
 
   const [newMessage, setNewMessage] = useState('');
   const [error, setError] = useState('');
@@ -183,6 +242,14 @@ function App() {
       Number(conversation.unread_count || 0) > 0
     );
   }).length;
+
+  const browserUnreadCount = conversations.reduce((total, conversation) => {
+    if (isArchivedConversation(conversation)) {
+      return total;
+    }
+
+    return total + Number(conversation.unread_count || 0);
+  }, 0);
 
   const mineCount = conversations.filter(isMineConversation).length;
 
@@ -1046,6 +1113,35 @@ function App() {
 
   const lastMessageId =
     messages.length > 0 ? messages[messages.length - 1]?.id : null;
+
+  useEffect(() => {
+  if (!token || browserUnreadCount <= 0) {
+    document.title = APP_BROWSER_TITLE;
+    return;
+  }
+
+  document.title = `(${browserUnreadCount}) ${APP_BROWSER_TITLE}`;
+}, [token, browserUnreadCount]);  
+
+  useEffect(() => {
+    if (!token) {
+      previousBrowserUnreadCountRef.current = 0;
+      hasInitializedUnreadSoundRef.current = false;
+      return;
+    }
+
+    if (!hasInitializedUnreadSoundRef.current) {
+      previousBrowserUnreadCountRef.current = browserUnreadCount;
+      hasInitializedUnreadSoundRef.current = true;
+      return;
+    }
+
+    if (browserUnreadCount > previousBrowserUnreadCountRef.current) {
+      playNotificationSound();
+    }
+
+    previousBrowserUnreadCountRef.current = browserUnreadCount;
+  }, [token, browserUnreadCount]);
 
   useEffect(() => {
     if (!selectedConversation?.id || !lastMessageId) {
