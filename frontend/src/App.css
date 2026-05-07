@@ -1588,3 +1588,20 @@ textarea {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 }
+.message-author {
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.message-author-separator {
+  color: rgba(15, 23, 42, 0.38);
+  font-weight: 800;
+}
+
+.message.outgoing .message-meta {
+  justify-content: flex-end;
+}
+
+.message.incoming .message-meta {
+  justify-content: flex-start;
+}

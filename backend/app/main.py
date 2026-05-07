@@ -34,7 +34,7 @@ from .reporting_service import get_template_report_items_data
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-user-report-permissions-2026-05-07"
+APP_VERSION = "sendro-message-author-attribution-2026-05-07"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -1176,6 +1176,53 @@ def get_conversation(db: Session, conversation_id: int):
         .first()
     )
 
+def attach_message_author_data(
+    db: Session,
+    messages: list[models.Message],
+):
+    if not messages:
+        return messages
+
+    user_ids = {
+        message.user_id
+        for message in messages
+        if message.user_id is not None
+    }
+
+    if not user_ids:
+        return messages
+
+    users = (
+        db.query(models.User)
+        .filter(models.User.id.in_(user_ids))
+        .all()
+    )
+
+    users_by_id = {
+        user.id: user
+        for user in users
+    }
+
+    for message in messages:
+        author = users_by_id.get(message.user_id)
+
+        if author is None:
+            message.author_name = None
+            message.author_username = None
+            message.author_role = None
+            continue
+
+        display_name = (
+            author.full_name.strip()
+            if author.full_name and author.full_name.strip()
+            else author.username
+        )
+
+        message.author_name = display_name
+        message.author_username = author.username
+        message.author_role = author.role
+
+    return messages
 
 def touch_conversation(conversation: models.Conversation):
     now = datetime.utcnow()
@@ -2358,7 +2405,7 @@ def get_conversation_messages(
         .all()
     )
 
-    return messages
+    return attach_message_author_data(db, messages)
 
 
 @app.post(
@@ -2432,7 +2479,7 @@ def create_message(
         flush=True,
     )
 
-    return db_message
+    return attach_message_author_data(db, [db_message])[0]
 
 
 @app.post("/conversations/{conversation_id}/take/")
@@ -2740,7 +2787,7 @@ def simulate_inbound_message(
         flush=True,
     )
 
-    return db_message
+    return attach_message_author_data(db, [db_message])[0]
 
 
 @app.post("/conversations/{conversation_id}/mark-as-read/")

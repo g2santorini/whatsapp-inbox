@@ -382,6 +382,30 @@ function App() {
     return '';
   }
 
+  function getMessageAuthorLabel(message) {
+    if (!message || message.direction !== 'outbound') {
+      return '';
+    }
+
+    const authorName = String(message.author_name || '').trim();
+
+    if (authorName) {
+      return authorName;
+    }
+
+    const authorUsername = String(message.author_username || '').trim();
+
+    if (authorUsername) {
+      return authorUsername;
+    }
+
+    if (message.user_id) {
+      return `User #${message.user_id}`;
+    }
+
+    return '';
+  }
+
   function formatCustomerServiceWindow(conversation) {
     if (!conversation?.customer_service_window_open) {
       return 'Session expired — template required';
@@ -1810,6 +1834,7 @@ function App() {
                     currentMessageDate &&
                     !isSameMessageDay(currentMessageDate, previousMessageDate);
                   const messageTime = formatMessageTime(message.created_at);
+                  const messageAuthorLabel = getMessageAuthorLabel(message);
 
                   return (
                     <Fragment key={message.id}>
@@ -1825,8 +1850,16 @@ function App() {
                       >
                         <div className="message-content">{message.content}</div>
 
-                        {(messageTime || getMessageStatusLabel(message)) && (
+                        {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
                           <div className="message-meta">
+                            {messageAuthorLabel && (
+                              <span className="message-author">{messageAuthorLabel}</span>
+                            )}
+
+                            {messageAuthorLabel && messageTime && (
+                              <span className="message-author-separator">•</span>
+                            )}
+
                             {messageTime && <span>{messageTime}</span>}
 
                             {getMessageStatusLabel(message) && (

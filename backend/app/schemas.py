@@ -3,10 +3,10 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
 # =====================
 # USER
 # =====================
+
 
 class UserBase(BaseModel):
     username: str
@@ -39,6 +39,7 @@ class UserUpdate(BaseModel):
 # MESSAGE
 # =====================
 
+
 class MessageBase(BaseModel):
     content: str
 
@@ -51,6 +52,12 @@ class MessageOut(MessageBase):
     id: int
     direction: str
     is_read: bool
+
+    user_id: int
+    author_name: Optional[str] = None
+    author_username: Optional[str] = None
+    author_role: Optional[str] = None
+
     whatsapp_message_id: Optional[str] = None
     whatsapp_status: Optional[str] = None
     whatsapp_status_updated_at: Optional[datetime] = None
@@ -63,6 +70,7 @@ class MessageOut(MessageBase):
 # =====================
 # CONVERSATION
 # =====================
+
 
 class ConversationBase(BaseModel):
     contact_name: Optional[str] = None
@@ -95,6 +103,7 @@ class ConversationOut(ConversationBase):
 # =====================
 # WEBHOOK TEMPLATE API
 # =====================
+
 
 class TemplateBatchItem(BaseModel):
     external_id: str
@@ -153,6 +162,7 @@ class TemplateBatchResponse(BaseModel):
 # =====================
 # TEMPLATE BATCH REPORTING
 # =====================
+
 
 class TemplateBatchReportItemOut(BaseModel):
     id: int
@@ -221,9 +231,11 @@ class TemplateBatchReportSummaryOut(BaseModel):
 class TemplateBatchReportDetailOut(TemplateBatchReportSummaryOut):
     items: list[TemplateBatchReportItemOut] = Field(default_factory=list)
 
+
 # =====================
 # TEMPLATE REPORT ITEMS - FLAT OPERATIONS REPORT
 # =====================
+
 
 class TemplateReportSummaryOut(BaseModel):
     total: int = 0
@@ -282,4 +294,4 @@ class TemplateReportItemOut(BaseModel):
 
 class TemplateReportItemsResponse(BaseModel):
     summary: TemplateReportSummaryOut
-    items: list[TemplateReportItemOut] = Field(default_factory=list)    
+    items: list[TemplateReportItemOut] = Field(default_factory=list)
