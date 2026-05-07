@@ -23,6 +23,7 @@ class UserOut(UserBase):
     id: int
     role: str
     disabled: bool
+    can_view_reports: bool
 
     class Config:
         orm_mode = True
@@ -31,6 +32,7 @@ class UserOut(UserBase):
 class UserUpdate(BaseModel):
     role: Optional[str] = None
     disabled: Optional[bool] = None
+    can_view_reports: Optional[bool] = None
 
 
 # =====================

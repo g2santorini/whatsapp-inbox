@@ -34,7 +34,7 @@ from .reporting_service import get_template_report_items_data
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-flat-reports-2026-05-06"
+APP_VERSION = "sendro-user-report-permissions-2026-05-07"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -134,8 +134,38 @@ def ensure_message_status_columns():
             print(f"✅ Added {column_name} column to messages table", flush=True)
 
 
+def ensure_user_report_permission_column():
+    inspector = inspect(engine)
+
+    try:
+        columns = [column["name"] for column in inspector.get_columns("users")]
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    if "can_view_reports" in columns:
+        return
+
+    if engine.dialect.name == "postgresql":
+        statement = text(
+            "ALTER TABLE users "
+            "ADD COLUMN can_view_reports BOOLEAN NOT NULL DEFAULT false"
+        )
+    else:
+        statement = text(
+            "ALTER TABLE users "
+            "ADD COLUMN can_view_reports BOOLEAN NOT NULL DEFAULT 0"
+        )
+
+    with engine.begin() as connection:
+        connection.execute(statement)
+
+    print("✅ Added can_view_reports column to users table", flush=True)
+
+
 ensure_follow_up_column()
 ensure_message_status_columns()
+ensure_user_report_permission_column()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -1064,6 +1094,14 @@ def can_override_conversation_assignment(user: models.User) -> bool:
     return is_admin(user) or is_power_user(user)
 
 
+def can_view_template_reports(user: models.User) -> bool:
+    return (
+        is_admin(user)
+        or is_power_user(user)
+        or bool(getattr(user, "can_view_reports", False))
+    )
+
+
 def user_can_access_conversation(
     user: models.User,
     conversation: models.Conversation,
@@ -1531,10 +1569,10 @@ def get_template_batches(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    if not can_override_conversation_assignment(current_user):
+    if not can_view_template_reports(current_user):
         raise HTTPException(
             status_code=403,
-            detail="Only admins and power users can view template batch reports",
+            detail="You do not have permission to view template batch reports",
         )
 
     query = db.query(models.TemplateBatch)
@@ -1603,10 +1641,10 @@ def get_template_batch_detail(
     status_filter: str | None = Query(default=None, alias="status"),
     whatsapp_status: str | None = Query(default=None),
 ):
-    if not can_override_conversation_assignment(current_user):
+    if not can_view_template_reports(current_user):
         raise HTTPException(
             status_code=403,
-            detail="Only admins and power users can view template batch reports",
+            detail="You do not have permission to view template batch reports",
         )
 
     db_batch = (
@@ -1638,6 +1676,7 @@ def get_template_batch_detail(
 
     return db_batch
 
+
 @app.get(
     "/template-report-items/",
     response_model=schemas.TemplateReportItemsResponse,
@@ -1656,10 +1695,10 @@ def get_template_report_items(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
-    if not can_override_conversation_assignment(current_user):
+    if not can_view_template_reports(current_user):
         raise HTTPException(
             status_code=403,
-            detail="Only admins and power users can view template reports",
+            detail="You do not have permission to view template reports",
         )
 
     return get_template_report_items_data(
@@ -1675,6 +1714,7 @@ def get_template_report_items(
         limit=limit,
         offset=offset,
     )
+
 
 @app.get("/webhook/whatsapp")
 def verify_whatsapp_webhook(
@@ -2048,11 +2088,11 @@ def update_user(
                 detail="You cannot remove or disable the last active admin",
             )
 
-    if new_role is not None:
-        db_user.role = new_role
-
     if user_update.disabled is not None:
         db_user.disabled = user_update.disabled
+
+    if user_update.can_view_reports is not None:
+        db_user.can_view_reports = user_update.can_view_reports
 
     db.commit()
     db.refresh(db_user)

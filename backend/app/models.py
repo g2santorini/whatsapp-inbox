@@ -15,6 +15,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
+    can_view_reports = Column(Boolean, default=False, nullable=False)
 
 
 class Conversation(Base):
