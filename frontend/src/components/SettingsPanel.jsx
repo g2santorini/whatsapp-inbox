@@ -56,6 +56,25 @@ function getErrorMessage(err, fallbackMessage) {
   return errorMessage;
 }
 
+function isSystemUser(user) {
+  const username = String(user?.username || '').toLowerCase();
+  const email = String(user?.email || '').toLowerCase();
+
+  return (
+    username === 'sendro_webhook' ||
+    username === 'whatsapp_webhook' ||
+    email.endsWith('@sendro.local')
+  );
+}
+
+function reportsIncludedByRole(user) {
+  return user?.role === 'admin' || user?.role === 'power_user';
+}
+
+function userCanViewReports(user) {
+  return reportsIncludedByRole(user) || Boolean(user?.can_view_reports);
+}
+
 function formatRole(role) {
   if (role === 'admin') {
     return 'Admin';
@@ -94,6 +113,7 @@ function SettingsPanel() {
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
+  const visibleUsers = users.filter((singleUser) => !isSystemUser(singleUser));
   const activeUsers = users.filter((user) => !user.disabled).length;
   const blockedUsers = users.filter((user) => user.disabled).length;
 
@@ -172,23 +192,27 @@ function SettingsPanel() {
     }
   }
 
-  async function handleRoleChange(userId, newRole) {
+  async function handleRoleChange(userOrId, newRole) {
+    const userId =
+      typeof userOrId === 'object' && userOrId !== null ? userOrId.id : userOrId;
+
+    if (!userId || !newRole) {
+      setSettingsError('Could not update user role: missing user id or role.');
+      return;
+    }
+
     try {
       setUpdatingUserId(userId);
       setSettingsError('');
       setSettingsSuccess('');
 
-      const updatedUser = await updateUser(userId, { role: newRole });
+      await updateUser(userId, { role: newRole });
 
-      setUsers((currentUsers) =>
-        sortUsers(
-          currentUsers.map((user) => (user.id === userId ? updatedUser : user))
-        )
-      );
+      const usersData = await getUsers();
+      setUsers(sortUsers(usersData));
 
-      if (currentUser?.id === updatedUser.id) {
-        setCurrentUser(updatedUser);
-      }
+      const currentUserData = await getCurrentUser();
+      setCurrentUser(currentUserData);
 
       setSettingsSuccess('User role updated successfully.');
     } catch (err) {
@@ -230,6 +254,35 @@ function SettingsPanel() {
     }
   }
 
+  async function handleToggleReportAccess(userToUpdate) {
+    if (!userToUpdate?.id) {
+      setSettingsError('Could not update report access: missing user id.');
+      return;
+    }
+
+    try {
+      setUpdatingUserId(userToUpdate.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      await updateUser(userToUpdate.id, {
+        can_view_reports: !Boolean(userToUpdate.can_view_reports),
+      });
+
+      const usersData = await getUsers();
+      setUsers(sortUsers(usersData));
+
+      const currentUserData = await getCurrentUser();
+      setCurrentUser(currentUserData);
+
+      setSettingsSuccess('Report access updated successfully.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not update report access.'));
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -256,7 +309,7 @@ function SettingsPanel() {
       <div className="settings-overview">
         <div className="settings-overview-card">
           <span>Users</span>
-          <strong>{users.length}</strong>
+          <strong>{visibleUsers.length}</strong>
           <small>{activeUsers} active users</small>
         </div>
 
@@ -411,7 +464,7 @@ function SettingsPanel() {
           <div className="settings-loading">Loading users...</div>
         ) : (
           <div className="settings-user-table">
-            {users.map((singleUser) => {
+            {visibleUsers.map((singleUser) => {
               const isUpdating = updatingUserId === singleUser.id;
               const isCurrentUser = currentUser?.id === singleUser.id;
               const roleValue = ROLE_OPTIONS.some((role) => role.value === singleUser.role)
@@ -440,9 +493,8 @@ function SettingsPanel() {
 
                   <div className="settings-user-controls">
                     <span
-                      className={`settings-status-badge ${
-                        singleUser.disabled ? 'blocked' : 'active'
-                      }`}
+                      className={`settings-status-badge ${singleUser.disabled ? 'blocked' : 'active'
+                        }`}
                     >
                       {singleUser.disabled ? 'Blocked' : 'Active'}
                     </span>
@@ -462,6 +514,28 @@ function SettingsPanel() {
                     <span className="settings-role-badge">
                       {formatRole(singleUser.role)}
                     </span>
+
+                    <label
+                      className={`settings-report-access-toggle ${reportsIncludedByRole(singleUser) ? 'locked' : ''
+                        }`}
+                      title={
+                        reportsIncludedByRole(singleUser)
+                          ? 'Admins and Power Users can always view reports.'
+                          : 'Allow this user to view Reports.'
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={userCanViewReports(singleUser)}
+                        disabled={!isAdmin || isUpdating || reportsIncludedByRole(singleUser)}
+                        onChange={() => handleToggleReportAccess(singleUser)}
+                      />
+                      <span>
+                        {reportsIncludedByRole(singleUser)
+                          ? 'Reports by role'
+                          : 'Can view reports'}
+                      </span>
+                    </label>
 
                     <button
                       type="button"

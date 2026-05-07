@@ -146,6 +146,14 @@ function App() {
     selectedConversation?.status !== 'archived' &&
     !isSending;
 
+  const canCurrentUserViewReports =
+    Boolean(user) &&
+    (
+      user.role === 'admin' ||
+      user.role === 'power_user' ||
+      Boolean(user.can_view_reports)
+    );
+
   function isDoneConversation(conversation) {
     return conversation.status === 'closed';
   }
@@ -1470,16 +1478,18 @@ function App() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className={`blue-settings-button ${activePage === APP_PAGES.REPORTS ? 'active' : ''}`}
-            onClick={() => {
-              setActivePage(APP_PAGES.REPORTS);
-              setSelectedConversation(null);
-            }}
-          >
-            Reports
-          </button>
+          {canCurrentUserViewReports && (
+            <button
+              type="button"
+              className={`blue-settings-button ${activePage === APP_PAGES.REPORTS ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(APP_PAGES.REPORTS);
+                setSelectedConversation(null);
+              }}
+            >
+              Reports
+            </button>
+          )}
 
           <button
             type="button"
@@ -1689,7 +1699,7 @@ function App() {
       </section>
 
       <main className="chat-panel">
-        {activePage === APP_PAGES.REPORTS ? (
+        {activePage === APP_PAGES.REPORTS && canCurrentUserViewReports ? (
           renderReportsPanel()
         ) : activePage === APP_PAGES.SETTINGS ? (
           user?.role === 'admin' ? (

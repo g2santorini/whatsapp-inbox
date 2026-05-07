@@ -2088,6 +2088,9 @@ def update_user(
                 detail="You cannot remove or disable the last active admin",
             )
 
+    if new_role is not None:
+        db_user.role = new_role
+
     if user_update.disabled is not None:
         db_user.disabled = user_update.disabled
 

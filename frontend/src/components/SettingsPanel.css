@@ -574,3 +574,41 @@
     width: 100%;
   }
 }
+
+.settings-report-access-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.settings-report-access-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: #091c40;
+  cursor: pointer;
+}
+
+.settings-report-access-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.settings-report-access-toggle span {
+  line-height: 1;
+}
+.settings-report-access-toggle.locked {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #3730a3;
+}
+
+.settings-report-access-toggle.locked input {
+  cursor: not-allowed;
+}
