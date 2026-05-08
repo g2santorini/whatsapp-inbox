@@ -1621,3 +1621,49 @@ textarea {
   width: 100%;
   max-width: none;
 }
+
+/* Message bubble polish - clearer WhatsApp status marks */
+
+.message.outgoing {
+  align-self: flex-end;
+  background: #f0fdf4;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  color: #0f172a;
+}
+
+.message.incoming {
+  align-self: flex-start;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  color: #0f172a;
+}
+
+.message.outgoing .message-meta {
+  color: #475569;
+}
+
+.message.incoming .message-meta {
+  color: #64748b;
+}
+
+.message-status {
+  font-weight: 900;
+  letter-spacing: -1px;
+  margin-left: 4px;
+}
+
+.message-status-sent,
+.message-status-delivered {
+  color: #475569;
+}
+
+.message-status-read {
+  color: #007aff;
+  font-weight: 950;
+  text-shadow: 0 0 0.35px currentColor;
+}
+
+.message-status-failed {
+  color: #dc2626;
+  letter-spacing: 0;
+}
