@@ -168,6 +168,7 @@ function App() {
   const [error, setError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -1034,18 +1035,13 @@ function App() {
   async function handleDeleteConversation() {
     if (!selectedConversation) return;
 
-    const confirmed = window.confirm(
-      'Are you sure you want to delete this conversation?\n\nThis action cannot be undone.'
-    );
-
-    if (!confirmed) return;
-
     try {
       setError('');
       await deleteConversation(selectedConversation.id);
       setSelectedConversation(null);
       setMessages([]);
       setError('');
+      setShowDeleteConfirm(false);
       await refreshConversations();
     } catch (err) {
       setError(getErrorMessage(err, 'Could not delete conversation.'));
@@ -1917,7 +1913,7 @@ function App() {
                 <button
                   className="conversation-action-button release-mode"
                   type="button"
-                  onClick={handleDeleteConversation}
+                  onClick={() => setShowDeleteConfirm(true)}
                 >
                   Delete
                 </button>
@@ -2011,7 +2007,39 @@ function App() {
           <div className="no-chat-selected">Select a conversation to start.</div>
         )}
       </main>
+      {showDeleteConfirm && selectedConversation && (
+        <div
+          className="delete-confirm-overlay"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="delete-confirm-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="delete-confirm-text">
+              Are you sure you want to delete this conversation?
+            </p>
 
+            <div className="delete-confirm-actions">
+              <button
+                type="button"
+                className="delete-confirm-cancel"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="delete-confirm-delete"
+                onClick={handleDeleteConversation}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <aside className="future-panel" aria-label="Future templates and quick replies panel" />
     </div>
   );
