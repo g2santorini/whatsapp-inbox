@@ -104,6 +104,27 @@ export async function resetUserPassword(userId, password) {
   });
 }
 
+export async function getMessageMediaBlob(messageId) {
+  const token = getToken();
+
+  const headers = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE}/messages/${messageId}/media`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Media request failed with status ${response.status}`);
+  }
+
+  return response.blob();
+}
+
 export async function getConversations(searchQuery = '') {
   const trimmedSearchQuery = String(searchQuery || '').trim();
 

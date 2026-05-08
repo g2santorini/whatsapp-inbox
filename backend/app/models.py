@@ -48,6 +48,11 @@ class Message(Base):
     direction = Column(String, nullable=False, default="outbound")
     is_read = Column(Boolean, default=False, nullable=False)
 
+    message_type = Column(String, default="text", nullable=False)
+    media_id = Column(String, index=True, nullable=True)
+    media_mime_type = Column(String, nullable=True)
+    media_filename = Column(String, nullable=True)
+
     whatsapp_message_id = Column(String, index=True, nullable=True)
     whatsapp_status = Column(String, nullable=True)
     whatsapp_status_updated_at = Column(DateTime, nullable=True)

@@ -11,6 +11,7 @@ import {
   getConversations,
   createTemplateConversation,
   getMessages,
+  getMessageMediaBlob,
   sendMessage,
   takeConversation,
   releaseConversation,
@@ -294,6 +295,112 @@ Best regards,
 Sunset Oia Sailing Team`,
   },
 ];
+
+function getMediaCaption(content) {
+  const lines = String(content || '').split('\n');
+
+  const captionLine = lines.find((line) =>
+    line.trim().toLowerCase().startsWith('caption:')
+  );
+
+  if (!captionLine) {
+    return '';
+  }
+
+  return captionLine.replace(/^caption:\s*/i, '').trim();
+}
+
+function MessageMediaPreview({ message }) {
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [mediaError, setMediaError] = useState('');
+
+  const messageType = String(message?.message_type || 'text').toLowerCase();
+  const caption = getMediaCaption(message?.content);
+  const hasMedia = Boolean(message?.id && message?.media_id);
+
+  useEffect(() => {
+    let isMounted = true;
+    let objectUrl = '';
+
+    async function loadMedia() {
+      if (!hasMedia) {
+        setMediaUrl('');
+        setMediaError('');
+        return;
+      }
+
+      try {
+        setMediaError('');
+
+        const blob = await getMessageMediaBlob(message.id);
+        objectUrl = URL.createObjectURL(blob);
+
+        if (isMounted) {
+          setMediaUrl(objectUrl);
+        }
+      } catch {
+        if (isMounted) {
+          setMediaError('Could not load media.');
+        }
+      }
+    }
+
+    loadMedia();
+
+    return () => {
+      isMounted = false;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [hasMedia, message?.id]);
+
+  if (messageType === 'image' && hasMedia) {
+    return (
+      <div className="media-message-body">
+        {mediaUrl ? (
+          <a href={mediaUrl} target="_blank" rel="noreferrer">
+            <img className="message-media-image" src={mediaUrl} alt="WhatsApp media" />
+          </a>
+        ) : (
+          <div className="message-media-loading">Loading photo...</div>
+        )}
+
+        {caption && <div className="message-media-caption">{caption}</div>}
+        {mediaError && <div className="message-media-error">{mediaError}</div>}
+      </div>
+    );
+  }
+
+  if (messageType === 'document' && hasMedia) {
+    const filename = message.media_filename || 'Document';
+
+    return (
+      <div className="media-message-body">
+        <div className="message-document-card">
+          <div>
+            <strong>Document</strong>
+            <span>{filename}</span>
+          </div>
+
+          {mediaUrl ? (
+            <a href={mediaUrl} target="_blank" rel="noreferrer">
+              Open
+            </a>
+          ) : (
+            <small>Loading...</small>
+          )}
+        </div>
+
+        {caption && <div className="message-media-caption">{caption}</div>}
+        {mediaError && <div className="message-media-error">{mediaError}</div>}
+      </div>
+    );
+  }
+
+  return <div className="message-content">{message.content}</div>;
+}
 
 function App() {
   const [token, setToken] = useState(getToken());
@@ -2113,7 +2220,7 @@ function App() {
                         className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
                           }`}
                       >
-                        <div className="message-content">{message.content}</div>
+                        <MessageMediaPreview message={message} />
 
                         {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
                           <div className="message-meta">

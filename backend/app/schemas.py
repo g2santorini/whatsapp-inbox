@@ -65,13 +65,15 @@ class MessageOut(MessageBase):
     author_username: Optional[str] = None
     author_role: Optional[str] = None
 
+    message_type: str = "text"
+    media_id: Optional[str] = None
+    media_mime_type: Optional[str] = None
+    media_filename: Optional[str] = None
+
     whatsapp_message_id: Optional[str] = None
     whatsapp_status: Optional[str] = None
     whatsapp_status_updated_at: Optional[datetime] = None
     created_at: datetime
-
-    class Config:
-        orm_mode = True
 
 
 # =====================

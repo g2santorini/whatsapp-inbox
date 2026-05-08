@@ -10,7 +10,7 @@ from typing import Annotated
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
@@ -106,6 +106,18 @@ def ensure_message_status_columns():
 
     if "whatsapp_status_updated_at" not in columns:
         columns_to_add.append(("whatsapp_status_updated_at", "datetime"))
+
+    if "message_type" not in columns:
+        columns_to_add.append(("message_type", "string"))
+
+    if "media_id" not in columns:
+        columns_to_add.append(("media_id", "string"))
+
+    if "media_mime_type" not in columns:
+        columns_to_add.append(("media_mime_type", "string"))
+
+    if "media_filename" not in columns:
+        columns_to_add.append(("media_filename", "string"))
 
     if not columns_to_add:
         return
@@ -1898,7 +1910,12 @@ async def receive_whatsapp_message(
         message = value["messages"][0]
         contact = value["contacts"][0]
 
+        whatsapp_message_id = message.get("id")
         message_type = message.get("type", "unknown")
+
+        media_id = None
+        media_mime_type = None
+        media_filename = None
 
         if message_type == "text":
             text = message.get("text", {}).get("body", "")
@@ -1927,6 +1944,10 @@ async def receive_whatsapp_message(
             image = message.get("image", {})
             caption = str(image.get("caption") or "").strip()
 
+            media_id = image.get("id")
+            media_mime_type = image.get("mime_type")
+            media_filename = None
+
             text = "Photo received"
 
             if caption:
@@ -1936,6 +1957,10 @@ async def receive_whatsapp_message(
             document = message.get("document", {})
             filename = str(document.get("filename") or "").strip()
             caption = str(document.get("caption") or "").strip()
+
+            media_id = document.get("id")
+            media_mime_type = document.get("mime_type")
+            media_filename = filename or None
 
             text = "Document received"
 
@@ -1949,15 +1974,31 @@ async def receive_whatsapp_message(
             video = message.get("video", {})
             caption = str(video.get("caption") or "").strip()
 
+            media_id = video.get("id")
+            media_mime_type = video.get("mime_type")
+            media_filename = None
+
             text = "Video received"
 
             if caption:
                 text = f"{text}\nCaption: {caption}"
 
         elif message_type == "audio":
+            audio = message.get("audio", {})
+
+            media_id = audio.get("id")
+            media_mime_type = audio.get("mime_type")
+            media_filename = None
+
             text = "Audio message received"
 
         elif message_type == "sticker":
+            sticker = message.get("sticker", {})
+
+            media_id = sticker.get("id")
+            media_mime_type = sticker.get("mime_type")
+            media_filename = None
+
             text = "Sticker received"
 
         else:
@@ -2020,6 +2061,11 @@ async def receive_whatsapp_message(
             content=text,
             direction="inbound",
             is_read=False,
+            whatsapp_message_id=whatsapp_message_id,
+            message_type=message_type,
+            media_id=media_id,
+            media_mime_type=media_mime_type,
+            media_filename=media_filename,
             user_id=webhook_user.id,
             conversation_id=conversation.id,
         )
@@ -2041,6 +2087,10 @@ async def receive_whatsapp_message(
         print("Name:", name, flush=True)
         print("Phone:", phone, flush=True)
         print("Message type:", message_type, flush=True)
+        print("WhatsApp message ID:", whatsapp_message_id, flush=True)
+        print("Media ID:", media_id, flush=True)
+        print("Media MIME type:", media_mime_type, flush=True)
+        print("Media filename:", media_filename, flush=True)
         print("Text:", text, flush=True)
 
     except Exception as e:
@@ -2594,6 +2644,94 @@ def get_conversation_messages(
     )
 
     return attach_message_author_data(db, messages)
+
+
+@app.get("/messages/{message_id}/media")
+def get_message_media(
+    message_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    db_message = (
+        db.query(models.Message).filter(models.Message.id == message_id).first()
+    )
+
+    if db_message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if not db_message.media_id:
+        raise HTTPException(status_code=404, detail="Message has no media")
+
+    conversation = get_conversation(db, db_message.conversation_id)
+
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this media",
+        )
+
+    media_info_url = (
+        f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/" f"{db_message.media_id}"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+    }
+
+    media_info_response = requests.get(
+        media_info_url,
+        headers=headers,
+        timeout=15,
+    )
+
+    if media_info_response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not get WhatsApp media info: {media_info_response.text}",
+        )
+
+    media_info = media_info_response.json()
+    media_url = media_info.get("url")
+
+    if not media_url:
+        raise HTTPException(
+            status_code=502,
+            detail="WhatsApp media URL was missing",
+        )
+
+    media_response = requests.get(
+        media_url,
+        headers=headers,
+        timeout=30,
+    )
+
+    if media_response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not download WhatsApp media: {media_response.text}",
+        )
+
+    media_type = (
+        media_response.headers.get("Content-Type")
+        or db_message.media_mime_type
+        or "application/octet-stream"
+    )
+
+    safe_filename = (
+        db_message.media_filename or f"whatsapp-media-{db_message.id}"
+    ).replace('"', "")
+
+    return Response(
+        content=media_response.content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_filename}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @app.post(
