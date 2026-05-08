@@ -612,3 +612,122 @@
 .settings-report-access-toggle.locked input {
   cursor: not-allowed;
 }
+
+.edit-user-button,
+.reset-password-button {
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.edit-user-button:hover:not(:disabled),
+.reset-password-button:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.edit-user-button:disabled,
+.reset-password-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-inline-form {
+  grid-column: 1 / -1;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 18px;
+  background: #f8fafc;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-inline-form label span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.settings-inline-form input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.settings-inline-form input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.settings-inline-form input:disabled {
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.settings-inline-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.settings-inline-form-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.settings-inline-form-actions button[type='button'] {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.settings-inline-form-actions button[type='submit'] {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.settings-inline-form-actions button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.settings-inline-form-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .settings-inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-inline-form-actions {
+    justify-content: stretch;
+  }
+
+  .settings-inline-form-actions button {
+    flex: 1;
+  }
+}

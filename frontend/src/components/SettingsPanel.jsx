@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { createUser, getCurrentUser, getUsers, updateUser } from '../api';
+import {
+  createUser,
+  getCurrentUser,
+  getUsers,
+  resetUserPassword,
+  updateUser,
+} from '../api';
 import './SettingsPanel.css';
 
 const ROLE_OPTIONS = [
@@ -14,6 +20,17 @@ const EMPTY_NEW_USER_FORM = {
   full_name: '',
   password: '',
   role: 'user',
+};
+
+const EMPTY_EDIT_USER_FORM = {
+  username: '',
+  email: '',
+  full_name: '',
+};
+
+const EMPTY_PASSWORD_RESET_FORM = {
+  password: '',
+  confirmPassword: '',
 };
 
 const settingsSections = [
@@ -112,6 +129,14 @@ function SettingsPanel() {
   const [newUserForm, setNewUserForm] = useState(EMPTY_NEW_USER_FORM);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editUserForm, setEditUserForm] = useState(EMPTY_EDIT_USER_FORM);
+
+  const [resetPasswordUserId, setResetPasswordUserId] = useState(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState(
+    EMPTY_PASSWORD_RESET_FORM
+  );
+
   const isAdmin = currentUser?.role === 'admin';
   const visibleUsers = users.filter((singleUser) => !isSystemUser(singleUser));
   const activeUsers = users.filter((user) => !user.disabled).length;
@@ -153,6 +178,54 @@ function SettingsPanel() {
     setSettingsError('');
   }
 
+  function startEditingUser(userToEdit) {
+    setSettingsError('');
+    setSettingsSuccess('');
+    setResetPasswordUserId(null);
+
+    setEditingUserId(userToEdit.id);
+    setEditUserForm({
+      username: userToEdit.username || '',
+      email: userToEdit.email || '',
+      full_name: userToEdit.full_name || '',
+    });
+  }
+
+  function cancelEditingUser() {
+    setEditingUserId(null);
+    setEditUserForm(EMPTY_EDIT_USER_FORM);
+    setSettingsError('');
+  }
+
+  function updateEditUserForm(fieldName, value) {
+    setEditUserForm((currentForm) => ({
+      ...currentForm,
+      [fieldName]: value,
+    }));
+  }
+
+  function startResetPassword(userToUpdate) {
+    setSettingsError('');
+    setSettingsSuccess('');
+    setEditingUserId(null);
+
+    setResetPasswordUserId(userToUpdate.id);
+    setResetPasswordForm(EMPTY_PASSWORD_RESET_FORM);
+  }
+
+  function cancelResetPassword() {
+    setResetPasswordUserId(null);
+    setResetPasswordForm(EMPTY_PASSWORD_RESET_FORM);
+    setSettingsError('');
+  }
+
+  function updateResetPasswordForm(fieldName, value) {
+    setResetPasswordForm((currentForm) => ({
+      ...currentForm,
+      [fieldName]: value,
+    }));
+  }
+
   async function handleCreateUser(event) {
     event.preventDefault();
 
@@ -189,6 +262,95 @@ function SettingsPanel() {
       setSettingsError(getErrorMessage(err, 'Could not create user.'));
     } finally {
       setIsCreatingUser(false);
+    }
+  }
+
+  async function handleSaveUserDetails(event, userToUpdate) {
+    event.preventDefault();
+
+    const username = editUserForm.username.trim();
+    const email = editUserForm.email.trim();
+    const fullName = editUserForm.full_name.trim();
+    const isCurrentUser = currentUser?.id === userToUpdate.id;
+
+    if (!username || !email) {
+      setSettingsError('Username and email are required.');
+      return;
+    }
+
+    if (isCurrentUser && username !== userToUpdate.username) {
+      setSettingsError('You cannot change your own username.');
+      return;
+    }
+
+    try {
+      setUpdatingUserId(userToUpdate.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const updatedUser = await updateUser(userToUpdate.id, {
+        username,
+        email,
+        full_name: fullName || null,
+      });
+
+      setUsers((currentUsers) =>
+        sortUsers(
+          currentUsers.map((user) =>
+            user.id === updatedUser.id ? updatedUser : user
+          )
+        )
+      );
+
+      if (currentUser?.id === updatedUser.id) {
+        setCurrentUser(updatedUser);
+      }
+
+      setEditingUserId(null);
+      setEditUserForm(EMPTY_EDIT_USER_FORM);
+      setSettingsSuccess('User details updated successfully.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not update user details.'));
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function handleResetPassword(event, userToUpdate) {
+    event.preventDefault();
+
+    const password = resetPasswordForm.password.trim();
+    const confirmPassword = resetPasswordForm.confirmPassword.trim();
+
+    if (!password || !confirmPassword) {
+      setSettingsError('Password and confirmation are required.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setSettingsError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setSettingsError('Passwords do not match.');
+      return;
+    }
+
+    try {
+      setUpdatingUserId(userToUpdate.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      await resetUserPassword(userToUpdate.id, password);
+
+      setResetPasswordUserId(null);
+      setResetPasswordForm(EMPTY_PASSWORD_RESET_FORM);
+      setSettingsSuccess('Password reset successfully.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not reset password.'));
+    } finally {
+      setUpdatingUserId(null);
     }
   }
 
@@ -537,6 +699,28 @@ function SettingsPanel() {
                       </span>
                     </label>
 
+                    {isAdmin && (
+                      <>
+                        <button
+                          type="button"
+                          className="edit-user-button"
+                          disabled={isUpdating}
+                          onClick={() => startEditingUser(singleUser)}
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          className="reset-password-button"
+                          disabled={isUpdating}
+                          onClick={() => startResetPassword(singleUser)}
+                        >
+                          Reset password
+                        </button>
+                      </>
+                    )}
+
                     <button
                       type="button"
                       className={singleUser.disabled ? 'activate-user-button' : 'block-user-button'}
@@ -550,6 +734,93 @@ function SettingsPanel() {
                           : 'Block'}
                     </button>
                   </div>
+                  {editingUserId === singleUser.id && (
+                    <form
+                      className="settings-inline-form"
+                      onSubmit={(event) => handleSaveUserDetails(event, singleUser)}
+                    >
+                      <label>
+                        <span>Username</span>
+                        <input
+                          value={editUserForm.username}
+                          onChange={(event) => updateEditUserForm('username', event.target.value)}
+                          disabled={isUpdating || isCurrentUser}
+                        />
+                      </label>
+
+                      <label>
+                        <span>Email</span>
+                        <input
+                          value={editUserForm.email}
+                          onChange={(event) => updateEditUserForm('email', event.target.value)}
+                          type="email"
+                          disabled={isUpdating}
+                        />
+                      </label>
+
+                      <label>
+                        <span>Full name</span>
+                        <input
+                          value={editUserForm.full_name}
+                          onChange={(event) => updateEditUserForm('full_name', event.target.value)}
+                          disabled={isUpdating}
+                        />
+                      </label>
+
+                      <div className="settings-inline-form-actions">
+                        <button type="button" onClick={cancelEditingUser} disabled={isUpdating}>
+                          Cancel
+                        </button>
+
+                        <button type="submit" disabled={isUpdating}>
+                          {isUpdating ? 'Saving...' : 'Save details'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {resetPasswordUserId === singleUser.id && (
+                    <form
+                      className="settings-inline-form"
+                      onSubmit={(event) => handleResetPassword(event, singleUser)}
+                    >
+                      <label>
+                        <span>New password</span>
+                        <input
+                          value={resetPasswordForm.password}
+                          onChange={(event) =>
+                            updateResetPasswordForm('password', event.target.value)
+                          }
+                          type="password"
+                          disabled={isUpdating}
+                          placeholder="At least 6 characters"
+                        />
+                      </label>
+
+                      <label>
+                        <span>Confirm password</span>
+                        <input
+                          value={resetPasswordForm.confirmPassword}
+                          onChange={(event) =>
+                            updateResetPasswordForm('confirmPassword', event.target.value)
+                          }
+                          type="password"
+                          disabled={isUpdating}
+                          placeholder="Repeat password"
+                        />
+                      </label>
+
+                      <div className="settings-inline-form-actions">
+                        <button type="button" onClick={cancelResetPassword} disabled={isUpdating}>
+                          Cancel
+                        </button>
+
+                        <button type="submit" disabled={isUpdating}>
+                          {isUpdating ? 'Saving...' : 'Reset password'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               );
             })}

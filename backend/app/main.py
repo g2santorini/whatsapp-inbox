@@ -1176,6 +1176,7 @@ def get_conversation(db: Session, conversation_id: int):
         .first()
     )
 
+
 def attach_message_author_data(
     db: Session,
     messages: list[models.Message],
@@ -1183,25 +1184,14 @@ def attach_message_author_data(
     if not messages:
         return messages
 
-    user_ids = {
-        message.user_id
-        for message in messages
-        if message.user_id is not None
-    }
+    user_ids = {message.user_id for message in messages if message.user_id is not None}
 
     if not user_ids:
         return messages
 
-    users = (
-        db.query(models.User)
-        .filter(models.User.id.in_(user_ids))
-        .all()
-    )
+    users = db.query(models.User).filter(models.User.id.in_(user_ids)).all()
 
-    users_by_id = {
-        user.id: user
-        for user in users
-    }
+    users_by_id = {user.id: user for user in users}
 
     for message in messages:
         author = users_by_id.get(message.user_id)
@@ -1223,6 +1213,7 @@ def attach_message_author_data(
         message.author_role = author.role
 
     return messages
+
 
 def touch_conversation(conversation: models.Conversation):
     now = datetime.utcnow()
@@ -2089,7 +2080,67 @@ def update_user(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    new_username = None
+    new_email = None
+    new_full_name = None
     new_role = None
+
+    if user_update.username is not None:
+        new_username = user_update.username.strip()
+
+        if not new_username:
+            raise HTTPException(
+                status_code=400,
+                detail="Username cannot be empty",
+            )
+
+        if db_user.id == current_user.id and new_username != db_user.username:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot change your own username",
+            )
+
+        existing_username = (
+            db.query(models.User)
+            .filter(
+                models.User.username == new_username,
+                models.User.id != user_id,
+            )
+            .first()
+        )
+
+        if existing_username:
+            raise HTTPException(
+                status_code=400,
+                detail="Username already registered",
+            )
+
+    if user_update.email is not None:
+        new_email = user_update.email.strip().lower()
+
+        if not new_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email cannot be empty",
+            )
+
+        existing_email = (
+            db.query(models.User)
+            .filter(
+                models.User.email == new_email,
+                models.User.id != user_id,
+            )
+            .first()
+        )
+
+        if existing_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered",
+            )
+
+    if user_update.full_name is not None:
+        new_full_name = user_update.full_name.strip() or None
 
     if user_update.role is not None:
         new_role = user_update.role.strip().lower()
@@ -2135,6 +2186,15 @@ def update_user(
                 detail="You cannot remove or disable the last active admin",
             )
 
+    if new_username is not None:
+        db_user.username = new_username
+
+    if new_email is not None:
+        db_user.email = new_email
+
+    if user_update.full_name is not None:
+        db_user.full_name = new_full_name
+
     if new_role is not None:
         db_user.role = new_role
 
@@ -2148,6 +2208,7 @@ def update_user(
     db.refresh(db_user)
 
     return db_user
+
 
 @app.patch("/users/{user_id}/password", response_model=schemas.UserOut)
 def reset_user_password(
@@ -2181,6 +2242,7 @@ def reset_user_password(
     db.refresh(db_user)
 
     return db_user
+
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(

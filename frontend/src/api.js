@@ -97,6 +97,13 @@ export async function updateUser(userId, updates) {
   });
 }
 
+export async function resetUserPassword(userId, password) {
+  return apiRequest(`/users/${userId}/password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ password }),
+  });
+}
+
 export async function getConversations(searchQuery = '') {
   const trimmedSearchQuery = String(searchQuery || '').trim();
 
