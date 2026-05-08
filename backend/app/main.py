@@ -2149,6 +2149,38 @@ def update_user(
 
     return db_user
 
+@app.patch("/users/{user_id}/password", response_model=schemas.UserOut)
+def reset_user_password(
+    user_id: int,
+    password_reset: schemas.UserPasswordReset,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can reset user passwords",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_password = password_reset.password.strip()
+
+    if len(new_password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters long",
+        )
+
+    db_user.hashed_password = get_password_hash(new_password)
+
+    db.commit()
+    db.refresh(db_user)
+
+    return db_user
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(

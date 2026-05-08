@@ -35,6 +35,10 @@ class UserUpdate(BaseModel):
     can_view_reports: Optional[bool] = None
 
 
+class UserPasswordReset(BaseModel):
+    password: str = Field(..., min_length=6)
+
+
 # =====================
 # MESSAGE
 # =====================
