@@ -120,6 +120,15 @@ def ensure_message_status_columns():
         columns_to_add.append(("media_filename", "string"))
 
     if not columns_to_add:
+        if "message_type" in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE messages "
+                        "SET message_type = 'text' "
+                        "WHERE message_type IS NULL OR message_type = ''"
+                    )
+                )
         return
 
     with engine.begin() as connection:
@@ -145,6 +154,15 @@ def ensure_message_status_columns():
 
             connection.execute(statement)
             print(f"✅ Added {column_name} column to messages table", flush=True)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE messages "
+                "SET message_type = 'text' "
+                "WHERE message_type IS NULL OR message_type = ''"
+            )
+        )
 
 
 def ensure_user_report_permission_column():

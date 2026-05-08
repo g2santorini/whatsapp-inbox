@@ -65,7 +65,7 @@ class MessageOut(MessageBase):
     author_username: Optional[str] = None
     author_role: Optional[str] = None
 
-    message_type: str = "text"
+    message_type: Optional[str] = "text"
     media_id: Optional[str] = None
     media_mime_type: Optional[str] = None
     media_filename: Optional[str] = None
