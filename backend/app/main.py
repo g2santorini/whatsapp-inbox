@@ -2361,16 +2361,48 @@ def create_conversation_and_send_template(
             detail="Phone number must include country code, for example +306900000000",
         )
 
-    if template_request.template_name != "cruise_pickup_reminder":
+    template_type = template_request.template_name.strip()
+
+    try:
+        template_definition = get_template_definition(template_type)
+    except KeyError as exc:
         raise HTTPException(
             status_code=400,
-            detail="Only cruise_pickup_reminder is supported for now",
+            detail=str(exc),
+        ) from exc
+
+    expected_variable_count = len(template_definition.body_variable_order)
+
+    if len(template_request.variables) != expected_variable_count:
+        expected_fields = ", ".join(template_definition.body_variable_order)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{template_type} requires exactly {expected_variable_count} "
+                f"variables: {expected_fields}"
+            ),
         )
 
-    if len(template_request.variables) != 7:
+    cleaned_variables = [
+        str(variable or "").strip() for variable in template_request.variables
+    ]
+
+    missing_variable_labels = [
+        field_name
+        for field_name, variable_value in zip(
+            template_definition.body_variable_order,
+            cleaned_variables,
+        )
+        if not variable_value
+    ]
+
+    if missing_variable_labels:
         raise HTTPException(
             status_code=400,
-            detail="cruise_pickup_reminder requires exactly 7 variables",
+            detail=(
+                "Missing required template values: "
+                + ", ".join(missing_variable_labels)
+            ),
         )
 
     preview_content = template_request.preview_content.strip()
@@ -2383,9 +2415,9 @@ def create_conversation_and_send_template(
 
     whatsapp_result = send_whatsapp_template_message(
         to_phone=f"+{normalized_phone}",
-        template_name=template_request.template_name,
-        language_code=template_request.language_code,
-        variables=template_request.variables,
+        template_name=template_definition.meta_template_name,
+        language_code=template_definition.language_code,
+        variables=cleaned_variables,
     )
 
     whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
@@ -2450,7 +2482,8 @@ def create_conversation_and_send_template(
     print(
         f"[SEND_TEMPLATE] conversation_id={conversation.id} "
         f"user_id={current_user.id} "
-        f"template={template_request.template_name} "
+        f"template_type={template_type} "
+        f"meta_template={template_definition.meta_template_name} "
         f"wamid={whatsapp_message_id} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
