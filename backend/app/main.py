@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 
 import requests
 from datetime import datetime, timedelta
@@ -1123,6 +1124,13 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def is_valid_email(email: str) -> bool:
+    return bool(EMAIL_REGEX.match(email))
+
+
 def create_initial_admin_if_needed():
     db = Session(bind=engine)
 
@@ -2021,6 +2029,18 @@ def create_user(
     full_name = user.full_name.strip() if user.full_name else None
     requested_role = (user.role or "user").strip().lower()
 
+    if not username:
+        raise HTTPException(
+            status_code=400,
+            detail="Username cannot be empty",
+        )
+
+    if not is_valid_email(email):
+        raise HTTPException(
+            status_code=400,
+            detail="Please enter a valid email address",
+        )
+
     if requested_role not in ALLOWED_USER_ROLES:
         raise HTTPException(
             status_code=400,
@@ -2124,6 +2144,12 @@ def update_user(
                 detail="Email cannot be empty",
             )
 
+        if not is_valid_email(new_email):
+            raise HTTPException(
+                status_code=400,
+                detail="Please enter a valid email address",
+            )
+
         existing_email = (
             db.query(models.User)
             .filter(
@@ -2132,12 +2158,6 @@ def update_user(
             )
             .first()
         )
-
-        if existing_email:
-            raise HTTPException(
-                status_code=400,
-                detail="Email already registered",
-            )
 
     if user_update.full_name is not None:
         new_full_name = user_update.full_name.strip() or None

@@ -14,6 +14,12 @@ const ROLE_OPTIONS = [
   { value: 'user', label: 'User' },
 ];
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(email) {
+  return EMAIL_REGEX.test(String(email || '').trim().toLowerCase());
+}
+
 const EMPTY_NEW_USER_FORM = {
   username: '',
   email: '',
@@ -240,6 +246,11 @@ function SettingsPanel() {
       return;
     }
 
+    if (!isValidEmail(email)) {
+      setSettingsError('Please enter a valid email address.');
+      return;
+    }
+
     try {
       setIsCreatingUser(true);
       setSettingsError('');
@@ -275,6 +286,11 @@ function SettingsPanel() {
 
     if (!username || !email) {
       setSettingsError('Username and email are required.');
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setSettingsError('Please enter a valid email address.');
       return;
     }
 
