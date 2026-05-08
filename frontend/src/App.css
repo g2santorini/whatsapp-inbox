@@ -1605,3 +1605,19 @@ textarea {
 .message.incoming .message-meta {
   justify-content: flex-start;
 }
+
+.sendro-shell.settings-mode .conversation-column,
+.sendro-shell.settings-mode .future-panel {
+  display: none;
+}
+
+.sendro-shell.settings-mode .chat-panel {
+  grid-column: 2 / -1;
+  width: 100%;
+  max-width: none;
+}
+
+.sendro-shell.settings-mode .settings-panel {
+  width: 100%;
+  max-width: none;
+}

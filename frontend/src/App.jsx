@@ -1115,13 +1115,13 @@ function App() {
     messages.length > 0 ? messages[messages.length - 1]?.id : null;
 
   useEffect(() => {
-  if (!token || browserUnreadCount <= 0) {
-    document.title = APP_BROWSER_TITLE;
-    return;
-  }
+    if (!token || browserUnreadCount <= 0) {
+      document.title = APP_BROWSER_TITLE;
+      return;
+    }
 
-  document.title = `(${browserUnreadCount}) ${APP_BROWSER_TITLE}`;
-}, [token, browserUnreadCount]);  
+    document.title = `(${browserUnreadCount}) ${APP_BROWSER_TITLE}`;
+  }, [token, browserUnreadCount]);
 
   useEffect(() => {
     if (!token) {
@@ -1532,7 +1532,10 @@ function App() {
   }
 
   return (
-    <div className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''}`}>
+    <div
+      className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''
+        } ${activePage === APP_PAGES.SETTINGS ? 'settings-mode' : ''}`}
+    >
       {error && <div className="app-error">{error}</div>}
 
       <aside className="blue-sidebar">
@@ -1614,7 +1617,10 @@ function App() {
           <button
             type="button"
             className={`blue-settings-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
-            onClick={() => setActivePage(APP_PAGES.SETTINGS)}
+            onClick={() => {
+              setActivePage(APP_PAGES.SETTINGS);
+              setSelectedConversation(null);
+            }}
           >
             Settings
           </button>
