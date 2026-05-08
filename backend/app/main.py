@@ -1902,9 +1902,11 @@ async def receive_whatsapp_message(
 
         if message_type == "text":
             text = message.get("text", {}).get("body", "")
+
         elif message_type == "button":
             button = message.get("button", {})
             text = button.get("text") or button.get("payload") or "[Button reply]"
+
         elif message_type == "interactive":
             interactive = message.get("interactive", {})
             button_reply = interactive.get("button_reply") or {}
@@ -1915,10 +1917,49 @@ async def receive_whatsapp_message(
                 or list_reply.get("title")
                 or "[Interactive message]"
             )
+
         elif message_type == "reaction":
             reaction = message.get("reaction", {})
             emoji = reaction.get("emoji") or ""
             text = f"[Reaction: {emoji}]" if emoji else "[Reaction]"
+
+        elif message_type == "image":
+            image = message.get("image", {})
+            caption = str(image.get("caption") or "").strip()
+
+            text = "Photo received"
+
+            if caption:
+                text = f"{text}\nCaption: {caption}"
+
+        elif message_type == "document":
+            document = message.get("document", {})
+            filename = str(document.get("filename") or "").strip()
+            caption = str(document.get("caption") or "").strip()
+
+            text = "Document received"
+
+            if filename:
+                text = f"{text}: {filename}"
+
+            if caption:
+                text = f"{text}\nCaption: {caption}"
+
+        elif message_type == "video":
+            video = message.get("video", {})
+            caption = str(video.get("caption") or "").strip()
+
+            text = "Video received"
+
+            if caption:
+                text = f"{text}\nCaption: {caption}"
+
+        elif message_type == "audio":
+            text = "Audio message received"
+
+        elif message_type == "sticker":
+            text = "Sticker received"
+
         else:
             text = f"[Unsupported WhatsApp message type: {message_type}]"
 
