@@ -1744,3 +1744,50 @@ textarea {
 .delete-confirm-delete:hover {
   filter: brightness(0.97);
 }
+
+.new-template-field span {
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.template-select-highlight {
+  background: #eef4ff;
+  border: 1.5px solid #5b8def;
+  box-shadow: 0 4px 12px rgba(91, 141, 239, 0.12);
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.template-select-highlight:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: #e8f0ff;
+}
+
+.template-select-highlight:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16);
+}
+
+.template-select-highlight:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.new-template-picker-top {
+  padding: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 18px;
+  background: #f8fbff;
+}
+
+.new-template-picker-top span {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.new-template-picker-top select {
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: #ffffff;
+  font-weight: 700;
+}

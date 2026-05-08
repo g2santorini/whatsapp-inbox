@@ -342,7 +342,7 @@ function App() {
   const [newContactPhone, setNewContactPhone] = useState('');
 
   const [selectedNewConversationTemplateId, setSelectedNewConversationTemplateId] =
-    useState('cruise_pickup_reminder');
+    useState('pickup_reminder_hotel');
 
   const [newConversationTemplateValues, setNewConversationTemplateValues] =
     useState({});
@@ -842,7 +842,7 @@ function App() {
   function resetNewConversationForm() {
     setNewContactName('');
     setNewContactPhone('');
-    setSelectedNewConversationTemplateId('cruise_pickup_reminder');
+    setSelectedNewConversationTemplateId('pickup_reminder_hotel');
     setNewConversationTemplateValues({});
   }
 
@@ -1845,11 +1845,30 @@ function App() {
             <div className="new-conversation-overlay-header">
               <div>
                 <h3>New conversation</h3>
-                <p>Create a chat and send an approved template preview.</p>
+                <p>Choose a template first, then fill in the guest details.</p>
               </div>
             </div>
 
             <form className="new-conversation-form" onSubmit={handleCreateConversation}>
+              <label className="new-template-field new-template-picker-top">
+                <span>Choose template</span>
+
+                <select
+                  value={selectedNewConversationTemplateId}
+                  onChange={(event) => {
+                    setSelectedNewConversationTemplateId(event.target.value);
+                    setNewConversationTemplateValues({});
+                  }}
+                  disabled={isCreatingConversation}
+                >
+                  {NEW_CONVERSATION_TEMPLATES.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <input
                 value={newContactName}
                 onChange={(event) => setNewContactName(event.target.value)}
@@ -1865,25 +1884,6 @@ function App() {
               />
 
               <div className="new-template-box">
-                <label className="new-template-field">
-                  <span>Choose template</span>
-
-                  <select
-                    value={selectedNewConversationTemplateId}
-                    onChange={(event) => {
-                      setSelectedNewConversationTemplateId(event.target.value);
-                      setNewConversationTemplateValues({});
-                    }}
-                    disabled={isCreatingConversation}
-                  >
-                    {NEW_CONVERSATION_TEMPLATES.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
                 {getSelectedNewConversationTemplate()?.fields.map((field) => (
                   <label className="new-template-field" key={field.key}>
                     <span>{field.label}</span>
