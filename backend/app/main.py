@@ -2979,10 +2979,34 @@ def delete_conversation(
             detail="Only admins can delete conversations",
         )
 
+    message_ids = [
+        message_id
+        for (message_id,) in (
+            db.query(models.Message.id)
+            .filter(models.Message.conversation_id == conversation_id)
+            .all()
+        )
+    ]
+
+    if message_ids:
+        db.query(models.TemplateBatchItem).filter(
+            models.TemplateBatchItem.message_id.in_(message_ids)
+        ).update(
+            {models.TemplateBatchItem.message_id: None},
+            synchronize_session=False,
+        )
+
+    db.query(models.TemplateBatchItem).filter(
+        models.TemplateBatchItem.conversation_id == conversation_id
+    ).update(
+        {models.TemplateBatchItem.conversation_id: None},
+        synchronize_session=False,
+    )
+
     deleted_messages_count = (
         db.query(models.Message)
         .filter(models.Message.conversation_id == conversation_id)
-        .delete()
+        .delete(synchronize_session=False)
     )
 
     db.delete(conversation)
