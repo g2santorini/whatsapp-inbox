@@ -173,6 +173,44 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "guest_name",
         ),
     ),
+
+    # Manual Sendro template for guests with no transfer, meeting directly at Amoudi port.
+    "no_transfer_amoudi": TemplateDefinition(
+        template_type="no_transfer_amoudi",
+        meta_template_name="no_transfer_amoudi",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "reservation_number",
+            "pickup_time",
+            "cruise_date",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "reservation_number",
+            "pickup_time",
+            "cruise_date",
+        ),
+    ),
+
+    # Manual Sendro template for sailing cruise transfer driver delay notices.
+    "driver_delay_sailing_cruise": TemplateDefinition(
+        template_type="driver_delay_sailing_cruise",
+        meta_template_name="driver_delay_sailing_cruise",
+        language_code="en",
+        required_fields=(
+            "external_id",
+            "phone",
+            "guest_name",
+            "delay_minutes",
+        ),
+        body_variable_order=(
+            "guest_name",
+            "delay_minutes",
+        ),
+    ),
 }
 
 

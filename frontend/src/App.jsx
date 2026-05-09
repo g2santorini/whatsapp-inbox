@@ -294,6 +294,60 @@ As discussed, please send us the requested details here on WhatsApp, and our tea
 Best regards,
 Sunset Oia Sailing Team`,
   },
+  {
+    id: 'no_transfer_amoudi',
+    label: 'No transfer - Amoudi',
+    metaTemplateName: 'no_transfer_amoudi',
+    languageCode: 'en',
+    fields: [
+      { key: 'guestName', label: 'Guest name', placeholder: 'Tom Maguire' },
+      { key: 'reservationNumber', label: 'Reservation number', placeholder: '0025255180/GYG2Q9NWF239' },
+      { key: 'meetingTime', label: 'Meeting time', placeholder: '09:15' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '10/05/2026' },
+    ],
+    buildVariables: (values) => [
+      values.guestName,
+      values.reservationNumber,
+      values.meetingTime,
+      values.cruiseDate,
+    ],
+    buildPreview: (values) =>
+      `Dear ${values.guestName || '{{1}}'},
+
+We are contacting you from Sunset Oia regarding your sailing cruise with reservation number ${values.reservationNumber || '{{2}}'}.
+
+We would like to remind you that you will have to be at Amoudi port at ${values.meetingTime || '{{3}}'} for your sailing cruise on ${values.cruiseDate || '{{4}}'}.
+
+Google Maps: https://goo.gl/maps/jJrjT9rPvnK81xH4A
+
+Should you need any additional information regarding your cruise, please call us at +30 22860 72200 or contact us on WhatsApp.
+
+Best regards,
+Sunset Oia Sailing team`,
+  },
+  {
+    id: 'driver_delay_sailing_cruise',
+    label: 'Driver delay - Sailing cruise',
+    metaTemplateName: 'driver_delay_sailing_cruise',
+    languageCode: 'en',
+    fields: [
+      { key: 'guestName', label: 'Guest name', placeholder: 'Tom Maguire' },
+      { key: 'delayMinutes', label: 'Delay minutes', placeholder: '10' },
+    ],
+    buildVariables: (values) => [
+      values.guestName,
+      values.delayMinutes,
+    ],
+    buildPreview: (values) =>
+      `Dear ${values.guestName || '{{1}}'},
+
+We would like to inform you that the driver for your sailing cruise is expected to be approximately ${values.delayMinutes || '{{2}}'} minutes late.
+
+We sincerely apologize for the inconvenience and thank you for your kind understanding.
+
+Best regards,
+Sunset Oia Sailing team`,
+  },
 ];
 
 function getMediaCaption(content) {
