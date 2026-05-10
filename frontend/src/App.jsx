@@ -585,6 +585,10 @@ function App() {
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
 
   const filteredConversations = conversations.filter((conversation) => {
+    if (normalizedInboxSearchQuery) {
+      return true;
+    }
+
     let matchesActiveView = true;
 
     if (activeConversationView === CONVERSATION_VIEWS.INBOX) {
@@ -608,7 +612,6 @@ function App() {
     }
 
     return true;
-
   });
 
   function getAssignedUser(userId) {
