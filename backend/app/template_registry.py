@@ -27,7 +27,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "reservation_number",
         ),
     ),
-
     "pickup_reminder_hotel": TemplateDefinition(
         template_type="pickup_reminder_hotel",
         meta_template_name="pickup_reminder_hotel",
@@ -51,7 +50,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "pickup_point",
         ),
     ),
-
     "pickup_reminder_hotel_missing_details": TemplateDefinition(
         template_type="pickup_reminder_hotel_missing_details",
         meta_template_name="pickup_reminder_hotel_missing_details",
@@ -77,7 +75,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "passenger_info_link",
         ),
     ),
-
     "pickup_reminder_meeting_point": TemplateDefinition(
         template_type="pickup_reminder_meeting_point",
         meta_template_name="pickup_reminder_meeting_point",
@@ -103,7 +100,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "google_maps",
         ),
     ),
-
     "pickup_reminder_meeting_point_missing_details": TemplateDefinition(
         template_type="pickup_reminder_meeting_point_missing_details",
         meta_template_name="pickup_reminder_meeting_point_missing_details",
@@ -131,7 +127,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "passenger_info_link",
         ),
     ),
-
     # Old template. Keep for compatibility while we phase it out.
     "cruise_pickup_reminder": TemplateDefinition(
         template_type="cruise_pickup_reminder",
@@ -158,7 +153,6 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "google_maps",
         ),
     ),
-
     # Manual Sendro template. Not expected from Giannis / CRM for now.
     "post_call_followup_request": TemplateDefinition(
         template_type="post_call_followup_request",
@@ -169,11 +163,8 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "phone",
             "guest_name",
         ),
-        body_variable_order=(
-            "guest_name",
-        ),
+        body_variable_order=("guest_name",),
     ),
-
     # Manual Sendro template for guests with no transfer, meeting directly at Amoudi port.
     "no_transfer_amoudi": TemplateDefinition(
         template_type="no_transfer_amoudi",
@@ -194,11 +185,10 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "cruise_date",
         ),
     ),
-
     # Manual Sendro template for sailing cruise transfer driver delay notices.
-    "driver_delay_sailing_cruise": TemplateDefinition(
-        template_type="driver_delay_sailing_cruise",
-        meta_template_name="driver_delay_sailing_cruise",
+    "driver_delay_notice": TemplateDefinition(
+        template_type="driver_delay_notice",
+        meta_template_name="driver_delay_notice",
         language_code="en",
         required_fields=(
             "external_id",
@@ -238,7 +228,9 @@ def missing_required_fields(template_type: str, item_data: dict[str, Any]) -> li
     ]
 
 
-def build_template_variables(template_type: str, item_data: dict[str, Any]) -> list[str]:
+def build_template_variables(
+    template_type: str, item_data: dict[str, Any]
+) -> list[str]:
     template = get_template_definition(template_type)
 
     return [

@@ -326,9 +326,9 @@ Best regards,
 Sunset Oia Sailing team`,
   },
   {
-    id: 'driver_delay_sailing_cruise',
+    id: 'driver_delay_notice',
     label: 'Driver delay - Sailing cruise',
-    metaTemplateName: 'driver_delay_sailing_cruise',
+    metaTemplateName: 'driver_delay_notice',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'Tom Maguire' },
