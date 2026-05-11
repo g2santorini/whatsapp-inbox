@@ -3072,6 +3072,51 @@ def archive_conversation(
     }
 
 
+@app.post("/conversations/{conversation_id}/unarchive/")
+def unarchive_conversation(
+    conversation_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    conversation = get_conversation(db, conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id is not None
+        and conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned user, a power user, or an admin can unarchive this conversation",
+        )
+
+    conversation.status = "closed"
+    touch_conversation(conversation)
+
+    db.commit()
+
+    print(
+        f"[UNARCHIVE] conversation_id={conversation_id} unarchived_by={current_user.id}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "conversation_status": conversation.status,
+        "unread_count": conversation.unread_count,
+    }
+
+
 @app.post("/conversations/{conversation_id}/release/")
 def release_conversation(
     conversation_id: int,

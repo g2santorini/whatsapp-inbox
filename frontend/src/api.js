@@ -205,6 +205,12 @@ export async function archiveConversation(conversationId) {
   });
 }
 
+export async function unarchiveConversation(conversationId) {
+  return apiRequest(`/conversations/${conversationId}/unarchive/`, {
+    method: 'POST',
+  });
+}
+
 export async function deleteConversation(conversationId) {
   return apiRequest(`/conversations/${conversationId}/`, {
     method: 'DELETE',

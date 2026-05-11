@@ -18,6 +18,7 @@ import {
   closeConversation,
   archiveConversation,
   deleteConversation,
+  unarchiveConversation,
   markConversationAsRead,
   updateConversationFollowUp,
   getTemplateReportItems,
@@ -1415,10 +1416,24 @@ function App() {
 
     try {
       setError('');
-      await archiveConversation(selectedConversation.id);
+
+      if (selectedConversation.status === 'archived') {
+        await unarchiveConversation(selectedConversation.id);
+        setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+      } else {
+        await archiveConversation(selectedConversation.id);
+      }
+
       await refreshConversations(selectedConversation.id);
     } catch (err) {
-      setError(getErrorMessage(err, 'Could not archive conversation.'));
+      setError(
+        getErrorMessage(
+          err,
+          selectedConversation.status === 'archived'
+            ? 'Could not move conversation back to Inbox.'
+            : 'Could not archive conversation.'
+        )
+      );
     }
   }
 
@@ -2295,9 +2310,8 @@ function App() {
                   className="conversation-action-button"
                   type="button"
                   onClick={handleArchiveConversation}
-                  disabled={selectedConversation.status === 'archived'}
                 >
-                  Archive
+                  {selectedConversation.status === 'archived' ? 'Back to Inbox' : 'Archive'}
                 </button>
 
                 <button
