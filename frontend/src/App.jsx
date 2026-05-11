@@ -364,6 +364,61 @@ function getMediaCaption(content) {
   return captionLine.replace(/^caption:\s*/i, '').trim();
 }
 
+const MESSAGE_URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+function renderMessageContentWithLinks(content) {
+  const text = String(content || '');
+
+  if (!text) {
+    return null;
+  }
+
+  const parts = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(MESSAGE_URL_REGEX)) {
+    const urlText = match[0];
+    const matchIndex = match.index ?? 0;
+
+    if (matchIndex > lastIndex) {
+      parts.push(text.slice(lastIndex, matchIndex));
+    }
+
+    let cleanUrl = urlText;
+    let trailingText = '';
+
+    while (/[.,!?;:)]$/.test(cleanUrl)) {
+      trailingText = cleanUrl.slice(-1) + trailingText;
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+
+    const href = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
+
+    parts.push(
+      <a
+        key={`message-link-${matchIndex}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {cleanUrl}
+      </a>
+    );
+
+    if (trailingText) {
+      parts.push(trailingText);
+    }
+
+    lastIndex = matchIndex + urlText.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+
 function MessageMediaPreview({ message }) {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaError, setMediaError] = useState('');
@@ -453,7 +508,11 @@ function MessageMediaPreview({ message }) {
     );
   }
 
-  return <div className="message-content">{message.content}</div>;
+  return (
+    <div className="message-content">
+      {renderMessageContentWithLinks(message.content)}
+    </div>
+  );
 }
 
 function App() {
@@ -2312,9 +2371,15 @@ function App() {
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <input
+              <textarea
                 value={newMessage}
                 onChange={(event) => setNewMessage(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    handleSendMessage(event);
+                  }
+                }}
                 placeholder={
                   selectedConversation.status === 'archived'
                     ? 'Archived conversation'
@@ -2327,6 +2392,7 @@ function App() {
                         : 'Type a message...'
                 }
                 disabled={!canSendMessage}
+                rows="2"
               />
 
               <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
