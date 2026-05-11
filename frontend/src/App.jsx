@@ -461,8 +461,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
 
-  const [username, setUsername] = useState('testuser');
-  const [password, setPassword] = useState('testpass');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
   const [conversations, setConversations] = useState([]);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
