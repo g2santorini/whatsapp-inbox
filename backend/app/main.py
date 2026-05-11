@@ -1137,12 +1137,17 @@ def user_can_access_conversation(
     user: models.User,
     conversation: models.Conversation,
 ) -> bool:
-    if can_view_all_conversations(user):
-        return True
+    return True
 
+
+def user_can_mark_conversation_as_read(
+    user: models.User,
+    conversation: models.Conversation,
+) -> bool:
     return (
         conversation.assigned_to_user_id is None
         or conversation.assigned_to_user_id == user.id
+        or can_override_conversation_assignment(user)
     )
 
 
@@ -2412,14 +2417,6 @@ def get_conversations(
 ):
     query = db.query(models.Conversation)
 
-    if not can_view_all_conversations(current_user):
-        query = query.filter(
-            or_(
-                models.Conversation.assigned_to_user_id.is_(None),
-                models.Conversation.assigned_to_user_id == current_user.id,
-            )
-        )
-
     search_query = q.strip() if q else ""
 
     if search_query:
@@ -3218,6 +3215,12 @@ def mark_conversation_as_read(
         raise HTTPException(
             status_code=403,
             detail="You do not have access to this conversation",
+        )
+
+    if not user_can_mark_conversation_as_read(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned user, a power user, or an admin can mark this conversation as read",
         )
 
     unread_messages = (

@@ -1254,7 +1254,13 @@ function App() {
     setActivePage(APP_PAGES.INBOX);
     setSelectedConversation(conversation);
 
-    if (conversation.unread_count > 0) {
+    const isTakenByAnotherUser =
+      conversation.assigned_to_user_id !== null &&
+      conversation.assigned_to_user_id !== user?.id &&
+      user?.role !== 'admin' &&
+      user?.role !== 'power_user';
+
+    if (conversation.unread_count > 0 && !isTakenByAnotherUser) {
       try {
         await markConversationAsRead(conversation.id);
         await refreshConversations(conversation.id);
