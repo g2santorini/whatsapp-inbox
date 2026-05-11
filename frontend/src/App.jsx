@@ -2382,6 +2382,15 @@ function App() {
                           </div>
                         )}
                       </div>
+
+                      {message.reaction_emoji && (
+                        <div
+                          className={`message-reaction ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                            }`}
+                        >
+                          {message.reaction_emoji}
+                        </div>
+                      )}
                     </Fragment>
                   );
                 })

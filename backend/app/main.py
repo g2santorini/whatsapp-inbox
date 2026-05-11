@@ -119,6 +119,12 @@ def ensure_message_status_columns():
     if "media_filename" not in columns:
         columns_to_add.append(("media_filename", "string"))
 
+    if "reaction_emoji" not in columns:
+        columns_to_add.append(("reaction_emoji", "string"))
+
+    if "reaction_updated_at" not in columns:
+        columns_to_add.append(("reaction_updated_at", "datetime"))
+
     if not columns_to_add:
         if "message_type" in columns:
             with engine.begin() as connection:
@@ -1960,8 +1966,43 @@ async def receive_whatsapp_message(
 
         elif message_type == "reaction":
             reaction = message.get("reaction", {})
-            emoji = reaction.get("emoji") or ""
-            text = f"[Reaction: {emoji}]" if emoji else "[Reaction]"
+            reaction_message_id = reaction.get("message_id")
+            emoji = str(reaction.get("emoji") or "").strip()
+
+            original_message = None
+
+            if reaction_message_id:
+                original_message = (
+                    db.query(models.Message)
+                    .filter(models.Message.whatsapp_message_id == reaction_message_id)
+                    .first()
+                )
+
+            if original_message is not None:
+                original_message.reaction_emoji = emoji or None
+                original_message.reaction_updated_at = datetime.utcnow()
+
+                db.commit()
+
+                print(
+                    f"[REACTION] original_message_id={original_message.id} "
+                    f"original_wamid={reaction_message_id} "
+                    f"reaction_wamid={whatsapp_message_id} "
+                    f"emoji={emoji!r}",
+                    flush=True,
+                )
+
+                return {"status": "ok"}
+
+            print(
+                f"[REACTION_UNMATCHED] "
+                f"original_wamid={reaction_message_id} "
+                f"reaction_wamid={whatsapp_message_id} "
+                f"emoji={emoji!r}",
+                flush=True,
+            )
+
+            return {"status": "ok"}
 
         elif message_type == "image":
             image = message.get("image", {})

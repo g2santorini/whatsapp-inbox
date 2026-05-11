@@ -57,6 +57,9 @@ class Message(Base):
     whatsapp_status = Column(String, nullable=True)
     whatsapp_status_updated_at = Column(DateTime, nullable=True)
 
+    reaction_emoji = Column(String, nullable=True)
+    reaction_updated_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -73,6 +73,10 @@ class MessageOut(MessageBase):
     whatsapp_message_id: Optional[str] = None
     whatsapp_status: Optional[str] = None
     whatsapp_status_updated_at: Optional[datetime] = None
+
+    reaction_emoji: Optional[str] = None
+    reaction_updated_at: Optional[datetime] = None
+
     created_at: datetime
 
 
