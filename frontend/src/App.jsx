@@ -1487,7 +1487,7 @@ function App() {
 
       setOpenReactionPickerMessageId(null);
 
-      await loadConversations({ preserveSelection: true });
+      await refreshConversations(selectedConversation?.id || null);
     } catch (err) {
       setError(err.message || 'Failed to send reaction');
     } finally {
