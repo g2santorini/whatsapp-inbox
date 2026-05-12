@@ -2032,3 +2032,19 @@ textarea {
   cursor: not-allowed;
   opacity: 0.45;
 }
+
+.message-reaction-trigger,
+.message-reaction-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  text-align: center;
+  line-height: 1;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  appearance: none;
+}
+
+.message-reaction-trigger.has-reaction {
+  font-size: 15px;
+}
