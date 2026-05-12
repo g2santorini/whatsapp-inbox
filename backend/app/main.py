@@ -319,9 +319,6 @@ def attach_customer_service_window_data(
             effective_direction
         )
 
-    last_message_direction_by_conversation_id = {
-        row.conversation_id: row.direction for row in last_message_direction_rows
-    }
 
     for conversation in conversations:
         last_inbound_at = last_inbound_by_conversation_id.get(conversation.id)

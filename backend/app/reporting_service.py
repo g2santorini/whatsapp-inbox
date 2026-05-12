@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 
 from . import models, schemas
 
-
 ALLOWED_TEMPLATE_ITEM_STATUSES = {
     "sent",
     "failed",
@@ -48,6 +47,36 @@ def normalize_filter_value(value: str | None) -> str | None:
         return None
 
     return normalized_value
+
+
+def get_operation_date_filter_values(operation_date: str) -> list[str]:
+    clean_date = operation_date.strip()
+
+    if not clean_date:
+        return []
+
+    values = {clean_date}
+
+    # Date picker format: YYYY-MM-DD
+    parts = clean_date.split("-")
+
+    if len(parts) == 3:
+        year, month, day = parts
+
+        if len(year) == 4:
+            values.add(f"{day}/{month}/{year}")
+            values.add(f"{int(day)}/{int(month)}/{year}")
+
+    # Alternative format: DD/MM/YYYY
+    slash_parts = clean_date.split("/")
+
+    if len(slash_parts) == 3:
+        day, month, year = slash_parts
+
+        if len(year) == 4:
+            values.add(f"{year}-{month.zfill(2)}-{day.zfill(2)}")
+
+    return list(values)
 
 
 def normalize_template_item_status(status_value: str | None) -> str | None:
@@ -390,9 +419,12 @@ def get_template_report_items_data(
     )
 
     if operation_date:
-        query = query.filter(
-            models.TemplateBatchItem.operation_date == operation_date.strip()
-        )
+        operation_date_values = get_operation_date_filter_values(operation_date)
+
+        if operation_date_values:
+            query = query.filter(
+                models.TemplateBatchItem.operation_date.in_(operation_date_values)
+            )
 
     if date_from:
         query = query.filter(
@@ -400,9 +432,7 @@ def get_template_report_items_data(
         )
 
     if date_to:
-        query = query.filter(
-            models.TemplateBatchItem.operation_date <= date_to.strip()
-        )
+        query = query.filter(models.TemplateBatchItem.operation_date <= date_to.strip())
 
     if option_code:
         query = query.filter(
