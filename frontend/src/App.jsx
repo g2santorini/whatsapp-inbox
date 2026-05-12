@@ -2421,11 +2421,8 @@ function App() {
                         )}
                       </div>
 
-                      {message.reaction_emoji && (
-                        <div
-                          className={`message-reaction ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                            }`}
-                        >
+                      {message.direction === 'outbound' && message.reaction_emoji && (
+                        <div className="message-reaction outgoing">
                           {message.reaction_emoji}
                         </div>
                       )}
