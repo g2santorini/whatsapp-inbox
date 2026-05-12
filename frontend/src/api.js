@@ -256,6 +256,8 @@ export async function getTemplateReportItems(filters = {}) {
     'option_code',
     'status',
     'whatsapp_status',
+    'time_slot',
+    'result_status',
     'q',
     'limit',
     'offset',

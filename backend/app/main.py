@@ -298,6 +298,7 @@ def attach_customer_service_window_data(
         db.query(
             models.Message.conversation_id,
             models.Message.direction,
+            models.Message.reaction_emoji,
         )
         .join(
             latest_message_rows,
@@ -305,6 +306,18 @@ def attach_customer_service_window_data(
         )
         .all()
     )
+
+    last_message_direction_by_conversation_id = {}
+
+    for row in last_message_direction_rows:
+        effective_direction = row.direction
+
+        if row.direction == "inbound" and row.reaction_emoji:
+            effective_direction = "outbound"
+
+        last_message_direction_by_conversation_id[row.conversation_id] = (
+            effective_direction
+        )
 
     last_message_direction_by_conversation_id = {
         row.conversation_id: row.direction for row in last_message_direction_rows
@@ -1778,6 +1791,8 @@ def get_template_report_items(
     option_code: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     whatsapp_status: str | None = Query(default=None),
+    time_slot: str | None = Query(default=None),
+    result_status: str | None = Query(default=None),
     problems_only: bool = Query(default=False),
     q: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
@@ -1797,6 +1812,8 @@ def get_template_report_items(
         option_code=option_code,
         status_filter=status_filter,
         whatsapp_status=whatsapp_status,
+        time_slot=time_slot,
+        result_status=result_status,
         problems_only=problems_only,
         q=q,
         limit=limit,

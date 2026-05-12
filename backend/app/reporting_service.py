@@ -21,6 +21,22 @@ ALLOWED_WHATSAPP_STATUSES = {
     "failed",
 }
 
+ALLOWED_REPORT_TIME_SLOTS = {
+    "morning",
+    "sunset",
+}
+
+ALLOWED_REPORT_RESULT_STATUSES = {
+    "sent_waiting",
+    "delivered",
+    "read",
+    "failed",
+    "missing_phone",
+    "wrong_number",
+    "missing_details",
+    "duplicate",
+}
+
 
 def normalize_filter_value(value: str | None) -> str | None:
     if not value:
@@ -70,6 +86,40 @@ def normalize_whatsapp_status(whatsapp_status: str | None) -> str | None:
     return normalized_status
 
 
+def normalize_report_time_slot(time_slot: str | None) -> str | None:
+    normalized_time_slot = normalize_filter_value(time_slot)
+
+    if normalized_time_slot is None:
+        return None
+
+    if normalized_time_slot not in ALLOWED_REPORT_TIME_SLOTS:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid time_slot filter. Allowed values: morning, sunset",
+        )
+
+    return normalized_time_slot
+
+
+def normalize_report_result_status(result_status: str | None) -> str | None:
+    normalized_status = normalize_filter_value(result_status)
+
+    if normalized_status is None:
+        return None
+
+    if normalized_status not in ALLOWED_REPORT_RESULT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid result_status filter. Allowed values: "
+                "sent_waiting, delivered, read, failed, missing_phone, "
+                "wrong_number, missing_details, duplicate"
+            ),
+        )
+
+    return normalized_status
+
+
 def get_template_label(template_type: str) -> str:
     labels = {
         "pickup_reminder_hotel": "Pickup reminder - hotel",
@@ -79,6 +129,8 @@ def get_template_label(template_type: str) -> str:
         "missing_hotel_details": "Missing hotel details request",
         "cruise_pickup_reminder": "Pickup reminder - legacy",
         "post_call_followup_request": "Post-call follow-up request",
+        "no_transfer_amoudi": "No transfer - Amoudi meeting point",
+        "driver_delay_sailing_cruise": "Driver delay - sailing cruise",
     }
 
     if template_type in labels:
@@ -142,27 +194,27 @@ def get_result_label(
 ) -> str:
     if status_value == "sent":
         if whatsapp_status == "read":
-            return "Sent and read"
+            return "Read"
 
         if whatsapp_status == "delivered":
-            return "Sent and delivered"
+            return "Delivered"
 
         if whatsapp_status == "failed":
-            return "Sent, then failed by WhatsApp"
+            return "Failed"
 
-        return "Sent, waiting for delivery/read"
+        return "Sent / waiting"
 
     if status_value == "duplicate":
-        return "Blocked as duplicate"
+        return "Duplicate"
 
     if status_value == "no_number":
-        return "Not sent - missing phone"
+        return "Missing phone"
 
     if status_value == "invalid_number":
-        return "Not sent - invalid phone"
+        return "Wrong number"
 
     if status_value == "validation_failed":
-        return "Not sent - missing details"
+        return "Missing details"
 
     if status_value == "failed":
         return "Failed"
@@ -186,6 +238,48 @@ def is_problem_item(
         return True
 
     return False
+
+
+def apply_result_status_filter(query, result_status: str | None):
+    if not result_status:
+        return query
+
+    if result_status == "sent_waiting":
+        return query.filter(
+            models.TemplateBatchItem.status == "sent",
+            or_(
+                models.TemplateBatchItem.whatsapp_status.is_(None),
+                models.TemplateBatchItem.whatsapp_status == "sent",
+            ),
+        )
+
+    if result_status == "delivered":
+        return query.filter(models.TemplateBatchItem.whatsapp_status == "delivered")
+
+    if result_status == "read":
+        return query.filter(models.TemplateBatchItem.whatsapp_status == "read")
+
+    if result_status == "failed":
+        return query.filter(
+            or_(
+                models.TemplateBatchItem.status == "failed",
+                models.TemplateBatchItem.whatsapp_status == "failed",
+            )
+        )
+
+    if result_status == "missing_phone":
+        return query.filter(models.TemplateBatchItem.status == "no_number")
+
+    if result_status == "wrong_number":
+        return query.filter(models.TemplateBatchItem.status == "invalid_number")
+
+    if result_status == "missing_details":
+        return query.filter(models.TemplateBatchItem.status == "validation_failed")
+
+    if result_status == "duplicate":
+        return query.filter(models.TemplateBatchItem.status == "duplicate")
+
+    return query
 
 
 def build_template_report_summary(
@@ -241,38 +335,27 @@ def build_template_report_item_out(
 
     return schemas.TemplateReportItemOut(
         id=item.id,
-
         batch_id=item.batch_id,
         batch_label=batch_label,
-
         operation_date=item.operation_date,
         option_code=item.option_code,
         tour_name=item.tour_name,
-
         reservation_number=item.reservation_number,
         external_id=item.external_id,
-
         guest_name=item.guest_name,
         phone=item.phone,
-
         template_type=item.template_type,
         template_label=get_template_label(item.template_type),
-
         status=status_value,
         status_label=get_status_label(status_value),
-
         whatsapp_status=whatsapp_status,
         whatsapp_status_label=get_whatsapp_status_label(whatsapp_status),
-
         result_label=get_result_label(status_value, whatsapp_status),
         problem_label=get_problem_label(status_value, whatsapp_status),
         reason=item.reason,
-
         whatsapp_message_id=item.whatsapp_message_id,
-
         conversation_id=item.conversation_id,
         message_id=item.message_id,
-
         sent_at=item.created_at,
         whatsapp_status_updated_at=item.whatsapp_status_updated_at,
     )
@@ -286,6 +369,8 @@ def get_template_report_items_data(
     option_code: str | None = None,
     status_filter: str | None = None,
     whatsapp_status: str | None = None,
+    time_slot: str | None = None,
+    result_status: str | None = None,
     problems_only: bool = False,
     q: str | None = None,
     limit: int = 100,
@@ -293,16 +378,15 @@ def get_template_report_items_data(
 ) -> schemas.TemplateReportItemsResponse:
     normalized_status = normalize_template_item_status(status_filter)
     normalized_whatsapp_status = normalize_whatsapp_status(whatsapp_status)
+    normalized_time_slot = normalize_report_time_slot(time_slot)
+    normalized_result_status = normalize_report_result_status(result_status)
 
-    query = (
-        db.query(
-            models.TemplateBatchItem,
-            models.TemplateBatch.batch_label,
-        )
-        .outerjoin(
-            models.TemplateBatch,
-            models.TemplateBatch.batch_id == models.TemplateBatchItem.batch_id,
-        )
+    query = db.query(
+        models.TemplateBatchItem,
+        models.TemplateBatch.batch_label,
+    ).outerjoin(
+        models.TemplateBatch,
+        models.TemplateBatch.batch_id == models.TemplateBatchItem.batch_id,
     )
 
     if operation_date:
@@ -325,6 +409,16 @@ def get_template_report_items_data(
             models.TemplateBatchItem.option_code == option_code.strip()
         )
 
+    if normalized_time_slot:
+        time_slot_pattern = f"%{normalized_time_slot}%"
+
+        query = query.filter(
+            or_(
+                models.TemplateBatchItem.option_code.ilike(time_slot_pattern),
+                models.TemplateBatchItem.tour_name.ilike(time_slot_pattern),
+            )
+        )
+
     if normalized_status:
         query = query.filter(models.TemplateBatchItem.status == normalized_status)
 
@@ -332,6 +426,8 @@ def get_template_report_items_data(
         query = query.filter(
             models.TemplateBatchItem.whatsapp_status == normalized_whatsapp_status
         )
+
+    query = apply_result_status_filter(query, normalized_result_status)
 
     if problems_only:
         query = query.filter(

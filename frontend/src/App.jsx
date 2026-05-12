@@ -534,6 +534,8 @@ function App() {
     date_from: '',
     date_to: '',
     option_code: '',
+    time_slot: '',
+    result_status: '',
     status: '',
     whatsapp_status: '',
     q: '',
@@ -1044,6 +1046,8 @@ function App() {
       date_from: '',
       date_to: '',
       option_code: '',
+      time_slot: '',
+      result_status: '',
       status: '',
       whatsapp_status: '',
       q: '',
@@ -1180,6 +1184,8 @@ function App() {
       date_from: '',
       date_to: '',
       option_code: '',
+      time_slot: '',
+      result_status: '',
       status: '',
       whatsapp_status: '',
       q: '',
@@ -1699,6 +1705,32 @@ function App() {
     const summary = reportData?.summary || {};
     const reportItems = reportData?.items || [];
 
+    const tourOptionOptions = Array.from(
+      new Map(
+        reportItems
+          .filter((item) => item.option_code)
+          .map((item) => [
+            item.option_code,
+            {
+              value: item.option_code,
+              label: item.tour_name
+                ? `${item.tour_name} (${item.option_code})`
+                : item.option_code,
+            },
+          ])
+      ).values()
+    ).sort((a, b) => a.label.localeCompare(b.label));
+
+    if (
+      reportFilters.option_code &&
+      !tourOptionOptions.some((option) => option.value === reportFilters.option_code)
+    ) {
+      tourOptionOptions.unshift({
+        value: reportFilters.option_code,
+        label: reportFilters.option_code,
+      });
+    }
+
     return (
       <div className="reports-panel">
         <div className="reports-header">
@@ -1734,30 +1766,50 @@ function App() {
           </label>
 
           <label>
-            <span>Date from</span>
-            <input
-              type="date"
-              value={reportFilters.date_from}
-              onChange={(event) => updateReportFilter('date_from', event.target.value)}
-            />
+            <span>Time</span>
+            <select
+              value={reportFilters.time_slot}
+              onChange={(event) => updateReportFilter('time_slot', event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="morning">Morning</option>
+              <option value="sunset">Sunset</option>
+            </select>
           </label>
 
           <label>
-            <span>Date to</span>
-            <input
-              type="date"
-              value={reportFilters.date_to}
-              onChange={(event) => updateReportFilter('date_to', event.target.value)}
-            />
-          </label>
-
-          <label>
-            <span>Tour / option</span>
-            <input
+            <span>Tour option</span>
+            <select
               value={reportFilters.option_code}
               onChange={(event) => updateReportFilter('option_code', event.target.value)}
-              placeholder="DIAMOND_MORNING"
-            />
+            >
+              <option value="">All options</option>
+              {tourOptionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Status</span>
+            <select
+              value={reportFilters.result_status}
+              onChange={(event) =>
+                updateReportFilter('result_status', event.target.value)
+              }
+            >
+              <option value="">All statuses</option>
+              <option value="sent_waiting">Sent / waiting</option>
+              <option value="delivered">Delivered</option>
+              <option value="read">Read</option>
+              <option value="failed">Failed</option>
+              <option value="missing_phone">Missing phone</option>
+              <option value="wrong_number">Wrong number</option>
+              <option value="missing_details">Missing details</option>
+              <option value="duplicate">Duplicate</option>
+            </select>
           </label>
 
           <label>
@@ -1767,49 +1819,6 @@ function App() {
               onChange={(event) => updateReportFilter('q', event.target.value)}
               placeholder="Reservation, name, phone..."
             />
-          </label>
-
-          <label>
-            <span>Send result</span>
-            <select
-              value={reportFilters.status}
-              onChange={(event) => updateReportFilter('status', event.target.value)}
-            >
-              <option value="">All</option>
-              <option value="sent">Sent</option>
-              <option value="no_number">Missing phone</option>
-              <option value="invalid_number">Invalid phone</option>
-              <option value="validation_failed">Missing details</option>
-              <option value="failed">Failed</option>
-              <option value="duplicate">Duplicate</option>
-            </select>
-          </label>
-
-          <label>
-            <span>WhatsApp status</span>
-            <select
-              value={reportFilters.whatsapp_status}
-              onChange={(event) =>
-                updateReportFilter('whatsapp_status', event.target.value)
-              }
-            >
-              <option value="">All</option>
-              <option value="sent">Sent</option>
-              <option value="delivered">Delivered</option>
-              <option value="read">Read</option>
-              <option value="failed">Failed</option>
-            </select>
-          </label>
-
-          <label className="reports-checkbox">
-            <input
-              type="checkbox"
-              checked={reportFilters.problems_only}
-              onChange={(event) =>
-                updateReportFilter('problems_only', event.target.checked)
-              }
-            />
-            <span>Problems only</span>
           </label>
 
           <div className="reports-filter-actions">
@@ -1822,7 +1831,6 @@ function App() {
             </button>
           </div>
         </form>
-
         {reportsError && <div className="reports-error">{reportsError}</div>}
 
         <div className="reports-summary-grid">
@@ -1878,8 +1886,7 @@ function App() {
                     <th>Full name</th>
                     <th>Phone</th>
                     <th>Template</th>
-                    <th>Result</th>
-                    <th>WhatsApp</th>
+                    <th>Status</th>
                     <th>Problem / Reason</th>
                     <th>Sent at</th>
                   </tr>
