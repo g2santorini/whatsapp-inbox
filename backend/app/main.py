@@ -28,6 +28,7 @@ from .template_registry import (
 )
 from .whatsapp_sender import (
     is_valid_e164_phone,
+    send_whatsapp_reaction_message,
     send_whatsapp_template_message as send_meta_template_message,
 )
 from .reporting_service import get_template_report_items_data
@@ -2857,6 +2858,103 @@ def create_message(
         f"[SEND] conversation_id={conversation_id} "
         f"user_id={current_user.id} "
         f"wamid={whatsapp_message_id} "
+        f"whatsapp_result={whatsapp_result}",
+        flush=True,
+    )
+
+    return attach_message_author_data(db, [db_message])[0]
+
+
+class MessageReactionCreate(BaseModel):
+    emoji: str | None = None
+
+
+@app.post("/messages/{message_id}/reaction/", response_model=schemas.MessageOut)
+def create_message_reaction(
+    message_id: int,
+    reaction: MessageReactionCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    db_message = (
+        db.query(models.Message).filter(models.Message.id == message_id).first()
+    )
+
+    if not db_message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    conversation = get_conversation(db, db_message.conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if db_message.direction != "inbound":
+        raise HTTPException(
+            status_code=400,
+            detail="You can only react to customer messages",
+        )
+
+    if not db_message.whatsapp_message_id:
+        raise HTTPException(
+            status_code=400,
+            detail="This message does not have a WhatsApp message ID",
+        )
+
+    if not user_can_access_conversation(current_user, conversation):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this conversation",
+        )
+
+    if (
+        conversation.assigned_to_user_id is not None
+        and conversation.assigned_to_user_id != current_user.id
+        and not can_override_conversation_assignment(current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="This conversation is taken by another user",
+        )
+
+    ensure_customer_service_window_is_open(db, conversation.id)
+
+    reaction_emoji = None if reaction.emoji is None else str(reaction.emoji).strip()
+
+    if reaction_emoji == "":
+        reaction_emoji = None
+
+    whatsapp_result = send_whatsapp_reaction_message(
+        to_phone=conversation.contact_phone,
+        whatsapp_message_id=db_message.whatsapp_message_id,
+        emoji=reaction_emoji,
+    )
+
+    now = datetime.utcnow()
+
+    db_message.reaction_emoji = reaction_emoji
+    db_message.reaction_updated_at = now
+
+    latest_message = (
+        db.query(models.Message)
+        .filter(models.Message.conversation_id == conversation.id)
+        .order_by(models.Message.created_at.desc(), models.Message.id.desc())
+        .first()
+    )
+
+    if latest_message and latest_message.id == db_message.id and reaction_emoji:
+        conversation.status = "closed"
+        conversation.assigned_to_user_id = None
+        conversation.unread_count = 0
+        touch_conversation(conversation)
+
+    db.commit()
+    db.refresh(db_message)
+
+    print(
+        f"[REACTION SEND] conversation_id={conversation.id} "
+        f"message_id={db_message.id} "
+        f"user_id={current_user.id} "
+        f"emoji={reaction_emoji or '(remove reaction)'} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
     )

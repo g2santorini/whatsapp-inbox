@@ -181,6 +181,13 @@ export async function sendMessage(conversationId, content) {
   });
 }
 
+export async function sendMessageReaction(messageId, emoji) {
+  return apiRequest(`/messages/${messageId}/reaction/`, {
+    method: 'POST',
+    body: JSON.stringify({ emoji }),
+  });
+}
+
 export async function takeConversation(conversationId) {
   return apiRequest(`/conversations/${conversationId}/take/`, {
     method: 'POST',

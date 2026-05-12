@@ -1932,3 +1932,103 @@ textarea {
     max-width: 320px;
   }
 }
+
+.message-reaction-control {
+  align-self: flex-start;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-top: -10px;
+  margin-left: 10px;
+}
+
+.message-reaction-trigger {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #64748b;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease,
+    background 0.12s ease, color 0.12s ease;
+}
+
+.message-reaction-trigger:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.4);
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.message-reaction-trigger.has-reaction {
+  font-size: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.message-reaction-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.message-reaction-picker {
+  position: absolute;
+  left: 34px;
+  top: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.message-reaction-option {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.message-reaction-option:hover:not(:disabled) {
+  transform: scale(1.12);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.message-reaction-option.selected {
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.message-reaction-option.remove {
+  color: #94a3b8;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.message-reaction-option.remove:hover:not(:disabled) {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.message-reaction-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

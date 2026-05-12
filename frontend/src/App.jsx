@@ -13,6 +13,7 @@ import {
   getMessages,
   getMessageMediaBlob,
   sendMessage,
+  sendMessageReaction,
   takeConversation,
   releaseConversation,
   closeConversation,
@@ -28,6 +29,7 @@ const AUTO_REFRESH_INTERVAL_MS = 3000;
 const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
+const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
 
 const CONVERSATION_VIEWS = {
   INBOX: 'inbox',
@@ -553,6 +555,8 @@ function App() {
   const hasInitializedUnreadSoundRef = useRef(false);
 
   const [newMessage, setNewMessage] = useState('');
+  const [reactingMessageIds, setReactingMessageIds] = useState([]);
+  const [openReactionPickerMessageId, setOpenReactionPickerMessageId] = useState(null);
   const [error, setError] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
@@ -1456,6 +1460,40 @@ function App() {
       await refreshConversations();
     } catch (err) {
       setError(getErrorMessage(err, 'Could not delete conversation.'));
+    }
+  }
+
+
+  async function handleSendReaction(messageId, emoji) {
+    if (!messageId) {
+      return;
+    }
+
+    if (reactingMessageIds.includes(messageId)) {
+      return;
+    }
+
+    setError('');
+    setReactingMessageIds((currentIds) => [...currentIds, messageId]);
+
+    try {
+      const updatedMessage = await sendMessageReaction(messageId, emoji);
+
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === updatedMessage.id ? updatedMessage : message
+        )
+      );
+
+      setOpenReactionPickerMessageId(null);
+
+      await loadConversations({ preserveSelection: true });
+    } catch (err) {
+      setError(err.message || 'Failed to send reaction');
+    } finally {
+      setReactingMessageIds((currentIds) =>
+        currentIds.filter((currentId) => currentId !== messageId)
+      );
     }
   }
 
@@ -2391,6 +2429,55 @@ function App() {
                           {message.reaction_emoji}
                         </div>
                       )}
+
+                      {message.direction === 'inbound' &&
+                        selectedConversation.status !== 'archived' &&
+                        !isCustomerServiceSessionExpired && (
+                          <div className="message-reaction-control incoming">
+                            <button
+                              type="button"
+                              className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
+                                }`}
+                              onClick={() =>
+                                setOpenReactionPickerMessageId((currentMessageId) =>
+                                  currentMessageId === message.id ? null : message.id
+                                )
+                              }
+                              disabled={reactingMessageIds.includes(message.id)}
+                              title="React"
+                            >
+                              {message.reaction_emoji || 'R'}
+                            </button>
+
+                            {openReactionPickerMessageId === message.id && (
+                              <div className="message-reaction-picker">
+                                {BASIC_REACTION_EMOJIS.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    className={`message-reaction-option ${message.reaction_emoji === emoji ? 'selected' : ''
+                                      }`}
+                                    onClick={() => handleSendReaction(message.id, emoji)}
+                                    disabled={reactingMessageIds.includes(message.id)}
+                                    title={`React with ${emoji}`}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+
+                                <button
+                                  type="button"
+                                  className="message-reaction-option remove"
+                                  onClick={() => handleSendReaction(message.id, null)}
+                                  disabled={reactingMessageIds.includes(message.id) || !message.reaction_emoji}
+                                  title="Remove reaction"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                     </Fragment>
                   );
                 })
