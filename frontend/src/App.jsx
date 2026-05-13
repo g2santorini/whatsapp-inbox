@@ -553,6 +553,7 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const latestConversationRequestIdRef = useRef(0);
+  const messagesRequestInProgressRef = useRef(null);
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
 
@@ -1214,6 +1215,16 @@ function App() {
   }
 
   async function loadMessages(conversationId) {
+    if (!conversationId) {
+      return;
+    }
+
+    if (messagesRequestInProgressRef.current === conversationId) {
+      return;
+    }
+
+    messagesRequestInProgressRef.current = conversationId;
+
     try {
       const messageData = await getMessages(conversationId);
       setMessages(messageData);
@@ -1226,36 +1237,17 @@ function App() {
         normalizedErrorMessage.includes('404');
 
       if (conversationWasDeleted) {
-        setSelectedConversation((currentConversation) => {
-          if (currentConversation?.id === conversationId) {
-            return null;
-          }
-
-          return currentConversation;
-        });
-
+        setSelectedConversation(null);
         setMessages([]);
-
-        refreshConversations(null, inboxSearchQuery).catch(() => {
-          // Silent refresh failure after deleted conversation.
-        });
-
+        await refreshConversations();
         return;
       }
 
-      const sessionProblem =
-        normalizedErrorMessage.includes('could not validate credentials') ||
-        normalizedErrorMessage.includes('not authenticated') ||
-        normalizedErrorMessage.includes('session expired') ||
-        normalizedErrorMessage.includes('401');
-
-      if (sessionProblem) {
-        handleLogout();
-        setError('Session expired. Please login again.');
-        return;
+      throw err;
+    } finally {
+      if (messagesRequestInProgressRef.current === conversationId) {
+        messagesRequestInProgressRef.current = null;
       }
-
-      setError(errorMessage);
     }
   }
 
@@ -1664,24 +1656,6 @@ function App() {
       window.clearInterval(intervalId);
     };
   }, [token, selectedConversation?.id, inboxSearchQuery]);
-
-  useEffect(() => {
-    if (!token || !selectedConversation?.id) {
-      return undefined;
-    }
-
-    const selectedConversationId = selectedConversation.id;
-
-    const intervalId = window.setInterval(() => {
-      loadMessages(selectedConversationId).catch(() => {
-        // Silent active chat refresh failure.
-      });
-    }, ACTIVE_CHAT_REFRESH_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [token, selectedConversation?.id]);
 
   useEffect(() => {
     if (!token || activePage !== APP_PAGES.INBOX || !selectedConversation?.id) {
