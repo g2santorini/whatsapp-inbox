@@ -25,8 +25,8 @@ import {
   getTemplateReportItems,
 } from './api';
 
-const AUTO_REFRESH_INTERVAL_MS = 3000;
-const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 2000;
+const AUTO_REFRESH_INTERVAL_MS = 15000;
+const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 15000;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
