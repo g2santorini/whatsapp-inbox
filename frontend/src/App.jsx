@@ -555,6 +555,7 @@ function App() {
   const latestConversationRequestIdRef = useRef(0);
   const conversationsRequestInProgressRef = useRef(false);
   const messagesRequestInProgressRef = useRef(null);
+  const apiFailureCountRef = useRef(0);
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
 
@@ -562,6 +563,7 @@ function App() {
   const [reactingMessageIds, setReactingMessageIds] = useState([]);
   const [openReactionPickerMessageId, setOpenReactionPickerMessageId] = useState(null);
   const [error, setError] = useState('');
+  const [systemStatus, setSystemStatus] = useState('live');
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1122,6 +1124,19 @@ function App() {
     setError('');
   }
 
+  function markApiSuccess() {
+    apiFailureCountRef.current = 0;
+    setSystemStatus('live');
+  }
+
+  function markApiFailure() {
+    apiFailureCountRef.current += 1;
+
+    if (apiFailureCountRef.current >= 2) {
+      setSystemStatus('issue');
+    }
+  }
+
   async function refreshConversations(
     selectedConversationId = null,
     searchQueryOverride = inboxSearchQuery
@@ -1137,6 +1152,7 @@ function App() {
 
     try {
       const conversationData = await getConversations(searchQueryOverride);
+      markApiSuccess();
 
       if (requestId !== latestConversationRequestIdRef.current) {
         return;
@@ -1156,6 +1172,9 @@ function App() {
 
         setSelectedConversation(null);
       }
+    } catch (err) {
+      markApiFailure();
+      throw err;
     } finally {
       conversationsRequestInProgressRef.current = false;
     }
@@ -1238,6 +1257,7 @@ function App() {
 
     try {
       const messageData = await getMessages(conversationId);
+      markApiSuccess();
       setMessages(messageData);
     } catch (err) {
       const errorMessage = getErrorMessage(err, 'Could not load messages.');
@@ -1254,6 +1274,7 @@ function App() {
         return;
       }
 
+      markApiFailure();
       throw err;
     } finally {
       if (messagesRequestInProgressRef.current === conversationId) {
@@ -2068,6 +2089,17 @@ function App() {
             <span>Logged in as</span>
             <strong>{user?.username || 'User'}</strong>
             <small>{user?.role || 'user'}</small>
+          </div>
+
+          <div className={`sendro-system-status ${systemStatus === 'live' ? 'live' : 'issue'}`}>
+            <span className="sendro-system-status-icon">
+              {systemStatus === 'live' ? '✓' : '!'}
+            </span>
+            <span>
+              {systemStatus === 'live'
+                ? 'Sendro is live'
+                : 'Connection issue — messages may be delayed'}
+            </span>
           </div>
 
           <button className="blue-logout-button" onClick={handleLogout}>
