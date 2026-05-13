@@ -553,6 +553,7 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const latestConversationRequestIdRef = useRef(0);
+  const conversationsRequestInProgressRef = useRef(false);
   const messagesRequestInProgressRef = useRef(null);
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
@@ -1125,28 +1126,38 @@ function App() {
     selectedConversationId = null,
     searchQueryOverride = inboxSearchQuery
   ) {
-    const requestId = latestConversationRequestIdRef.current + 1;
-    latestConversationRequestIdRef.current = requestId;
-
-    const conversationData = await getConversations(searchQueryOverride);
-
-    if (requestId !== latestConversationRequestIdRef.current) {
+    if (conversationsRequestInProgressRef.current) {
       return;
     }
 
-    setConversations(conversationData);
+    conversationsRequestInProgressRef.current = true;
 
-    if (selectedConversationId) {
-      const refreshedConversation = conversationData.find(
-        (conversation) => conversation.id === selectedConversationId
-      );
+    const requestId = latestConversationRequestIdRef.current + 1;
+    latestConversationRequestIdRef.current = requestId;
 
-      if (refreshedConversation) {
-        setSelectedConversation(refreshedConversation);
+    try {
+      const conversationData = await getConversations(searchQueryOverride);
+
+      if (requestId !== latestConversationRequestIdRef.current) {
         return;
       }
 
-      setSelectedConversation(null);
+      setConversations(conversationData);
+
+      if (selectedConversationId) {
+        const refreshedConversation = conversationData.find(
+          (conversation) => conversation.id === selectedConversationId
+        );
+
+        if (refreshedConversation) {
+          setSelectedConversation(refreshedConversation);
+          return;
+        }
+
+        setSelectedConversation(null);
+      }
+    } finally {
+      conversationsRequestInProgressRef.current = false;
     }
   }
 
