@@ -2695,6 +2695,9 @@ def get_conversation_messages(
     conversation_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
+    limit: int = Query(default=100, ge=1, le=200),
+    after_id: int | None = Query(default=None, ge=1),
+    before_id: int | None = Query(default=None, ge=1),
 ):
     conversation = get_conversation(db, conversation_id)
 
@@ -2707,12 +2710,32 @@ def get_conversation_messages(
             detail="You do not have access to this conversation",
         )
 
-    messages = (
-        db.query(models.Message)
-        .filter(models.Message.conversation_id == conversation_id)
-        .order_by(models.Message.created_at.asc())
-        .all()
+    query = db.query(models.Message).filter(
+        models.Message.conversation_id == conversation_id
     )
+
+    if after_id is not None:
+        messages = (
+            query.filter(models.Message.id > after_id)
+            .order_by(models.Message.id.asc())
+            .limit(limit)
+            .all()
+        )
+    elif before_id is not None:
+        messages = (
+            query.filter(models.Message.id < before_id)
+            .order_by(models.Message.id.desc())
+            .limit(limit)
+            .all()
+        )
+        messages.reverse()
+    else:
+        messages = (
+            query.order_by(models.Message.id.desc())
+            .limit(limit)
+            .all()
+        )
+        messages.reverse()
 
     return attach_message_author_data(db, messages)
 
