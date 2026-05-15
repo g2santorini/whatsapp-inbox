@@ -557,6 +557,7 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const messagesRef = useRef([]);
   const latestConversationRequestIdRef = useRef(0);
   const conversationsRequestInProgressRef = useRef(false);
   const messagesRequestInProgressRef = useRef(null);
