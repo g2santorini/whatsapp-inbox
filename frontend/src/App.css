@@ -674,6 +674,8 @@ textarea {
 
 /* Messages */
 
+/* Messages */
+
 .messages {
   flex: 1;
   min-height: 0;
@@ -682,6 +684,13 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.older-messages-loader {
+  padding: 8px 0 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .message {

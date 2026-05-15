@@ -170,8 +170,26 @@ export async function createTemplateConversation({
   });
 }
 
-export async function getMessages(conversationId) {
-  return apiRequest(`/conversations/${conversationId}/messages/`);
+export async function getMessages(conversationId, options = {}) {
+  const params = new URLSearchParams();
+
+  if (options.limit) {
+    params.set('limit', String(options.limit));
+  }
+
+  if (options.afterId) {
+    params.set('after_id', String(options.afterId));
+  }
+
+  if (options.beforeId) {
+    params.set('before_id', String(options.beforeId));
+  }
+
+  const queryString = params.toString();
+
+  return apiRequest(
+    `/conversations/${conversationId}/messages/${queryString ? `?${queryString}` : ''}`
+  );
 }
 
 export async function sendMessage(conversationId, content) {

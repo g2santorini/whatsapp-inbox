@@ -27,6 +27,8 @@ import {
 
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 15000;
+const MESSAGE_PAGE_SIZE = 30;
+const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
@@ -550,8 +552,11 @@ function App() {
   const [inboxSearchQuery, setInboxSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const latestConversationRequestIdRef = useRef(0);
   const conversationsRequestInProgressRef = useRef(false);
   const messagesRequestInProgressRef = useRef(null);
@@ -725,6 +730,22 @@ function App() {
         block: 'end',
       });
     }, 100);
+  }
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  function mergeMessagesById(...messageGroups) {
+    const messagesById = new Map();
+
+    messageGroups.flat().forEach((message) => {
+      if (message?.id !== undefined && message?.id !== null) {
+        messagesById.set(message.id, message);
+      }
+    });
+
+    return Array.from(messagesById.values()).sort((a, b) => a.id - b.id);
   }
 
   function getMessageDate(createdAt) {
@@ -1200,6 +1221,9 @@ function App() {
     setConversations([]);
     setSelectedConversation(null);
     setMessages([]);
+    messagesRef.current = [];
+    setHasMoreOlderMessages(true);
+    setIsLoadingOlderMessages(false);
     setNewMessage('');
     setError('');
     setShowNewConversationForm(false);
@@ -1244,21 +1268,38 @@ function App() {
     }
   }
 
-  async function loadMessages(conversationId) {
+  async function loadMessages(conversationId, options = {}) {
     if (!conversationId) {
       return;
     }
 
-    if (messagesRequestInProgressRef.current === conversationId) {
+    const shouldReplaceMessages = options.replace === true;
+    const requestKey = `${conversationId}:latest`;
+
+    if (messagesRequestInProgressRef.current === requestKey) {
       return;
     }
 
-    messagesRequestInProgressRef.current = conversationId;
+    messagesRequestInProgressRef.current = requestKey;
 
     try {
-      const messageData = await getMessages(conversationId);
+      const messageData = await getMessages(conversationId, {
+        limit: MESSAGE_PAGE_SIZE,
+      });
+
       markApiSuccess();
-      setMessages(messageData);
+
+      setMessages((currentMessages) => {
+        if (shouldReplaceMessages || currentMessages.length === 0) {
+          return messageData;
+        }
+
+        return mergeMessagesById(currentMessages, messageData);
+      });
+
+      if (shouldReplaceMessages || messagesRef.current.length === 0) {
+        setHasMoreOlderMessages(messageData.length >= MESSAGE_PAGE_SIZE);
+      }
     } catch (err) {
       const errorMessage = getErrorMessage(err, 'Could not load messages.');
       const normalizedErrorMessage = String(errorMessage).toLowerCase();
@@ -1270,6 +1311,8 @@ function App() {
       if (conversationWasDeleted) {
         setSelectedConversation(null);
         setMessages([]);
+        messagesRef.current = [];
+        setHasMoreOlderMessages(true);
         await refreshConversations();
         return;
       }
@@ -1277,9 +1320,77 @@ function App() {
       markApiFailure();
       throw err;
     } finally {
-      if (messagesRequestInProgressRef.current === conversationId) {
+      if (messagesRequestInProgressRef.current === requestKey) {
         messagesRequestInProgressRef.current = null;
       }
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!selectedConversation || activePage !== APP_PAGES.INBOX) {
+      return;
+    }
+
+    if (!hasMoreOlderMessages || olderMessagesRequestInProgressRef.current) {
+      return;
+    }
+
+    const currentMessages = messagesRef.current;
+    const oldestMessage = currentMessages[0];
+
+    if (!oldestMessage) {
+      return;
+    }
+
+    olderMessagesRequestInProgressRef.current = true;
+    setIsLoadingOlderMessages(true);
+
+    const messagesContainer = messagesContainerRef.current;
+    const previousScrollHeight = messagesContainer?.scrollHeight ?? 0;
+    const previousScrollTop = messagesContainer?.scrollTop ?? 0;
+
+    try {
+      const olderMessages = await getMessages(selectedConversation.id, {
+        limit: MESSAGE_PAGE_SIZE,
+        beforeId: oldestMessage.id,
+      });
+
+      markApiSuccess();
+
+      if (olderMessages.length === 0) {
+        setHasMoreOlderMessages(false);
+        return;
+      }
+
+      setMessages((currentMessages) =>
+        mergeMessagesById(olderMessages, currentMessages)
+      );
+
+      setHasMoreOlderMessages(olderMessages.length >= MESSAGE_PAGE_SIZE);
+
+      window.setTimeout(() => {
+        const currentContainer = messagesContainerRef.current;
+
+        if (!currentContainer) {
+          return;
+        }
+
+        const newScrollHeight = currentContainer.scrollHeight;
+        currentContainer.scrollTop =
+          newScrollHeight - previousScrollHeight + previousScrollTop;
+      }, 0);
+    } catch (err) {
+      markApiFailure();
+      setError(getErrorMessage(err, 'Could not load older messages.'));
+    } finally {
+      olderMessagesRequestInProgressRef.current = false;
+      setIsLoadingOlderMessages(false);
+    }
+  }
+
+  function handleMessagesScroll(event) {
+    if (event.currentTarget.scrollTop <= LOAD_OLDER_SCROLL_THRESHOLD_PX) {
+      loadOlderMessages();
     }
   }
 
@@ -1368,7 +1479,7 @@ function App() {
         setActiveConversationView(CONVERSATION_VIEWS.INBOX);
 
         await refreshConversations(createdConversation.id);
-        await loadMessages(createdConversation.id);
+        await loadMessages(createdConversation.id, { replace: true });
       } else {
         setError('Template was sent, but the conversation could not be opened.');
         await refreshConversations();
@@ -1485,6 +1596,9 @@ function App() {
       await deleteConversation(selectedConversation.id);
       setSelectedConversation(null);
       setMessages([]);
+      messagesRef.current = [];
+      setHasMoreOlderMessages(true);
+      setIsLoadingOlderMessages(false);
       setError('');
       setShowDeleteConfirm(false);
       await refreshConversations();
@@ -1580,9 +1694,19 @@ function App() {
   useEffect(() => {
     if (selectedConversation && activePage === APP_PAGES.INBOX) {
       setError('');
-      loadMessages(selectedConversation.id);
+      setMessages([]);
+      messagesRef.current = [];
+      setHasMoreOlderMessages(true);
+      setIsLoadingOlderMessages(false);
+
+      loadMessages(selectedConversation.id, { replace: true }).catch(() => {
+        // Error is handled inside loadMessages.
+      });
     } else {
       setMessages([]);
+      messagesRef.current = [];
+      setHasMoreOlderMessages(true);
+      setIsLoadingOlderMessages(false);
     }
   }, [selectedConversation?.id, activePage]);
 
@@ -1700,7 +1824,7 @@ function App() {
       loadMessages(selectedConversationId).catch(() => {
         // Silent messages auto-refresh failure.
       });
-    }, AUTO_REFRESH_INTERVAL_MS);
+    }, ACTIVE_CHAT_REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
@@ -2392,7 +2516,14 @@ function App() {
               </div>
             </header>
 
-            <section className="messages">
+            <section
+              className="messages"
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
+            >
+              {isLoadingOlderMessages && (
+                <div className="older-messages-loader">Loading older messages...</div>
+              )}
               {messages.length === 0 ? (
                 <div className="empty-state">No messages yet.</div>
               ) : (
