@@ -564,6 +564,8 @@ function App() {
   const messagesRequestInProgressRef = useRef(null);
   const olderMessagesRequestInProgressRef = useRef(false);
   const apiFailureCountRef = useRef(0);
+  const previousBrowserUnreadCountRef = useRef(0);
+  const hasInitializedUnreadSoundRef = useRef(false);
 
   const [newMessage, setNewMessage] = useState('');
   const [reactingMessageIds, setReactingMessageIds] = useState([]);
@@ -734,7 +736,7 @@ function App() {
     }, 100);
   }
 
-  
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
