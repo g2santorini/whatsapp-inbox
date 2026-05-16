@@ -557,6 +557,7 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const composerTextareaRef = useRef(null);
   const messagesRef = useRef([]);
   const latestConversationRequestIdRef = useRef(0);
   const conversationsRequestInProgressRef = useRef(false);
@@ -731,6 +732,20 @@ function App() {
         block: 'end',
       });
     }, 100);
+  }
+
+  function focusComposerTextarea(delay = 80) {
+    window.setTimeout(() => {
+      const textarea = composerTextareaRef.current;
+
+      if (!textarea || textarea.disabled) {
+        return;
+      }
+
+      textarea.focus({
+        preventScroll: true,
+      });
+    }, delay);
   }
 
   useEffect(() => {
@@ -1673,6 +1688,7 @@ function App() {
       setNewMessage(messageToSend);
     } finally {
       setIsSending(false);
+      focusComposerTextarea(120);
     }
   }
 
@@ -2641,6 +2657,7 @@ function App() {
 
             <form className="composer" onSubmit={handleSendMessage}>
               <textarea
+                value={newMessage}
                 value={newMessage}
                 onChange={(event) => setNewMessage(event.target.value)}
                 onKeyDown={(event) => {
