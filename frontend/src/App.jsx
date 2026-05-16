@@ -557,14 +557,13 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const composerTextareaRef = useRef(null);
+  const messageInputRef = useRef(null);
   const messagesRef = useRef([]);
   const latestConversationRequestIdRef = useRef(0);
   const conversationsRequestInProgressRef = useRef(false);
   const messagesRequestInProgressRef = useRef(null);
+  const olderMessagesRequestInProgressRef = useRef(false);
   const apiFailureCountRef = useRef(0);
-  const previousBrowserUnreadCountRef = useRef(0);
-  const hasInitializedUnreadSoundRef = useRef(false);
 
   const [newMessage, setNewMessage] = useState('');
   const [reactingMessageIds, setReactingMessageIds] = useState([]);
@@ -604,12 +603,13 @@ function App() {
     Boolean(selectedConversation) &&
     !selectedConversation.customer_service_window_open;
 
-  const canSendMessage =
+  const canTypeMessage =
     Boolean(selectedConversation) &&
     !isCustomerServiceSessionExpired &&
     !isConversationTakenByAnotherUser &&
-    selectedConversation?.status !== 'archived' &&
-    !isSending;
+    selectedConversation?.status !== 'archived';
+
+  const canSendMessage = canTypeMessage && !isSending;
 
   const canCurrentUserViewReports =
     Boolean(user) &&
@@ -734,20 +734,7 @@ function App() {
     }, 100);
   }
 
-  function focusComposerTextarea(delay = 80) {
-    window.setTimeout(() => {
-      const textarea = composerTextareaRef.current;
-
-      if (!textarea || textarea.disabled) {
-        return;
-      }
-
-      textarea.focus({
-        preventScroll: true,
-      });
-    }, delay);
-  }
-
+  
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -1683,12 +1670,19 @@ function App() {
       setActiveConversationView(CONVERSATION_VIEWS.INBOX);
       await loadMessages(selectedConversation.id);
       await refreshConversations(selectedConversation.id);
+
+      window.setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 0);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not send message.'));
       setNewMessage(messageToSend);
     } finally {
       setIsSending(false);
-      focusComposerTextarea(120);
+
+      window.setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 0);
     }
   }
 
@@ -2657,7 +2651,7 @@ function App() {
 
             <form className="composer" onSubmit={handleSendMessage}>
               <textarea
-                value={newMessage}
+                ref={messageInputRef}
                 value={newMessage}
                 onChange={(event) => setNewMessage(event.target.value)}
                 onKeyDown={(event) => {
@@ -2677,7 +2671,11 @@ function App() {
                         )}`
                         : 'Type a message...'
                 }
-                disabled={!canSendMessage}
+                disabled={
+                  selectedConversation.status === 'archived' ||
+                  isCustomerServiceSessionExpired ||
+                  isConversationTakenByAnotherUser
+                }
                 rows="2"
               />
 
