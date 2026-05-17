@@ -731,3 +731,161 @@
     flex: 1;
   }
 }
+
+/* Archive old conversations */
+
+.settings-archive-card {
+  border-color: #dbeafe;
+  background: #ffffff;
+}
+
+.archive-old-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.archive-old-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.archive-old-field span {
+  color: #374151;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.archive-old-field select {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  padding: 10px 11px;
+  border-radius: 13px;
+  font-size: 14px;
+  outline: none;
+}
+
+.archive-old-field select:focus {
+  border-color: #091c40;
+  box-shadow: 0 0 0 3px rgba(9, 28, 64, 0.08);
+}
+
+.archive-old-preview-button,
+.archive-old-danger-button {
+  border: none;
+  border-radius: 999px;
+  padding: 11px 15px;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.archive-old-preview-button {
+  background: #091c40;
+  color: #ffffff;
+}
+
+.archive-old-danger-button {
+  background: #b45309;
+  color: #ffffff;
+}
+
+.archive-old-preview-button:disabled,
+.archive-old-danger-button:disabled {
+  background: #9ca3af;
+  color: #ffffff;
+  cursor: not-allowed;
+}
+
+.archive-old-preview {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.archive-old-preview-summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.archive-old-preview-summary div {
+  min-width: 150px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.archive-old-preview-summary strong {
+  display: block;
+  color: #111827;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.archive-old-preview-summary span {
+  display: block;
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.archive-old-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archive-old-row {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archive-old-row strong {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+}
+
+.archive-old-row small {
+  display: block;
+  margin-top: 3px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.archive-old-row span {
+  flex-shrink: 0;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.archive-old-empty,
+.archive-old-note {
+  margin: 12px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.archive-old-note {
+  color: #92400e;
+}

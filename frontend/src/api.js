@@ -236,6 +236,22 @@ export async function unarchiveConversation(conversationId) {
   });
 }
 
+export async function archiveOldConversations({
+  hours = 36,
+  dryRun = true,
+  limit = 200,
+} = {}) {
+  const params = new URLSearchParams({
+    hours: String(hours),
+    dry_run: dryRun ? 'true' : 'false',
+    limit: String(limit),
+  });
+
+  return apiRequest(`/conversations/archive-old/?${params.toString()}`, {
+    method: 'POST',
+  });
+}
+
 export async function deleteConversation(conversationId) {
   return apiRequest(`/conversations/${conversationId}/`, {
     method: 'DELETE',

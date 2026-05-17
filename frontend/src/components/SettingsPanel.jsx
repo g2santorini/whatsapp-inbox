@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  archiveOldConversations,
   createUser,
   getCurrentUser,
   getUsers,
@@ -12,6 +13,12 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
   { value: 'power_user', label: 'Power User' },
   { value: 'user', label: 'User' },
+];
+
+const ARCHIVE_OLD_OPTIONS = [
+  { value: '36', label: '36 hours' },
+  { value: '48', label: '48 hours' },
+  { value: '168', label: '7 days' },
 ];
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -123,6 +130,28 @@ function sortUsers(usersToSort) {
   });
 }
 
+function formatArchiveDateTime(value) {
+  if (!value) return '-';
+
+  const rawValue = String(value);
+  const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(rawValue);
+  const safeValue = hasTimezone ? rawValue : `${rawValue}Z`;
+  const date = new Date(safeValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return rawValue;
+  }
+
+  return new Intl.DateTimeFormat('el-GR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
 function SettingsPanel() {
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
@@ -142,6 +171,12 @@ function SettingsPanel() {
   const [resetPasswordForm, setResetPasswordForm] = useState(
     EMPTY_PASSWORD_RESET_FORM
   );
+
+  const [archiveOldHours, setArchiveOldHours] = useState('36');
+  const [archivePreview, setArchivePreview] = useState(null);
+  const [isPreviewingArchive, setIsPreviewingArchive] = useState(false);
+  const [isArchivingOldConversations, setIsArchivingOldConversations] =
+    useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const visibleUsers = users.filter((singleUser) => !isSystemUser(singleUser));
@@ -461,6 +496,71 @@ function SettingsPanel() {
     }
   }
 
+  async function handlePreviewArchiveOldConversations() {
+    try {
+      setIsPreviewingArchive(true);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const previewData = await archiveOldConversations({
+        hours: Number(archiveOldHours),
+        dryRun: true,
+        limit: 200,
+      });
+
+      setArchivePreview(previewData);
+      setSettingsSuccess(
+        `Preview found ${Number(previewData?.matched_count || 0)} old conversations.`
+      );
+    } catch (err) {
+      setSettingsError(
+        getErrorMessage(err, 'Could not preview old conversations.')
+      );
+    } finally {
+      setIsPreviewingArchive(false);
+    }
+  }
+
+  async function handleArchiveOldConversations() {
+    const matchedCount = Number(archivePreview?.matched_count || 0);
+
+    if (matchedCount <= 0) {
+      setSettingsError('Preview old conversations first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Archive ${matchedCount} old conversations? This will not delete them.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsArchivingOldConversations(true);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const archiveData = await archiveOldConversations({
+        hours: Number(archiveOldHours),
+        dryRun: false,
+        limit: 200,
+      });
+
+      setArchivePreview(archiveData);
+      setSettingsSuccess(
+        `Archived ${Number(archiveData?.archived_count || 0)} conversations.`
+      );
+    } catch (err) {
+      setSettingsError(
+        getErrorMessage(err, 'Could not archive old conversations.')
+      );
+    } finally {
+      setIsArchivingOldConversations(false);
+    }
+  }
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -513,6 +613,115 @@ function SettingsPanel() {
       {!isAdmin && (
         <div className="settings-alert warning">
           You can view users, but only admins can create users, change roles, or block users.
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="settings-user-card settings-archive-card">
+          <div className="settings-user-card-header">
+            <div>
+              <h2>Archive old conversations</h2>
+              <p>
+                Preview and archive inactive conversations without deleting them. Archived
+                conversations can still be restored with Back to Inbox.
+              </p>
+            </div>
+          </div>
+
+          <div className="archive-old-controls">
+            <label className="archive-old-field">
+              <span>Inactive for at least</span>
+
+              <select
+                value={archiveOldHours}
+                onChange={(event) => {
+                  setArchiveOldHours(event.target.value);
+                  setArchivePreview(null);
+                  setSettingsError('');
+                  setSettingsSuccess('');
+                }}
+                disabled={isPreviewingArchive || isArchivingOldConversations}
+              >
+                {ARCHIVE_OLD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              type="button"
+              className="archive-old-preview-button"
+              onClick={handlePreviewArchiveOldConversations}
+              disabled={isPreviewingArchive || isArchivingOldConversations}
+            >
+              {isPreviewingArchive ? 'Checking...' : 'Preview old conversations'}
+            </button>
+
+            <button
+              type="button"
+              className="archive-old-danger-button"
+              onClick={handleArchiveOldConversations}
+              disabled={
+                isPreviewingArchive ||
+                isArchivingOldConversations ||
+                Number(archivePreview?.matched_count || 0) <= 0
+              }
+            >
+              {isArchivingOldConversations ? 'Archiving...' : 'Archive conversations'}
+            </button>
+          </div>
+
+          {archivePreview && (
+            <div className="archive-old-preview">
+              <div className="archive-old-preview-summary">
+                <div>
+                  <strong>{Number(archivePreview.matched_count || 0)}</strong>
+                  <span>matched conversations</span>
+                </div>
+
+                <div>
+                  <strong>{Number(archivePreview.archived_count || 0)}</strong>
+                  <span>archived</span>
+                </div>
+              </div>
+
+              {archivePreview.conversations?.length > 0 ? (
+                <div className="archive-old-list">
+                  {archivePreview.conversations.slice(0, 10).map((conversation) => (
+                    <div className="archive-old-row" key={conversation.id}>
+                      <div>
+                        <strong>
+                          {conversation.contact_name ||
+                            conversation.contact_phone ||
+                            `Conversation #${conversation.id}`}
+                        </strong>
+                        <small>{conversation.contact_phone || '-'}</small>
+                      </div>
+
+                      <span>{formatArchiveDateTime(conversation.last_message_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="archive-old-empty">
+                  No old conversations found for this threshold.
+                </p>
+              )}
+
+              {archivePreview.conversations?.length > 10 && (
+                <p className="archive-old-empty">
+                  Showing first 10 of {archivePreview.conversations.length}.
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="archive-old-note">
+            Safety rule: Sendro will skip unread, assigned, follow-up, and already
+            archived conversations.
+          </p>
         </div>
       )}
 
