@@ -2079,6 +2079,31 @@ async def receive_whatsapp_message(
 
             text = "Sticker received"
 
+        elif message_type == "location":
+            location = message.get("location", {})
+
+            latitude = location.get("latitude")
+            longitude = location.get("longitude")
+            location_name = str(location.get("name") or "").strip()
+            location_address = str(location.get("address") or "").strip()
+
+            location_lines = ["📍 Location shared"]
+
+            if location_name:
+                location_lines.append(f"Name: {location_name}")
+
+            if location_address:
+                location_lines.append(f"Address: {location_address}")
+
+            if latitude is not None and longitude is not None:
+                location_lines.append(f"Latitude: {latitude}")
+                location_lines.append(f"Longitude: {longitude}")
+                location_lines.append(
+                    f"Google Maps: https://www.google.com/maps?q={latitude},{longitude}"
+                )
+
+            text = "\n".join(location_lines)
+
         else:
             text = f"[Unsupported WhatsApp message type: {message_type}]"
 

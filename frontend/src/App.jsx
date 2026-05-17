@@ -424,6 +424,38 @@ function renderMessageContentWithLinks(content) {
   return parts;
 }
 
+function getLocationContentValue(content, label) {
+  const lines = String(content || '').split('\n');
+  const targetPrefix = `${label}:`;
+
+  const matchingLine = lines.find((line) =>
+    line.trim().toLowerCase().startsWith(targetPrefix.toLowerCase())
+  );
+
+  if (!matchingLine) {
+    return '';
+  }
+
+  return matchingLine.slice(targetPrefix.length).trim();
+}
+
+function getLocationGoogleMapsUrl(content) {
+  const directUrl = getLocationContentValue(content, 'Google Maps');
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const latitude = getLocationContentValue(content, 'Latitude');
+  const longitude = getLocationContentValue(content, 'Longitude');
+
+  if (!latitude || !longitude) {
+    return '';
+  }
+
+  return `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
 function MessageMediaPreview({ message }) {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaError, setMediaError] = useState('');
@@ -431,6 +463,11 @@ function MessageMediaPreview({ message }) {
   const messageType = String(message?.message_type || 'text').toLowerCase();
   const caption = getMediaCaption(message?.content);
   const hasMedia = Boolean(message?.id && message?.media_id);
+  const locationName = getLocationContentValue(message?.content, 'Name');
+  const locationAddress = getLocationContentValue(message?.content, 'Address');
+  const locationLatitude = getLocationContentValue(message?.content, 'Latitude');
+  const locationLongitude = getLocationContentValue(message?.content, 'Longitude');
+  const locationUrl = getLocationGoogleMapsUrl(message?.content);
 
   useEffect(() => {
     let isMounted = true;
@@ -470,19 +507,30 @@ function MessageMediaPreview({ message }) {
     };
   }, [hasMedia, message?.id]);
 
-  if (messageType === 'image' && hasMedia) {
+  if (messageType === 'location') {
     return (
-      <div className="media-message-body">
-        {mediaUrl ? (
-          <a href={mediaUrl} target="_blank" rel="noreferrer">
-            <img className="message-media-image" src={mediaUrl} alt="WhatsApp media" />
-          </a>
-        ) : (
-          <div className="message-media-loading">Loading photo...</div>
-        )}
+      <div className="message-location-card">
+        <div className="message-location-icon">📍</div>
 
-        {caption && <div className="message-media-caption">{caption}</div>}
-        {mediaError && <div className="message-media-error">{mediaError}</div>}
+        <div className="message-location-body">
+          <strong>{locationName || 'Location shared'}</strong>
+
+          {locationAddress && <span>{locationAddress}</span>}
+
+          {(locationLatitude || locationLongitude) && (
+            <small>
+              {locationLatitude}
+              {locationLatitude && locationLongitude ? ', ' : ''}
+              {locationLongitude}
+            </small>
+          )}
+
+          {locationUrl && (
+            <a href={locationUrl} target="_blank" rel="noopener noreferrer">
+              Open in Google Maps
+            </a>
+          )}
+        </div>
       </div>
     );
   }
