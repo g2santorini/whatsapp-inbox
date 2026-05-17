@@ -319,7 +319,6 @@ def attach_customer_service_window_data(
             effective_direction
         )
 
-
     for conversation in conversations:
         last_inbound_at = last_inbound_by_conversation_id.get(conversation.id)
         fields = build_customer_service_window_fields(last_inbound_at)
@@ -2730,11 +2729,7 @@ def get_conversation_messages(
         )
         messages.reverse()
     else:
-        messages = (
-            query.order_by(models.Message.id.desc())
-            .limit(limit)
-            .all()
-        )
+        messages = query.order_by(models.Message.id.desc()).limit(limit).all()
         messages.reverse()
 
     return attach_message_author_data(db, messages)
@@ -3196,6 +3191,75 @@ def delete_conversation(
         "status": "ok",
         "conversation_id": conversation_id,
         "deleted_messages": deleted_messages_count,
+    }
+
+
+@app.post("/conversations/archive-old/")
+def archive_old_conversations(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    hours: int = Query(default=36, ge=1, le=24 * 365),
+    dry_run: bool = Query(default=True),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can archive old conversations",
+        )
+
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    old_conversations = (
+        db.query(models.Conversation)
+        .filter(
+            models.Conversation.status != "archived",
+            models.Conversation.last_message_at <= cutoff,
+            models.Conversation.unread_count == 0,
+            models.Conversation.assigned_to_user_id.is_(None),
+            models.Conversation.follow_up.is_(False),
+        )
+        .order_by(models.Conversation.last_message_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    archived_conversations = []
+
+    for conversation in old_conversations:
+        archived_conversations.append(
+            {
+                "id": conversation.id,
+                "contact_name": conversation.contact_name,
+                "contact_phone": conversation.contact_phone,
+                "status": conversation.status,
+                "last_message_at": conversation.last_message_at,
+            }
+        )
+
+        if not dry_run:
+            conversation.status = "archived"
+            conversation.unread_count = 0
+            conversation.updated_at = now
+
+    if not dry_run:
+        db.commit()
+
+    print(
+        f"[ARCHIVE_OLD] dry_run={dry_run} hours={hours} "
+        f"matched={len(old_conversations)} archived_by={current_user.id}",
+        flush=True,
+    )
+
+    return {
+        "status": "ok",
+        "dry_run": dry_run,
+        "hours": hours,
+        "cutoff": cutoff,
+        "matched_count": len(old_conversations),
+        "archived_count": 0 if dry_run else len(old_conversations),
+        "conversations": archived_conversations,
     }
 
 
