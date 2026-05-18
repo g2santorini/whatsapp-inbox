@@ -463,6 +463,7 @@ function MessageMediaPreview({ message }) {
   const messageType = String(message?.message_type || 'text').toLowerCase();
   const caption = getMediaCaption(message?.content);
   const hasMedia = Boolean(message?.id && message?.media_id);
+
   const locationName = getLocationContentValue(message?.content, 'Name');
   const locationAddress = getLocationContentValue(message?.content, 'Address');
   const locationLatitude = getLocationContentValue(message?.content, 'Latitude');
@@ -482,7 +483,6 @@ function MessageMediaPreview({ message }) {
 
       try {
         setMediaError('');
-
         const blob = await getMessageMediaBlob(message.id);
         objectUrl = URL.createObjectURL(blob);
 
@@ -510,27 +510,116 @@ function MessageMediaPreview({ message }) {
   if (messageType === 'location') {
     return (
       <div className="message-location-card">
-        <div className="message-location-icon">📍</div>
-
-        <div className="message-location-body">
-          <strong>{locationName || 'Location shared'}</strong>
-
-          {locationAddress && <span>{locationAddress}</span>}
-
-          {(locationLatitude || locationLongitude) && (
-            <small>
-              {locationLatitude}
-              {locationLatitude && locationLongitude ? ', ' : ''}
-              {locationLongitude}
-            </small>
-          )}
-
-          {locationUrl && (
-            <a href={locationUrl} target="_blank" rel="noopener noreferrer">
-              Open in Google Maps
-            </a>
-          )}
+        <div className="message-location-title">
+          {locationName || 'Location shared'}
         </div>
+
+        {locationAddress && (
+          <div className="message-location-address">{locationAddress}</div>
+        )}
+
+        {(locationLatitude || locationLongitude) && (
+          <div className="message-location-coordinates">
+            {locationLatitude}
+            {locationLatitude && locationLongitude ? ', ' : ''}
+            {locationLongitude}
+          </div>
+        )}
+
+        {locationUrl && (
+          <a
+            className="message-location-link"
+            href={locationUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open in Google Maps
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (messageType === 'image' && hasMedia) {
+    return (
+      <div className="message-media-card message-image-card">
+        {mediaUrl ? (
+          <a href={mediaUrl} target="_blank" rel="noreferrer">
+            <img
+              className="message-image-preview"
+              src={mediaUrl}
+              alt={caption || 'WhatsApp photo'}
+            />
+          </a>
+        ) : (
+          <div className="message-media-loading">Loading photo...</div>
+        )}
+
+        {caption && <div className="message-media-caption">{caption}</div>}
+
+        {mediaError && (
+          <div className="message-media-error">{mediaError}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (messageType === 'video' && hasMedia) {
+    return (
+      <div className="message-media-card message-video-card">
+        {mediaUrl ? (
+          <video
+            className="message-video-preview"
+            src={mediaUrl}
+            controls
+          />
+        ) : (
+          <div className="message-media-loading">Loading video...</div>
+        )}
+
+        {caption && <div className="message-media-caption">{caption}</div>}
+
+        {mediaError && (
+          <div className="message-media-error">{mediaError}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (messageType === 'audio' && hasMedia) {
+    return (
+      <div className="message-media-card message-audio-card">
+        <div className="message-media-title">Audio message</div>
+
+        {mediaUrl ? (
+          <audio src={mediaUrl} controls />
+        ) : (
+          <div className="message-media-loading">Loading audio...</div>
+        )}
+
+        {mediaError && (
+          <div className="message-media-error">{mediaError}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (messageType === 'sticker' && hasMedia) {
+    return (
+      <div className="message-media-card message-sticker-card">
+        {mediaUrl ? (
+          <img
+            className="message-sticker-preview"
+            src={mediaUrl}
+            alt="WhatsApp sticker"
+          />
+        ) : (
+          <div className="message-media-loading">Loading sticker...</div>
+        )}
+
+        {mediaError && (
+          <div className="message-media-error">{mediaError}</div>
+        )}
       </div>
     );
   }
@@ -539,30 +628,29 @@ function MessageMediaPreview({ message }) {
     const filename = message.media_filename || 'Document';
 
     return (
-      <div className="media-message-body">
-        <div className="message-document-card">
-          <div>
-            <strong>Document</strong>
-            <span>{filename}</span>
-          </div>
+      <div className="message-media-card message-document-card">
+        <div className="message-media-title">Document</div>
+        <div className="message-media-filename">{filename}</div>
 
-          {mediaUrl ? (
-            <a href={mediaUrl} target="_blank" rel="noreferrer">
-              Open
-            </a>
-          ) : (
-            <small>Loading...</small>
-          )}
-        </div>
+        {mediaUrl ? (
+          <a href={mediaUrl} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        ) : (
+          <div className="message-media-loading">Loading document...</div>
+        )}
 
         {caption && <div className="message-media-caption">{caption}</div>}
-        {mediaError && <div className="message-media-error">{mediaError}</div>}
+
+        {mediaError && (
+          <div className="message-media-error">{mediaError}</div>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="message-content">
+    <div className="message-text-content">
       {renderMessageContentWithLinks(message.content)}
     </div>
   );
