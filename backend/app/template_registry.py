@@ -14,7 +14,7 @@ class TemplateDefinition:
 TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     "missing_hotel_details": TemplateDefinition(
         template_type="missing_hotel_details",
-        meta_template_name="missing_hotel_details",
+        meta_template_name="missing_hotel_details_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -29,7 +29,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     ),
     "pickup_reminder_hotel": TemplateDefinition(
         template_type="pickup_reminder_hotel",
-        meta_template_name="pickup_reminder_hotel",
+        meta_template_name="pickup_reminder_hotel_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -52,7 +52,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     ),
     "pickup_reminder_hotel_missing_details": TemplateDefinition(
         template_type="pickup_reminder_hotel_missing_details",
-        meta_template_name="pickup_reminder_hotel_missing_details",
+        meta_template_name="pickup_reminder_hotel_missing_details_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -77,7 +77,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     ),
     "pickup_reminder_meeting_point": TemplateDefinition(
         template_type="pickup_reminder_meeting_point",
-        meta_template_name="pickup_reminder_meeting_point",
+        meta_template_name="pickup_reminder_meeting_point_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -102,7 +102,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     ),
     "pickup_reminder_meeting_point_missing_details": TemplateDefinition(
         template_type="pickup_reminder_meeting_point_missing_details",
-        meta_template_name="pickup_reminder_meeting_point_missing_details",
+        meta_template_name="pickup_reminder_meeting_point_missing_details_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -127,10 +127,11 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
             "passenger_info_link",
         ),
     ),
-    # Old template. Keep for compatibility while we phase it out.
+    # Old template type kept for compatibility with Giannis / CRM.
+    # It now sends the approved _r1 Meta template.
     "cruise_pickup_reminder": TemplateDefinition(
         template_type="cruise_pickup_reminder",
-        meta_template_name="cruise_pickup_reminder",
+        meta_template_name="cruise_pickup_reminder_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -154,6 +155,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
         ),
     ),
     # Manual Sendro template. Not expected from Giannis / CRM for now.
+    # Keep registered for compatibility, but remove/hide it from the frontend next.
     "post_call_followup_request": TemplateDefinition(
         template_type="post_call_followup_request",
         meta_template_name="post_call_followup_request",
@@ -168,7 +170,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     # Manual Sendro template for guests with no transfer, meeting directly at Amoudi port.
     "no_transfer_amoudi": TemplateDefinition(
         template_type="no_transfer_amoudi",
-        meta_template_name="no_transfer_amoudi",
+        meta_template_name="no_transfer_amoudi_r1",
         language_code="en",
         required_fields=(
             "external_id",
@@ -188,7 +190,7 @@ TEMPLATE_REGISTRY: dict[str, TemplateDefinition] = {
     # Manual Sendro template for sailing cruise transfer driver delay notices.
     "driver_delay_notice": TemplateDefinition(
         template_type="driver_delay_notice",
-        meta_template_name="driver_delay_notice",
+        meta_template_name="driver_delay_notice_r1",
         language_code="en",
         required_fields=(
             "external_id",

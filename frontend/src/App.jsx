@@ -106,13 +106,13 @@ const NEW_CONVERSATION_TEMPLATES = [
   {
     id: 'pickup_reminder_hotel',
     label: 'Pickup reminder - Hotel',
-    metaTemplateName: 'pickup_reminder_hotel',
+    metaTemplateName: 'pickup_reminder_hotel_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
       { key: 'tourName', label: 'Tour name', placeholder: 'Diamond Sunset Cruise' },
       { key: 'reservationNumber', label: 'Reservation number', placeholder: '0025257168' },
-      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12 May 2026' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12/05/2026' },
       { key: 'pickupTime', label: 'Pickup time', placeholder: '14:00' },
       { key: 'pickupPoint', label: 'Hotel / pickup point', placeholder: 'Canaves Oia Suites' },
     ],
@@ -127,11 +127,16 @@ const NEW_CONVERSATION_TEMPLATES = [
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We are contacting you from Sunset Oia regarding your sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
+This is a reminder for your Santorini sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
 
-We would like to remind you that your pick-up time for your cruise on ${values.cruiseDate || '{{4}}'} will be:
+Your cruise date is ${values.cruiseDate || '{{4}}'}.
 
-Pickup time & point: at ${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}.
+Pickup time & point:
+${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}
+
+We kindly ask you to be ready at the pickup point on time.
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
 Sunset Oia Sailing Team`,
@@ -139,13 +144,13 @@ Sunset Oia Sailing Team`,
   {
     id: 'pickup_reminder_hotel_missing_details',
     label: 'Pickup reminder - Hotel + missing details',
-    metaTemplateName: 'pickup_reminder_hotel_missing_details',
+    metaTemplateName: 'pickup_reminder_hotel_missing_details_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
       { key: 'tourName', label: 'Tour name', placeholder: 'Diamond Sunset Cruise' },
       { key: 'reservationNumber', label: 'Reservation number', placeholder: '0025257168' },
-      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12 May 2026' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12/05/2026' },
       { key: 'pickupTime', label: 'Pickup time', placeholder: '14:00' },
       { key: 'pickupPoint', label: 'Hotel / pickup point', placeholder: 'Canaves Oia Suites' },
       { key: 'passengerInfoLink', label: 'Passenger info link', placeholder: 'https://...' },
@@ -162,14 +167,19 @@ Sunset Oia Sailing Team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We are contacting you from Sunset Oia regarding your sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
+This is a reminder for your Santorini sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
 
-We would like to remind you that your pick-up time for your cruise on ${values.cruiseDate || '{{4}}'} will be:
+Your cruise date is ${values.cruiseDate || '{{4}}'}.
 
-Pickup time & point: at ${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}.
+Pickup time & point:
+${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}
 
-Please also complete the missing passenger details using the link below:
+Please complete the required passenger details using the link below:
 ${values.passengerInfoLink || '{{7}}'}
+
+We kindly ask you to be ready at the pickup point on time.
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
 Sunset Oia Sailing Team`,
@@ -177,14 +187,14 @@ Sunset Oia Sailing Team`,
   {
     id: 'pickup_reminder_meeting_point',
     label: 'Pickup reminder - Meeting point',
-    metaTemplateName: 'pickup_reminder_meeting_point',
+    metaTemplateName: 'pickup_reminder_meeting_point_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
       { key: 'tourName', label: 'Tour name', placeholder: 'Diamond Sunset Cruise' },
       { key: 'reservationNumber', label: 'Reservation number', placeholder: '0025257168' },
-      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12 May 2026' },
-      { key: 'pickupTime', label: 'Pickup time', placeholder: '14:00' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12/05/2026' },
+      { key: 'pickupTime', label: 'Meeting time', placeholder: '14:00' },
       { key: 'pickupPoint', label: 'Meeting point', placeholder: 'Aktaion Restaurant, Fira' },
       { key: 'googleMaps', label: 'Google Maps link', placeholder: 'https://maps.google.com/...' },
     ],
@@ -200,12 +210,19 @@ Sunset Oia Sailing Team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We are contacting you from Sunset Oia regarding your sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
+This is a reminder for your Santorini sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
 
-We would like to remind you that your pick-up time for your cruise on ${values.cruiseDate || '{{4}}'} will be:
+Your cruise date is ${values.cruiseDate || '{{4}}'}.
 
-Pickup time & point: at ${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}.
-Google Maps: ${values.googleMaps || '{{7}}'}
+Meeting time & point:
+${values.pickupTime || '{{5}}'} at ${values.pickupPoint || '{{6}}'}
+
+Google Maps:
+${values.googleMaps || '{{7}}'}
+
+We kindly ask you to arrive at the meeting point on time.
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
 Sunset Oia Sailing Team`,
@@ -213,14 +230,14 @@ Sunset Oia Sailing Team`,
   {
     id: 'pickup_reminder_meeting_point_missing_details',
     label: 'Pickup reminder - Meeting point + missing details',
-    metaTemplateName: 'pickup_reminder_meeting_point_missing_details',
+    metaTemplateName: 'pickup_reminder_meeting_point_missing_details_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
       { key: 'tourName', label: 'Tour name', placeholder: 'Diamond Sunset Cruise' },
       { key: 'reservationNumber', label: 'Reservation number', placeholder: '0025257168' },
-      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12 May 2026' },
-      { key: 'pickupTime', label: 'Pickup time', placeholder: '14:00' },
+      { key: 'cruiseDate', label: 'Cruise date', placeholder: '12/05/2026' },
+      { key: 'pickupTime', label: 'Meeting time', placeholder: '14:00' },
       { key: 'pickupPoint', label: 'Meeting point', placeholder: 'Aktaion Restaurant, Fira' },
       { key: 'googleMaps', label: 'Google Maps link', placeholder: 'https://maps.google.com/...' },
       { key: 'passengerInfoLink', label: 'Passenger info link', placeholder: 'https://...' },
@@ -238,15 +255,22 @@ Sunset Oia Sailing Team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We are contacting you from Sunset Oia regarding your sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
+This is a reminder for your Santorini sailing cruise ${values.tourName || '{{2}}'} with reservation number ${values.reservationNumber || '{{3}}'}.
 
-We would like to remind you that your pick-up time for your cruise on ${values.cruiseDate || '{{4}}'} will be:
+Your cruise date is ${values.cruiseDate || '{{4}}'}.
 
-Pickup time & point: at ${values.pickupTime || '{{5}}'} from ${values.pickupPoint || '{{6}}'}.
-Google Maps: ${values.googleMaps || '{{7}}'}
+Meeting time & point:
+${values.pickupTime || '{{5}}'} at ${values.pickupPoint || '{{6}}'}
 
-Please also complete the missing passenger details using the link below:
+Google Maps:
+${values.googleMaps || '{{7}}'}
+
+Please complete the required passenger details using the link below:
 ${values.passengerInfoLink || '{{8}}'}
+
+We kindly ask you to arrive at the meeting point on time.
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
 Sunset Oia Sailing Team`,
@@ -254,7 +278,7 @@ Sunset Oia Sailing Team`,
   {
     id: 'missing_hotel_details',
     label: 'Missing hotel details',
-    metaTemplateName: 'missing_hotel_details',
+    metaTemplateName: 'missing_hotel_details_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
@@ -267,34 +291,13 @@ Sunset Oia Sailing Team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-Greetings from the beautiful Santorini and thank you for choosing Sunset Oia for your sailing experience.
+This is a reminder for your Santorini sailing cruise with reservation number ${values.reservationNumber || '{{2}}'}.
 
-Regarding your reservation with reservation number ${values.reservationNumber || '{{2}}'}.
+To arrange your pickup time and meeting point, please send us the name of your hotel.
 
-Please send us the name of your hotel so that we may arrange your pick-up time and point. In case you are staying in an Airbnb, please send us the name of your Airbnb and the contact details of your host.
+If you are staying at an Airbnb, please send us the name of the accommodation, along with the contact details of your host.
 
-We remain at your disposal for any additional information or clarification.
-
-Best regards,
-Sunset Oia Sailing Team`,
-  },
-  {
-    id: 'post_call_followup_request',
-    label: 'Post-call follow-up request',
-    metaTemplateName: 'post_call_followup_request',
-    languageCode: 'en',
-    fields: [
-      { key: 'guestName', label: 'Guest name', placeholder: 'John Smith' },
-    ],
-    buildVariables: (values) => [
-      values.guestName,
-    ],
-    buildPreview: (values) =>
-      `Dear ${values.guestName || '{{1}}'},
-
-Thank you for contacting Sunset Oia.
-
-As discussed, please send us the requested details here on WhatsApp, and our team will be happy to assist you further.
+Thank you for helping us complete your pickup arrangements.
 
 Best regards,
 Sunset Oia Sailing Team`,
@@ -302,7 +305,7 @@ Sunset Oia Sailing Team`,
   {
     id: 'no_transfer_amoudi',
     label: 'No transfer - Amoudi',
-    metaTemplateName: 'no_transfer_amoudi',
+    metaTemplateName: 'no_transfer_amoudi_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'Tom Maguire' },
@@ -319,21 +322,24 @@ Sunset Oia Sailing Team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We are contacting you from Sunset Oia regarding your sailing cruise with reservation number ${values.reservationNumber || '{{2}}'}.
+This is a reminder for your Santorini sailing cruise with reservation number ${values.reservationNumber || '{{2}}'}.
 
-We would like to remind you that you will have to be at Amoudi port at ${values.meetingTime || '{{3}}'} for your sailing cruise on ${values.cruiseDate || '{{4}}'}.
+Please note that no transfer service is included for this reservation.
 
-Google Maps: https://goo.gl/maps/jJrjT9rPvnK81xH4A
+Your embarkation point is Amoudi port, and we kindly ask you to be there at ${values.meetingTime || '{{3}}'} for your sailing cruise on ${values.cruiseDate || '{{4}}'}.
 
-Should you need any additional information regarding your cruise, please call us at +30 22860 72200 or contact us on WhatsApp.
+Google Maps:
+https://goo.gl/maps/jJrjT9rPvnK81xH4A
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
-Sunset Oia Sailing team`,
+Sunset Oia Sailing Team`,
   },
   {
     id: 'driver_delay_notice',
     label: 'Driver delay - Sailing cruise',
-    metaTemplateName: 'driver_delay_notice',
+    metaTemplateName: 'driver_delay_notice_r1',
     languageCode: 'en',
     fields: [
       { key: 'guestName', label: 'Guest name', placeholder: 'Tom Maguire' },
@@ -346,28 +352,14 @@ Sunset Oia Sailing team`,
     buildPreview: (values) =>
       `Dear ${values.guestName || '{{1}}'},
 
-We would like to inform you that the driver for your sailing cruise is expected to be approximately ${values.delayMinutes || '{{2}}'} minutes late.
+We would like to inform you that the driver for your Santorini sailing cruise is expected to arrive approximately ${values.delayMinutes || '{{2}}'} minutes later than scheduled.
 
 We sincerely apologize for the inconvenience and thank you for your kind understanding.
 
 Best regards,
-Sunset Oia Sailing team`,
+Sunset Oia Sailing Team`,
   },
 ];
-
-function getMediaCaption(content) {
-  const lines = String(content || '').split('\n');
-
-  const captionLine = lines.find((line) =>
-    line.trim().toLowerCase().startsWith('caption:')
-  );
-
-  if (!captionLine) {
-    return '';
-  }
-
-  return captionLine.replace(/^caption:\s*/i, '').trim();
-}
 
 const MESSAGE_URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 
