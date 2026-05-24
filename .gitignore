@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 .env
 
+meta_template_backup/templates_backup_20260523_162458.json

@@ -463,6 +463,7 @@ def build_template_preview_content(template_type: str, item_data: dict) -> str:
             ("pickup_point", "Pickup point"),
             ("google_maps", "Google Maps"),
             ("passenger_info_link", "Passenger info link"),
+            ("delay_minutes", "Delay minutes"),
         ]
 
         for field_name, label in fields:
@@ -481,71 +482,18 @@ def build_template_preview_content(template_type: str, item_data: dict) -> str:
     pickup_point = value("pickup_point")
     google_maps = value("google_maps")
     passenger_info_link = value("passenger_info_link")
+    delay_minutes = value("delay_minutes")
 
     if template_type == "missing_hotel_details":
         return f"""Dear {guest_name},
 
-Greetings from the beautiful Santorini, and thank you for choosing Sunset Oia for your sailing experience.
+This is a reminder for your Santorini sailing cruise with reservation number {reservation_number}.
 
-Regarding your reservation number {reservation_number}, please send us the name of your hotel so that we can arrange your pick-up time and meeting point.
+To arrange your pickup time and meeting point, please send us the name of your hotel.
 
 If you are staying at an Airbnb, please send us the name of the accommodation, along with the contact details of your host.
 
-We remain at your disposal for any additional information or clarification.
-
-Best regards,
-Sunset Oia Sailing Team"""
-
-    if template_type == "pickup_reminder_meeting_point_missing_details":
-        return f"""Dear {guest_name},
-
-We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
-
-We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
-
-Pickup time & point: at {pickup_time} from {pickup_point}
-
-Google Maps:
-{google_maps}
-
-Please click the link below to fill in the passenger details required by the port authorities:
-{passenger_info_link}
-
-Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
-
-Best regards,
-Sunset Oia Sailing Team"""
-
-    if template_type == "pickup_reminder_meeting_point":
-        return f"""Dear {guest_name},
-
-We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
-
-We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
-
-Pickup time & point: at {pickup_time} from {pickup_point}
-
-Google Maps:
-{google_maps}
-
-Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
-
-Best regards,
-Sunset Oia Sailing Team"""
-
-    if template_type == "pickup_reminder_hotel_missing_details":
-        return f"""Dear {guest_name},
-
-We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
-
-We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
-
-Pickup time & point: at {pickup_time} from {pickup_point}
-
-Please click the link below to fill in the passenger details required by the port authorities:
-{passenger_info_link}
-
-Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+Thank you for helping us complete your pickup arrangements.
 
 Best regards,
 Sunset Oia Sailing Team"""
@@ -553,13 +501,79 @@ Sunset Oia Sailing Team"""
     if template_type == "pickup_reminder_hotel":
         return f"""Dear {guest_name},
 
-We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+This is a reminder for your Santorini sailing cruise {tour_name} with reservation number {reservation_number}.
 
-We would like to inform you / remind you that your pick-up time for your sailing cruise on {cruise_date} will be:
+Your cruise date is {cruise_date}.
 
-Pickup time & point: at {pickup_time} from {pickup_point}
+Pickup time & point:
+{pickup_time} from {pickup_point}
 
-Should you need any additional information regarding your cruise, please call us at 0030 22860 72200 or contact us on WhatsApp.
+We kindly ask you to be ready at the pickup point on time.
+
+We wish you a wonderful sailing cruise.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_hotel_missing_details":
+        return f"""Dear {guest_name},
+
+This is a reminder for your Santorini sailing cruise {tour_name} with reservation number {reservation_number}.
+
+Your cruise date is {cruise_date}.
+
+Pickup time & point:
+{pickup_time} from {pickup_point}
+
+Please complete the required passenger details using the link below:
+{passenger_info_link}
+
+We kindly ask you to be ready at the pickup point on time.
+
+We wish you a wonderful sailing cruise.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_meeting_point":
+        return f"""Dear {guest_name},
+
+This is a reminder for your Santorini sailing cruise {tour_name} with reservation number {reservation_number}.
+
+Your cruise date is {cruise_date}.
+
+Meeting time & point:
+{pickup_time} at {pickup_point}
+
+Google Maps:
+{google_maps}
+
+We kindly ask you to arrive at the meeting point on time.
+
+We wish you a wonderful sailing cruise.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "pickup_reminder_meeting_point_missing_details":
+        return f"""Dear {guest_name},
+
+This is a reminder for your Santorini sailing cruise {tour_name} with reservation number {reservation_number}.
+
+Your cruise date is {cruise_date}.
+
+Meeting time & point:
+{pickup_time} at {pickup_point}
+
+Google Maps:
+{google_maps}
+
+Please complete the required passenger details using the link below:
+{passenger_info_link}
+
+We kindly ask you to arrive at the meeting point on time.
+
+We wish you a wonderful sailing cruise.
 
 Best regards,
 Sunset Oia Sailing Team"""
@@ -567,14 +581,44 @@ Sunset Oia Sailing Team"""
     if template_type == "cruise_pickup_reminder":
         return f"""Dear {guest_name},
 
-We are contacting you from Sunset Oia regarding your sailing cruise {tour_name} with reservation number {reservation_number}.
+This is a reminder for your Santorini sailing cruise {tour_name} with reservation number {reservation_number}.
 
-We would like to remind you that your pick-up time for your cruise on {cruise_date} will be:
+Your cruise date is {cruise_date}.
 
-Pickup time & point: at {pickup_time} from {pickup_point}
-Google Maps: {google_maps}
+Pickup time & point:
+{pickup_time} from {pickup_point}
 
-Should you need any additional information, feel free to contact us on WhatsApp.
+Google Maps:
+{google_maps}
+
+We wish you a wonderful sailing cruise.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "no_transfer_amoudi":
+        return f"""Dear {guest_name},
+
+This is a reminder for your Santorini sailing cruise with reservation number {reservation_number}.
+
+Please note that no transfer service is included for this reservation.
+
+Your embarkation point is Amoudi port, and we kindly ask you to be there at {pickup_time} for your sailing cruise on {cruise_date}.
+
+Google Maps:
+https://goo.gl/maps/jJrjT9rPvnK81xH4A
+
+We wish you a wonderful sailing cruise.
+
+Best regards,
+Sunset Oia Sailing Team"""
+
+    if template_type == "driver_delay_notice":
+        return f"""Dear {guest_name},
+
+We would like to inform you that the driver for your Santorini sailing cruise is expected to arrive approximately {delay_minutes} minutes later than scheduled.
+
+We sincerely apologize for the inconvenience and thank you for your kind understanding.
 
 Best regards,
 Sunset Oia Sailing Team"""
@@ -582,9 +626,9 @@ Sunset Oia Sailing Team"""
     if template_type == "post_call_followup_request":
         return f"""Dear {guest_name},
 
-Following our recent phone conversation regarding your interest in a sailing cruise, we kindly ask you to send us a message on WhatsApp so we can share the available options with you.
+Thank you for contacting Sunset Oia.
 
-We look forward to assisting you.
+As discussed, please send us the requested details here on WhatsApp.
 
 Best regards,
 Sunset Oia Sailing Team"""
