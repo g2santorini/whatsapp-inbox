@@ -648,6 +648,22 @@ function MessageMediaPreview({ message }) {
   );
 }
 
+function getMediaCaption(message) {
+  if (!message) {
+    return '';
+  }
+
+  return (
+    message.caption ||
+    message.media_caption ||
+    message.mediaCaption ||
+    message.body ||
+    message.content ||
+    ''
+  );
+}
+
+
 function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
