@@ -1615,7 +1615,7 @@ function App() {
       const createdConversation = await createTemplateConversation({
         contactName,
         contactPhone,
-        templateName: selectedTemplate.metaTemplateName,
+        templateName: selectedTemplate.id,
         languageCode: selectedTemplate.languageCode,
         variables: templateVariables,
         previewContent: firstMessage,
