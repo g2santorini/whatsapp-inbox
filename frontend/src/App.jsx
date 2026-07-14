@@ -1538,6 +1538,9 @@ function App() {
   async function handleSelectConversation(conversation) {
     setError('');
     setActivePage(APP_PAGES.INBOX);
+
+    latestConversationRequestIdRef.current += 1;
+
     setSelectedConversation(conversation);
 
     const isTakenByAnotherUser =
