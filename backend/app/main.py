@@ -126,6 +126,9 @@ def ensure_message_status_columns():
     if "reaction_updated_at" not in columns:
         columns_to_add.append(("reaction_updated_at", "datetime"))
 
+    if "inbound_reaction_at" not in columns:
+        columns_to_add.append(("inbound_reaction_at", "datetime"))
+
     if not columns_to_add:
         if "message_type" in columns:
             with engine.begin() as connection:
@@ -284,6 +287,26 @@ def attach_customer_service_window_data(
         row.conversation_id: row.last_inbound_at for row in last_inbound_rows
     }
 
+    last_inbound_reaction_rows = (
+        db.query(
+            models.Message.conversation_id,
+            func.max(models.Message.inbound_reaction_at).label(
+                "last_inbound_reaction_at"
+            ),
+        )
+        .filter(
+            models.Message.conversation_id.in_(conversation_ids),
+            models.Message.inbound_reaction_at.isnot(None),
+        )
+        .group_by(models.Message.conversation_id)
+        .all()
+    )
+
+    last_inbound_reaction_by_conversation_id = {
+        row.conversation_id: row.last_inbound_reaction_at
+        for row in last_inbound_reaction_rows
+    }
+
     latest_message_rows = (
         db.query(
             models.Message.conversation_id,
@@ -320,8 +343,21 @@ def attach_customer_service_window_data(
         )
 
     for conversation in conversations:
-        last_inbound_at = last_inbound_by_conversation_id.get(conversation.id)
-        fields = build_customer_service_window_fields(last_inbound_at)
+        customer_activity_times = (
+            last_inbound_by_conversation_id.get(conversation.id),
+            last_inbound_reaction_by_conversation_id.get(conversation.id),
+        )
+
+        last_customer_activity_at = max(
+            (
+                activity_time
+                for activity_time in customer_activity_times
+                if activity_time is not None
+            ),
+            default=None,
+        )
+
+        fields = build_customer_service_window_fields(last_customer_activity_at)
         apply_customer_service_window_fields(conversation, fields)
 
         conversation.last_message_direction = (
@@ -343,13 +379,34 @@ def get_last_inbound_message_at(
     db: Session,
     conversation_id: int,
 ) -> datetime | None:
-    return (
+    last_inbound_message_at = (
         db.query(func.max(models.Message.created_at))
         .filter(
             models.Message.conversation_id == conversation_id,
             models.Message.direction == "inbound",
         )
         .scalar()
+    )
+
+    last_inbound_reaction_at = (
+        db.query(func.max(models.Message.inbound_reaction_at))
+        .filter(
+            models.Message.conversation_id == conversation_id,
+            models.Message.inbound_reaction_at.isnot(None),
+        )
+        .scalar()
+    )
+
+    return max(
+        (
+            activity_time
+            for activity_time in (
+                last_inbound_message_at,
+                last_inbound_reaction_at,
+            )
+            if activity_time is not None
+        ),
+        default=None,
     )
 
 
@@ -1993,8 +2050,13 @@ async def receive_whatsapp_message(
                 )
 
             if original_message is not None:
+                reaction_received_at = datetime.utcnow()
+
                 original_message.reaction_emoji = emoji or None
-                original_message.reaction_updated_at = datetime.utcnow()
+                original_message.reaction_updated_at = reaction_received_at
+
+                if emoji:
+                    original_message.inbound_reaction_at = reaction_received_at
 
                 db.commit()
 
