@@ -703,7 +703,30 @@ function App() {
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
 
-  const [newMessage, setNewMessage] = useState('');
+  const [messageDrafts, setMessageDrafts] = useState({});
+
+  const selectedConversationId = selectedConversation?.id || null;
+
+  const newMessage = selectedConversationId
+    ? messageDrafts[selectedConversationId] || ''
+    : '';
+
+  function setConversationDraft(conversationId, value) {
+    if (!conversationId) return;
+
+    setMessageDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+
+      if (value) {
+        nextDrafts[conversationId] = value;
+      } else {
+        delete nextDrafts[conversationId];
+      }
+
+      return nextDrafts;
+    });
+  }
+
   const [reactingMessageIds, setReactingMessageIds] = useState([]);
   const [openReactionPickerMessageId, setOpenReactionPickerMessageId] = useState(null);
   const [error, setError] = useState('');
@@ -1365,7 +1388,7 @@ function App() {
     messagesRef.current = [];
     setHasMoreOlderMessages(true);
     setIsLoadingOlderMessages(false);
-    setNewMessage('');
+    setMessageDrafts({});
     setError('');
     setShowNewConversationForm(false);
     setActivePage(APP_PAGES.INBOX);
@@ -1786,46 +1809,48 @@ function App() {
   }
 
   async function handleSendMessage(event) {
-    event.preventDefault();
+  event.preventDefault();
 
-    if (!selectedConversation || !newMessage.trim() || isSending) return;
+  const conversationId = selectedConversation?.id;
 
-    if (isConversationTakenByAnotherUser) {
-      setError(
-        `This conversation is taken by ${getAssignedUserLabel(
-          selectedConversation.assigned_to_user_id
-        )}.`
-      );
-      return;
-    }
+  if (!conversationId || !newMessage.trim() || isSending) return;
 
-    const messageToSend = newMessage.trim();
-
-    setIsSending(true);
-    setError('');
-    setNewMessage('');
-
-    try {
-      await sendMessage(selectedConversation.id, messageToSend);
-      await closeConversation(selectedConversation.id);
-      setActiveConversationView(CONVERSATION_VIEWS.INBOX);
-      await loadMessages(selectedConversation.id);
-      await refreshConversations(selectedConversation.id);
-
-      window.setTimeout(() => {
-        messageInputRef.current?.focus();
-      }, 0);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not send message.'));
-      setNewMessage(messageToSend);
-    } finally {
-      setIsSending(false);
-
-      window.setTimeout(() => {
-        messageInputRef.current?.focus();
-      }, 0);
-    }
+  if (isConversationTakenByAnotherUser) {
+    setError(
+      `This conversation is taken by ${getAssignedUserLabel(
+        selectedConversation.assigned_to_user_id
+      )}.`
+    );
+    return;
   }
+
+  const messageToSend = newMessage.trim();
+
+  setIsSending(true);
+  setError('');
+  setConversationDraft(conversationId, '');
+
+  try {
+    await sendMessage(conversationId, messageToSend);
+    await closeConversation(conversationId);
+    setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+    await loadMessages(conversationId);
+    await refreshConversations(conversationId);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+    }, 0);
+  } catch (err) {
+    setError(getErrorMessage(err, 'Could not send message.'));
+    setConversationDraft(conversationId, messageToSend);
+  } finally {
+    setIsSending(false);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+    }, 0);
+  }
+}
 
   useEffect(() => {
     if (token) {
@@ -2794,7 +2819,9 @@ function App() {
               <textarea
                 ref={messageInputRef}
                 value={newMessage}
-                onChange={(event) => setNewMessage(event.target.value)}
+                onChange={(event) =>
+                  setConversationDraft(selectedConversationId, event.target.value)
+                }
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault();
