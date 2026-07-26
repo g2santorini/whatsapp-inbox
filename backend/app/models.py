@@ -59,6 +59,7 @@ class Message(Base):
 
     reaction_emoji = Column(String, nullable=True)
     reaction_updated_at = Column(DateTime, nullable=True)
+    inbound_reaction_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
