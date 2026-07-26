@@ -430,6 +430,16 @@ def normalize_whatsapp_phone(phone: str) -> str:
     return phone.strip().replace("+", "").replace(" ", "")
 
 
+def parse_whatsapp_timestamp(timestamp_value) -> datetime:
+    if timestamp_value is not None:
+        try:
+            return datetime.utcfromtimestamp(int(timestamp_value))
+        except (TypeError, ValueError, OSError, OverflowError):
+            pass
+
+    return datetime.utcnow()
+
+
 def extract_whatsapp_message_id(whatsapp_result: dict | None) -> str | None:
     if not isinstance(whatsapp_result, dict):
         return None
@@ -2008,7 +2018,6 @@ async def receive_whatsapp_message(
             return {"status": "ok"}
 
         message = value["messages"][0]
-        contact = value["contacts"][0]
 
         whatsapp_message_id = message.get("id")
         message_type = message.get("type", "unknown")
@@ -2050,7 +2059,9 @@ async def receive_whatsapp_message(
                 )
 
             if original_message is not None:
-                reaction_received_at = datetime.utcnow()
+                reaction_received_at = parse_whatsapp_timestamp(
+                    message.get("timestamp")
+                )
 
                 original_message.reaction_emoji = emoji or None
                 original_message.reaction_updated_at = reaction_received_at
@@ -2174,7 +2185,13 @@ async def receive_whatsapp_message(
 
         phone = message["from"]
         normalized_phone = normalize_whatsapp_phone(phone)
-        name = contact["profile"]["name"]
+        contacts = value.get("contacts") or []
+        contact = contacts[0] if contacts else {}
+        contact_profile = contact.get("profile") or {}
+        name = str(contact_profile.get("name") or "").strip()
+
+        if not name:
+            name = f"+{normalized_phone}"
 
         webhook_user = db.query(models.User).first()
 
