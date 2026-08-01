@@ -39,6 +39,33 @@ const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
 
+const QUICK_REPLY_PREVIEWS = [
+  {
+    id: 'greeting',
+    title: 'Welcome',
+    category: 'General',
+    content: 'Hello! Thank you for contacting Sunset Oia. How may I help you?',
+  },
+  {
+    id: 'booking-reference',
+    title: 'Booking reference',
+    category: 'Booking',
+    content: 'Could you please share your booking reference so I can check this for you?',
+  },
+  {
+    id: 'availability',
+    title: 'Check availability',
+    category: 'Availability',
+    content: 'Of course. Which date and cruise would you like me to check?',
+  },
+  {
+    id: 'closing',
+    title: 'Thank you',
+    category: 'General',
+    content: 'Thank you! If you need anything else, we are here to help.',
+  },
+];
+
 const CONVERSATION_VIEWS = {
   INBOX: 'inbox',
   MINE: 'mine',
@@ -51,6 +78,56 @@ const APP_PAGES = {
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
+
+function Icon({ name, size = 20, strokeWidth = 1.8 }) {
+  const commonProps = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  };
+
+  const paths = {
+    inbox: <><path d="M4 4h16v13H4z" /><path d="M4 13h4l2 3h4l2-3h4" /></>,
+    chat: <><path d="M5 5h14v11H9l-4 3z" /></>,
+    user: <><circle cx="12" cy="8" r="3" /><path d="M5 20c.8-4 3.1-6 7-6s6.2 2 7 6" /></>,
+    users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6s5.3 2 6 6" /><path d="M16 5c2.4.3 3.7 3.1 2.1 5" /><path d="M17 14c2.1.7 3.4 2.6 4 5" /></>,
+    follow: <><path d="M4 18V6" /><path d="M4 7h10l-1 4 1 4H4" /></>,
+    archive: <><path d="M4 7h16v13H4z" /><path d="M3 4h18v3H3z" /><path d="M9 11h6" /></>,
+    reports: <><path d="M5 20V10" /><path d="M12 20V4" /><path d="M19 20v-7" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4 4" /></>,
+    filter: <><path d="M4 5h16l-6 7v6l-4 2v-8z" /></>,
+    plus: <><path d="M12 5v14M5 12h14" /></>,
+    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><path d="M12 7h.01" /></>,
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
+    back: <><path d="m15 18-6-6 6-6" /></>,
+    send: <><path d="m22 2-7 20-4-9-9-4z" /><path d="M22 2 11 13" /></>,
+    take: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="M18 12v6M15 15h6" /></>,
+    release: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="m16 13 4 4m0-4-4 4" /></>,
+    delete: <><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="m6 7 1 13h10l1-13" /><path d="M10 11v5M14 11v5" /></>,
+    quick: <><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2z" /><path d="m18.5 14 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" /></>,
+    menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
+    chevron: <><path d="m8 10 4 4 4-4" /></>,
+    logout: <><path d="M10 4H5v16h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
+  };
+
+  return <svg {...commonProps}>{paths[name] || paths.chat}</svg>;
+}
+
+function getInitials(value) {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
 
 function playNotificationSound() {
   try {
@@ -752,6 +829,10 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+  const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
+  const [quickReplySearch, setQuickReplySearch] = useState('');
+  const inboxSearchInputRef = useRef(null);
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -775,8 +856,6 @@ function App() {
 
   const canReleaseConversation =
     Boolean(selectedConversation) && selectedConversation.assigned_to_user_id === user?.id;
-
-  const canUseConversationAction = canTakeConversation || canReleaseConversation;
 
   const isCustomerServiceSessionExpired =
     Boolean(selectedConversation) &&
@@ -876,6 +955,70 @@ function App() {
     return true;
   });
 
+  const normalizedQuickReplySearch = quickReplySearch.trim().toLowerCase();
+  const filteredQuickReplies = QUICK_REPLY_PREVIEWS.filter((reply) => {
+    if (!normalizedQuickReplySearch) return true;
+
+    return `${reply.title} ${reply.category} ${reply.content}`
+      .toLowerCase()
+      .includes(normalizedQuickReplySearch);
+  });
+
+  function openConversationView(view) {
+    setActivePage(APP_PAGES.INBOX);
+    setActiveConversationView(view);
+    setIsMobileChatOpen(false);
+    setMobileDrawerMode(null);
+  }
+
+  function handleInsertQuickReply(content) {
+    if (!selectedConversationId) return;
+
+    setConversationDraft(selectedConversationId, content);
+    setIsMobileChatOpen(true);
+    setMobileDrawerMode(null);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+    }, 0);
+  }
+
+  function focusMobileInboxSearch() {
+    setActivePage(APP_PAGES.INBOX);
+    setIsMobileChatOpen(false);
+    setMobileDrawerMode(null);
+
+    window.setTimeout(() => {
+      inboxSearchInputRef.current?.focus();
+    }, 0);
+  }
+
+  function renderQuickReplyList() {
+    if (filteredQuickReplies.length === 0) {
+      return <div className="quick-reply-empty">No quick replies found.</div>;
+    }
+
+    return filteredQuickReplies.map((reply) => (
+      <article className="quick-reply-card" key={reply.id}>
+        <div className="quick-reply-card-heading">
+          <span className="quick-reply-star">★</span>
+          <div>
+            <strong>{reply.title}</strong>
+            <small>{reply.category}</small>
+          </div>
+        </div>
+        <p>{reply.content}</p>
+        <button
+          type="button"
+          onClick={() => handleInsertQuickReply(reply.content)}
+          disabled={!selectedConversationId}
+        >
+          Insert
+        </button>
+      </article>
+    ));
+  }
+
   function getAssignedUser(userId) {
     if (!userId) return null;
     return users.find((singleUser) => singleUser.id === userId) || null;
@@ -900,14 +1043,6 @@ function App() {
     if (usernameValue === 'panagiotis') return 'assigned-panagiotis';
 
     return 'assigned-other';
-  }
-
-  function getConversationActionLabel() {
-    if (!selectedConversation) return 'Take';
-    if (canTakeConversation) return 'Take';
-    if (canReleaseConversation) return 'Release';
-
-    return 'Taken';
   }
 
   function scrollMessagesToBottom() {
@@ -1163,6 +1298,15 @@ function App() {
     }
 
     return 'conversation-response-dot-neutral';
+  }
+
+  function getConversationResponseGlyph(conversation) {
+    const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
+
+    if (lastDirection === 'inbound') return '↙';
+    if (lastDirection === 'outbound') return '↗';
+
+    return '•';
   }
 
   function formatReportDate(value) {
@@ -1789,6 +1933,8 @@ function App() {
   async function handleSelectConversation(conversation) {
     setError('');
     setActivePage(APP_PAGES.INBOX);
+    setIsMobileChatOpen(true);
+    setMobileDrawerMode(null);
 
     messagesRequestInProgressRef.current?.controller?.abort();
     olderMessagesAbortControllerRef.current?.abort();
@@ -1882,6 +2028,7 @@ function App() {
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
         setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+        setIsMobileChatOpen(true);
 
         await Promise.all([
           refreshConversations(
@@ -1932,17 +2079,6 @@ function App() {
       ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not release conversation.'));
-    }
-  }
-
-  async function handleConversationAction() {
-    if (canTakeConversation) {
-      await handleTakeConversation();
-      return;
-    }
-
-    if (canReleaseConversation) {
-      await handleReleaseConversation();
     }
   }
 
@@ -2037,6 +2173,7 @@ function App() {
       await deleteConversation(selectedConversation.id);
       selectedConversationIdRef.current = null;
       setSelectedConversation(null);
+      setIsMobileChatOpen(false);
       setMessages([]);
       messagesRef.current = [];
       setHasMoreOlderMessages(true);
@@ -2738,32 +2875,44 @@ function App() {
   return (
     <div
       className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''
-        } ${activePage === APP_PAGES.SETTINGS ? 'settings-mode' : ''}`}
+        } ${activePage === APP_PAGES.SETTINGS ? 'settings-mode' : ''} ${isMobileChatOpen ? 'mobile-chat-open' : ''}`}
     >
       {error && <div className="app-error">{error}</div>}
+
+      <header className="mobile-app-bar">
+        <div className="mobile-app-logo-wrap">
+          <img src={sendroLogo} alt="Sendro" className="mobile-app-logo mobile-app-logo-white" />
+          <img src={sendroLogo} alt="" className="mobile-app-logo mobile-app-logo-accent" aria-hidden="true" />
+        </div>
+        <div className="mobile-app-actions">
+          <button type="button" onClick={focusMobileInboxSearch} aria-label="Search conversations">
+            <Icon name="search" size={25} />
+          </button>
+          <button type="button" onClick={() => setMobileDrawerMode('menu')} aria-label="Open menu">
+            <Icon name="menu" size={27} />
+          </button>
+        </div>
+      </header>
 
       <aside className="blue-sidebar">
         <div className="blue-sidebar-top">
           <div className="blue-brand">
-            <div className="blue-brand-icon">
-              <img src={sendroLogo} alt="Sendro logo" className="blue-brand-logo" />
+            <div className="blue-brand-logo-wrap">
+              <img src={sendroLogo} alt="Sendro" className="blue-brand-logo blue-brand-logo-white" />
+              <img src={sendroLogo} alt="" className="blue-brand-logo blue-brand-logo-accent" aria-hidden="true" />
             </div>
-            <span>Sendro</span>
           </div>
 
-          <div className="blue-section-title">Conversations</div>
+          <div className="blue-section-title">Workspace</div>
 
           <div className="blue-filter-list">
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.INBOX);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
             >
-              <span>Inbox</span>
+              <span className="blue-nav-label"><Icon name="inbox" />Inbox</span>
               {inboxUnreadCount > 0 && <strong>{inboxUnreadCount}</strong>}
             </button>
 
@@ -2771,12 +2920,9 @@ function App() {
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.MINE);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}
             >
-              <span>Mine</span>
+              <span className="blue-nav-label"><Icon name="user" />Mine</span>
               {mineCount > 0 && <strong>{mineCount}</strong>}
             </button>
 
@@ -2784,26 +2930,35 @@ function App() {
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}
             >
-              <span>To Follow Up</span>
+              <span className="blue-nav-label"><Icon name="follow" />To Follow Up</span>
+              {Number(conversationSummary?.follow_up || 0) > 0 && (
+                <strong>{conversationSummary.follow_up}</strong>
+              )}
             </button>
 
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ARCHIVED ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.ARCHIVED);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}
             >
-              <span>Archived</span>
+              <span className="blue-nav-label"><Icon name="archive" />Archived</span>
+              {Number(conversationSummary?.archived || 0) > 0 && (
+                <strong>{conversationSummary.archived}</strong>
+              )}
             </button>
           </div>
+
+          <div className="blue-section-title blue-section-spaced">Channel</div>
+          <div className="blue-channel-row">
+            <span className="whatsapp-mark">W</span>
+            <span>WhatsApp</span>
+            <strong>{browserUnreadCount || conversations.length}</strong>
+          </div>
+
+          <div className="blue-section-title blue-section-spaced">Tools</div>
 
           {canCurrentUserViewReports && (
             <button
@@ -2812,29 +2967,33 @@ function App() {
               onClick={() => {
                 setActivePage(APP_PAGES.REPORTS);
                 setSelectedConversation(null);
+                setIsMobileChatOpen(false);
               }}
             >
-              Reports
+              <Icon name="reports" />Reports
             </button>
           )}
 
           <button
             type="button"
             className={`blue-settings-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
-            onClick={() => {
-              setActivePage(APP_PAGES.SETTINGS);
-              setSelectedConversation(null);
-            }}
-          >
-            Settings
+              onClick={() => {
+                setActivePage(APP_PAGES.SETTINGS);
+                setSelectedConversation(null);
+                setIsMobileChatOpen(false);
+              }}
+            >
+            <Icon name="settings" />Settings
           </button>
         </div>
 
         <div className="blue-sidebar-bottom">
           <div className="blue-user-box">
-            <span>Logged in as</span>
-            <strong>{user?.username || 'User'}</strong>
-            <small>{user?.role || 'user'}</small>
+            <span className="blue-user-avatar">{getInitials(user?.username || 'User')}</span>
+            <span className="blue-user-copy">
+              <strong>{user?.username || 'User'}</strong>
+              <small>{user?.role || 'user'}</small>
+            </span>
           </div>
 
           <div className={`sendro-system-status ${systemStatus === 'live' ? 'live' : 'issue'}`}>
@@ -2849,35 +3008,64 @@ function App() {
           </div>
 
           <button className="blue-logout-button" onClick={handleLogout}>
-            Logout
+            <Icon name="logout" size={18} />Logout
           </button>
         </div>
       </aside>
 
+      <div className="sendro-workspace">
+        <header className="workspace-topbar">
+          <div className="workspace-account">
+            <strong>Sunset Oia</strong>
+            <Icon name="chevron" size={16} />
+            <span className={`workspace-online ${systemStatus === 'live' ? 'live' : 'issue'}`}>
+              <i />{systemStatus === 'live' ? 'Online' : 'Connection issue'}
+            </span>
+          </div>
+          <div className="workspace-tools">
+            <span title="Team"><Icon name="users" /></span>
+            <span aria-hidden="true"><Icon name="more" /></span>
+          </div>
+        </header>
+
+        <div className="sendro-workspace-columns">
+
       <section className="conversation-column">
         <div className="conversation-column-header">
-          <button
-            className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
-            onClick={() => {
-              setError('');
-              setShowNewConversationForm((currentValue) => !currentValue);
-            }}
-            type="button"
-            aria-label="Create new conversation"
-          >
-            <span className="new-conversation-plus">
-              {showNewConversationForm ? '×' : '+'}
-            </span>
-            <span className="new-conversation-label">
-              {showNewConversationForm ? 'Close' : 'New'}
-            </span>
-          </button>
+          <div className="conversation-column-title">
+            <div>
+              <span>Conversations</span>
+              <strong>
+                {activeConversationView === CONVERSATION_VIEWS.MINE
+                  ? 'Mine'
+                  : activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
+                    ? 'Follow Up'
+                    : activeConversationView === CONVERSATION_VIEWS.ARCHIVED
+                      ? 'Archived'
+                      : 'Inbox'}
+              </strong>
+            </div>
+            <button
+              className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
+              onClick={() => {
+                setError('');
+                setShowNewConversationForm((currentValue) => !currentValue);
+              }}
+              type="button"
+              aria-label="Create new conversation"
+              title="New conversation"
+            >
+              {showNewConversationForm ? '×' : <Icon name="plus" size={19} />}
+            </button>
+          </div>
 
           <div className="inbox-search">
+            <Icon name="search" size={19} />
             <input
+              ref={inboxSearchInputRef}
               value={inboxSearchQuery}
               onChange={(event) => setInboxSearchQuery(event.target.value)}
-              placeholder="Search name, phone, message..."
+              placeholder="Search conversations..."
             />
 
             {inboxSearchQuery && (
@@ -2889,6 +3077,39 @@ function App() {
                 ×
               </button>
             )}
+            <button
+              type="button"
+              className="inbox-filter-button"
+              aria-label="View archived conversations"
+              title="Archived conversations"
+              onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}
+            >
+              <Icon name="filter" size={18} />
+            </button>
+          </div>
+
+          <div className="conversation-view-tabs" role="tablist" aria-label="Conversation views">
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+            >
+              Open <span>{inboxUnreadCount || ''}</span>
+            </button>
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}
+            >
+              Mine <span>{mineCount || ''}</span>
+            </button>
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}
+            >
+              Follow Up
+            </button>
           </div>
         </div>
 
@@ -2996,42 +3217,52 @@ function App() {
                   className={`conversation ${isActive ? 'active' : ''}`}
                   onClick={() => handleSelectConversation(conversation)}
                 >
-                  <div className="conversation-title-row">
-                    <div className="conversation-title-main">
+                  <span className="conversation-avatar" aria-hidden="true">
+                    {getInitials(label)}
+                    <i>W</i>
+                  </span>
+
+                  <span className="conversation-copy">
+                    <span className="conversation-title-row">
+                      <strong>{label}</strong>
+                      <small className="conversation-time">
+                        {formatMessageTime(conversation.last_message_at)}
+                      </small>
+                    </span>
+
+                    <span className="conversation-preview-row">
+                      <span className="conversation-preview">{conversation.contact_phone}</span>
                       <span
                         className={`conversation-response-dot ${getConversationResponseDotClass(
                           conversation
                         )}`}
                         title={getResponseIndicatorLabel(conversation)}
                         aria-label={getResponseIndicatorLabel(conversation)}
-                      />
-
-                      <strong>{label}</strong>
-                    </div>
-
-                    {unreadCount > 0 && (
-                      <span className="unread-badge">{unreadCount}</span>
-                    )}
-                  </div>
-
-                  <span>{conversation.contact_phone}</span>
-
-                  <small className="conversation-meta">
-
-                    {isArchivedConversation(conversation) && (
-                      <span className="status-pill">Archived</span>
-                    )}
-
-                    {conversation.assigned_to_user_id && (
-                      <span
-                        className={`assigned-badge ${getAssignedUserClass(
-                          conversation.assigned_to_user_id
-                        )}`}
                       >
-                        Taken by {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                        {getConversationResponseGlyph(conversation)}
                       </span>
-                    )}
-                  </small>
+                      {unreadCount > 0 && (
+                        <span className="unread-badge">{unreadCount}</span>
+                      )}
+                    </span>
+
+                    <small className="conversation-meta">
+
+                      {isArchivedConversation(conversation) && (
+                        <span className="status-pill">Archived</span>
+                      )}
+
+                      {conversation.assigned_to_user_id && (
+                        <span
+                          className={`assigned-badge ${getAssignedUserClass(
+                            conversation.assigned_to_user_id
+                          )}`}
+                        >
+                          Taken by {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                        </span>
+                      )}
+                    </small>
+                  </span>
                 </button>
               );
             })
@@ -3074,8 +3305,25 @@ function App() {
         ) : selectedConversation ? (
           <>
             <header className="chat-header">
-              <div>
-                <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
+              <button
+                type="button"
+                className="mobile-chat-back"
+                onClick={() => setIsMobileChatOpen(false)}
+                aria-label="Back to conversations"
+              >
+                <Icon name="back" size={27} />
+              </button>
+
+              <span className="chat-contact-avatar" aria-hidden="true">
+                {getInitials(selectedConversation.contact_name || selectedConversation.contact_phone)}
+                <i>W</i>
+              </span>
+
+              <div className="chat-contact-copy">
+                <div className="chat-contact-title-row">
+                  <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
+                  <span className="chat-whatsapp-label">WhatsApp</span>
+                </div>
                 <p>{selectedConversation.contact_phone}</p>
 
                 <div className="conversation-status-area">
@@ -3121,31 +3369,11 @@ function App() {
                 </div>
               </div>
 
-              <div className="chat-actions">
-                <button
-                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''
-                    }`}
-                  onClick={handleConversationAction}
-                  disabled={!canUseConversationAction}
-                >
-                  {getConversationActionLabel()}
-                </button>
-
-                <button
-                  className="conversation-action-button"
-                  type="button"
-                  onClick={handleArchiveConversation}
-                >
-                  {selectedConversation.status === 'archived' ? 'Back to Inbox' : 'Archive'}
-                </button>
-
-                <button
-                  className="conversation-action-button release-mode"
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  Delete
-                </button>
+              <div className="chat-header-tools">
+                <span title={formatCustomerServiceWindow(selectedConversation)}>
+                  <Icon name="info" size={21} />
+                </span>
+                <span aria-hidden="true"><Icon name="more" size={22} /></span>
               </div>
             </header>
 
@@ -3272,46 +3500,202 @@ function App() {
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <textarea
-                ref={messageInputRef}
-                value={newMessage}
-                onChange={(event) =>
-                  setConversationDraft(selectedConversationId, event.target.value)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    handleSendMessage(event);
-                  }
-                }}
-                placeholder={
-                  selectedConversation.status === 'archived'
-                    ? 'Archived conversation'
-                    : isCustomerServiceSessionExpired
-                      ? 'Session expired — template required'
-                      : isConversationTakenByAnotherUser
-                        ? `Taken by ${getAssignedUserLabel(
-                          selectedConversation.assigned_to_user_id
-                        )}`
-                        : 'Type a message...'
-                }
-                disabled={
-                  selectedConversation.status === 'archived' ||
-                  isCustomerServiceSessionExpired ||
-                  isConversationTakenByAnotherUser
-                }
-                rows="2"
-              />
+              <div className="composer-tabs">
+                <span className="active"><Icon name="chat" size={17} />Reply</span>
+                <span>Note</span>
+                <span>Internal</span>
+              </div>
 
-              <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
-                {isSending ? 'Sending...' : 'Send'}
-              </button>
+              <div className="composer-body">
+                <textarea
+                  ref={messageInputRef}
+                  value={newMessage}
+                  onChange={(event) =>
+                    setConversationDraft(selectedConversationId, event.target.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      handleSendMessage(event);
+                    }
+                  }}
+                  placeholder={
+                    selectedConversation.status === 'archived'
+                      ? 'Archived conversation'
+                      : isCustomerServiceSessionExpired
+                        ? 'Session expired — template required'
+                        : isConversationTakenByAnotherUser
+                          ? `Taken by ${getAssignedUserLabel(
+                            selectedConversation.assigned_to_user_id
+                          )}`
+                          : 'Type a message...'
+                  }
+                  disabled={
+                    selectedConversation.status === 'archived' ||
+                    isCustomerServiceSessionExpired ||
+                    isConversationTakenByAnotherUser
+                  }
+                  rows="2"
+                />
+
+                <div className="composer-footer">
+                  <div className="composer-helper">
+                    <span className="quick-reply-slash">/</span>
+                    <span>Quick reply</span>
+                  </div>
+                  <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
+                    <span>{isSending ? 'Sending...' : 'Send'}</span>
+                    <Icon name="send" size={18} />
+                  </button>
+                </div>
+              </div>
             </form>
+
+            <div className="conversation-action-bar" aria-label="Conversation actions">
+              <button type="button" onClick={handleTakeConversation} disabled={!canTakeConversation}>
+                <Icon name="take" size={19} /><span>Take</span>
+              </button>
+              <button type="button" onClick={handleReleaseConversation} disabled={!canReleaseConversation}>
+                <Icon name="release" size={19} /><span>Release</span>
+              </button>
+              <button type="button" onClick={handleArchiveConversation}>
+                <Icon name="archive" size={19} />
+                <span>{selectedConversation.status === 'archived' ? 'Inbox' : 'Archive'}</span>
+              </button>
+              <button type="button" className="danger" onClick={() => setShowDeleteConfirm(true)}>
+                <Icon name="delete" size={19} /><span>Delete</span>
+              </button>
+            </div>
           </>
         ) : (
           <div className="no-chat-selected">Select a conversation to start.</div>
         )}
       </main>
+
+      <aside className="future-panel" aria-label="Quick replies panel">
+        <div className="future-panel-tabs">
+          <span className="active"><Icon name="quick" size={17} />Quick Replies</span>
+          <span>AI Assistant</span>
+        </div>
+
+        <div className="quick-replies-panel-body">
+          <div className="quick-reply-search">
+            <Icon name="search" size={18} />
+            <input
+              value={quickReplySearch}
+              onChange={(event) => setQuickReplySearch(event.target.value)}
+              placeholder="Search quick replies..."
+            />
+            {quickReplySearch && (
+              <button type="button" onClick={() => setQuickReplySearch('')} aria-label="Clear quick reply search">×</button>
+            )}
+          </div>
+
+          <div className="quick-reply-categories">
+            <span className="active">All</span>
+            <span>Booking</span>
+            <span>Availability</span>
+            <span>General</span>
+          </div>
+
+          <div className="quick-reply-section-title">
+            <span>STARTER REPLIES</span>
+            <small>Editable replies come next</small>
+          </div>
+
+          <div className="quick-reply-list">{renderQuickReplyList()}</div>
+        </div>
+      </aside>
+        </div>
+      </div>
+
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <button
+          type="button"
+          className={!isMobileChatOpen && activePage === APP_PAGES.INBOX ? 'active' : ''}
+          onClick={() => {
+            setActivePage(APP_PAGES.INBOX);
+            setIsMobileChatOpen(false);
+            setMobileDrawerMode(null);
+          }}
+        >
+          <Icon name="chat" size={24} /><span>Conversations</span>
+        </button>
+        <button
+          type="button"
+          className={activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''}
+          onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+        >
+          <span className="mobile-nav-icon-wrap">
+            <Icon name="inbox" size={24} />
+            {inboxUnreadCount > 0 && <i>{inboxUnreadCount}</i>}
+          </span>
+          <span>Inbox</span>
+        </button>
+        <button type="button" onClick={() => setMobileDrawerMode('quick')}>
+          <Icon name="quick" size={25} /><span>Quick Replies</span>
+        </button>
+        <button type="button" onClick={() => setMobileDrawerMode('menu')}>
+          <Icon name="more" size={26} /><span>More</span>
+        </button>
+      </nav>
+
+      {mobileDrawerMode && (
+        <div className="mobile-drawer-overlay" onClick={() => setMobileDrawerMode(null)}>
+          <aside className="mobile-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              <strong>{mobileDrawerMode === 'quick' ? 'Quick Replies' : 'Menu'}</strong>
+              <button type="button" onClick={() => setMobileDrawerMode(null)} aria-label="Close">×</button>
+            </div>
+
+            {mobileDrawerMode === 'quick' ? (
+              <>
+                <div className="quick-reply-search mobile">
+                  <Icon name="search" size={18} />
+                  <input
+                    value={quickReplySearch}
+                    onChange={(event) => setQuickReplySearch(event.target.value)}
+                    placeholder="Search quick replies..."
+                  />
+                </div>
+                <div className="mobile-quick-reply-list">{renderQuickReplyList()}</div>
+              </>
+            ) : (
+              <div className="mobile-menu-list">
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}>
+                  <Icon name="user" />Mine <span>{mineCount || ''}</span>
+                </button>
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}>
+                  <Icon name="follow" />Follow Up
+                </button>
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}>
+                  <Icon name="archive" />Archived
+                </button>
+                {canCurrentUserViewReports && (
+                  <button type="button" onClick={() => {
+                    setActivePage(APP_PAGES.REPORTS);
+                    setMobileDrawerMode(null);
+                    setIsMobileChatOpen(false);
+                  }}>
+                    <Icon name="reports" />Reports
+                  </button>
+                )}
+                <button type="button" onClick={() => {
+                  setActivePage(APP_PAGES.SETTINGS);
+                  setMobileDrawerMode(null);
+                  setIsMobileChatOpen(false);
+                }}>
+                  <Icon name="settings" />Settings
+                </button>
+                <button type="button" className="danger" onClick={handleLogout}>
+                  <Icon name="logout" />Logout
+                </button>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
+
       {showDeleteConfirm && selectedConversation && (
         <div
           className="delete-confirm-overlay"
@@ -3345,7 +3729,6 @@ function App() {
           </div>
         </div>
       )}
-      <aside className="future-panel" aria-label="Future templates and quick replies panel" />
     </div>
   );
 }
