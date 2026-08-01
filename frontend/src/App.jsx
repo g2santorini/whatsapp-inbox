@@ -9,6 +9,7 @@ import {
   getCurrentUser,
   getUsers,
   getConversations,
+  getConversationSummary,
   createTemplateConversation,
   getMessages,
   getMessageMediaBlob,
@@ -26,7 +27,12 @@ import {
 } from './api';
 
 const AUTO_REFRESH_INTERVAL_MS = 15000;
-const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 15000;
+const SUMMARY_REFRESH_INTERVAL_MS = 15000;
+const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 5000;
+const FULL_MESSAGE_SYNC_EVERY_POLLS = 12;
+const MAX_POLL_BACKOFF_MS = 60000;
+const CONVERSATION_PAGE_SIZE = 60;
+const MAX_LOADED_CONVERSATIONS = 200;
 const MESSAGE_PAGE_SIZE = 30;
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
@@ -673,7 +679,13 @@ function App() {
   const [password, setPassword] = useState('');
 
   const [conversations, setConversations] = useState([]);
+  const [conversationSummary, setConversationSummary] = useState(null);
+  const [hasMoreConversations, setHasMoreConversations] = useState(false);
+  const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false);
   const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
+  const [isPageVisible, setIsPageVisible] = useState(
+    () => document.visibilityState !== 'hidden'
+  );
 
   const [reportFilters, setReportFilters] = useState({
     operation_date: '',
@@ -703,10 +715,16 @@ function App() {
   const messagesContainerRef = useRef(null);
   const messageInputRef = useRef(null);
   const messagesRef = useRef([]);
+  const selectedConversationIdRef = useRef(null);
   const latestConversationRequestIdRef = useRef(0);
-  const conversationsRequestInProgressRef = useRef(false);
+  const conversationAbortControllerRef = useRef(null);
+  const conversationSummaryAbortControllerRef = useRef(null);
+  const loadMoreConversationsAbortControllerRef = useRef(null);
+  const loadedConversationLimitRef = useRef(CONVERSATION_PAGE_SIZE);
   const messagesRequestInProgressRef = useRef(null);
+  const messagePollStateRef = useRef({ conversationId: null, incrementalPolls: 0 });
   const olderMessagesRequestInProgressRef = useRef(false);
+  const olderMessagesAbortControllerRef = useRef(null);
   const apiFailureCountRef = useRef(0);
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
@@ -811,14 +829,14 @@ function App() {
     return !isArchivedConversation(conversation) && Boolean(conversation.follow_up);
   }
 
-  const inboxUnreadCount = conversations.filter((conversation) => {
+  const loadedInboxUnreadCount = conversations.filter((conversation) => {
     return (
       !isArchivedConversation(conversation) &&
       Number(conversation.unread_count || 0) > 0
     );
   }).length;
 
-  const browserUnreadCount = conversations.reduce((total, conversation) => {
+  const loadedBrowserUnreadCount = conversations.reduce((total, conversation) => {
     if (isArchivedConversation(conversation)) {
       return total;
     }
@@ -826,7 +844,13 @@ function App() {
     return total + Number(conversation.unread_count || 0);
   }, 0);
 
-  const mineCount = conversations.filter(isMineConversation).length;
+  const loadedMineCount = conversations.filter(isMineConversation).length;
+
+  const inboxUnreadCount =
+    conversationSummary?.inbox_unread_conversations ?? loadedInboxUnreadCount;
+  const browserUnreadCount =
+    conversationSummary?.unread_messages ?? loadedBrowserUnreadCount;
+  const mineCount = conversationSummary?.mine ?? loadedMineCount;
 
   const normalizedInboxSearchQuery = inboxSearchQuery.trim().toLowerCase();
 
@@ -1330,27 +1354,59 @@ function App() {
     }
   }
 
+  function isAbortError(err) {
+    return err?.name === 'AbortError';
+  }
+
   async function refreshConversations(
     selectedConversationId = null,
-    searchQueryOverride = inboxSearchQuery
+    searchQueryOverride = inboxSearchQuery,
+    conversationViewOverride = activeConversationView,
+    options = {}
   ) {
-    if (conversationsRequestInProgressRef.current) {
-      return;
+    if (options.resetPagination === true) {
+      loadMoreConversationsAbortControllerRef.current?.abort();
+      loadedConversationLimitRef.current = CONVERSATION_PAGE_SIZE;
     }
 
-    conversationsRequestInProgressRef.current = true;
+    conversationAbortControllerRef.current?.abort();
+
+    const abortController = new AbortController();
+    conversationAbortControllerRef.current = abortController;
 
     const requestId = latestConversationRequestIdRef.current + 1;
     latestConversationRequestIdRef.current = requestId;
 
+    const requestedLimit = Math.min(
+      MAX_LOADED_CONVERSATIONS,
+      Math.max(CONVERSATION_PAGE_SIZE, loadedConversationLimitRef.current)
+    );
+
     try {
-      const conversationData = await getConversations(searchQueryOverride);
+      const rawConversationData = await getConversations({
+        searchQuery: searchQueryOverride,
+        view: conversationViewOverride,
+        limit: requestedLimit + 1,
+        offset: 0,
+        signal: abortController.signal,
+      });
+
       markApiSuccess();
 
       if (requestId !== latestConversationRequestIdRef.current) {
         return;
       }
 
+      const conversationData = rawConversationData.slice(0, requestedLimit);
+
+      loadedConversationLimitRef.current = Math.max(
+        CONVERSATION_PAGE_SIZE,
+        conversationData.length
+      );
+      setHasMoreConversations(
+        requestedLimit < MAX_LOADED_CONVERSATIONS &&
+          rawConversationData.length > requestedLimit
+      );
       setConversations(conversationData);
 
       if (selectedConversationId) {
@@ -1359,17 +1415,117 @@ function App() {
         );
 
         if (refreshedConversation) {
+          selectedConversationIdRef.current = refreshedConversation.id;
           setSelectedConversation(refreshedConversation);
           return;
         }
 
+        selectedConversationIdRef.current = null;
         setSelectedConversation(null);
       }
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+
       markApiFailure();
       throw err;
     } finally {
-      conversationsRequestInProgressRef.current = false;
+      if (conversationAbortControllerRef.current === abortController) {
+        conversationAbortControllerRef.current = null;
+      }
+    }
+  }
+
+  async function refreshConversationSummary() {
+    conversationSummaryAbortControllerRef.current?.abort();
+
+    const abortController = new AbortController();
+    conversationSummaryAbortControllerRef.current = abortController;
+
+    try {
+      const summaryData = await getConversationSummary({
+        signal: abortController.signal,
+      });
+
+      setConversationSummary(summaryData);
+    } catch (err) {
+      if (!isAbortError(err)) {
+        markApiFailure();
+      }
+    } finally {
+      if (conversationSummaryAbortControllerRef.current === abortController) {
+        conversationSummaryAbortControllerRef.current = null;
+      }
+    }
+  }
+
+  async function loadMoreConversations() {
+    if (isLoadingMoreConversations || !hasMoreConversations) {
+      return;
+    }
+
+    const offset = conversations.length;
+    const remainingLimit = MAX_LOADED_CONVERSATIONS - offset;
+    const pageSize = Math.min(CONVERSATION_PAGE_SIZE, remainingLimit);
+
+    if (pageSize <= 0) {
+      setHasMoreConversations(false);
+      return;
+    }
+
+    loadMoreConversationsAbortControllerRef.current?.abort();
+
+    const abortController = new AbortController();
+    loadMoreConversationsAbortControllerRef.current = abortController;
+
+    try {
+      setIsLoadingMoreConversations(true);
+
+      const rawConversationData = await getConversations({
+        searchQuery: inboxSearchQuery,
+        view: activeConversationView,
+        limit: pageSize + 1,
+        offset,
+        signal: abortController.signal,
+      });
+
+      const nextPage = rawConversationData.slice(0, pageSize);
+
+      setConversations((currentConversations) => {
+        const conversationsById = new Map(
+          currentConversations.map((conversation) => [conversation.id, conversation])
+        );
+
+        nextPage.forEach((conversation) => {
+          conversationsById.set(conversation.id, conversation);
+        });
+
+        const mergedConversations = Array.from(conversationsById.values());
+        loadedConversationLimitRef.current = Math.min(
+          MAX_LOADED_CONVERSATIONS,
+          mergedConversations.length
+        );
+
+        return mergedConversations;
+      });
+
+      setHasMoreConversations(
+        offset + pageSize < MAX_LOADED_CONVERSATIONS &&
+          rawConversationData.length > pageSize
+      );
+      markApiSuccess();
+    } catch (err) {
+      if (!isAbortError(err)) {
+        markApiFailure();
+        setError(getErrorMessage(err, 'Could not load more conversations.'));
+      }
+    } finally {
+      if (loadMoreConversationsAbortControllerRef.current === abortController) {
+        loadMoreConversationsAbortControllerRef.current = null;
+      }
+
+      setIsLoadingMoreConversations(false);
     }
   }
 
@@ -1386,11 +1542,22 @@ function App() {
   }
 
   function handleLogout() {
+    conversationAbortControllerRef.current?.abort();
+    conversationSummaryAbortControllerRef.current?.abort();
+    loadMoreConversationsAbortControllerRef.current?.abort();
+    messagesRequestInProgressRef.current?.controller?.abort();
+    olderMessagesAbortControllerRef.current?.abort();
+
     clearToken();
     setToken(null);
     setUser(null);
     setUsers([]);
     setConversations([]);
+    setConversationSummary(null);
+    setHasMoreConversations(false);
+    setIsLoadingMoreConversations(false);
+    loadedConversationLimitRef.current = CONVERSATION_PAGE_SIZE;
+    selectedConversationIdRef.current = null;
     setSelectedConversation(null);
     setMessages([]);
     messagesRef.current = [];
@@ -1432,7 +1599,10 @@ function App() {
         setUsers([]);
       }
 
-      await refreshConversations();
+      await Promise.all([
+        refreshConversations(),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       clearToken();
       setToken(null);
@@ -1446,20 +1616,44 @@ function App() {
     }
 
     const shouldReplaceMessages = options.replace === true;
+    const shouldRefreshExistingMessages = options.refreshExisting === true;
     const requestKey = `${conversationId}:latest`;
 
-    if (messagesRequestInProgressRef.current === requestKey) {
-      return;
+    if (messagesRequestInProgressRef.current?.key === requestKey) {
+      if (!shouldReplaceMessages) {
+        return;
+      }
+
+      messagesRequestInProgressRef.current.controller.abort();
     }
 
-    messagesRequestInProgressRef.current = requestKey;
+    const abortController = new AbortController();
+    const requestState = {
+      key: requestKey,
+      controller: abortController,
+    };
+
+    messagesRequestInProgressRef.current = requestState;
+
+    const currentMessages = messagesRef.current;
+    const newestMessage = currentMessages[currentMessages.length - 1];
+    const shouldUseIncrementalFetch =
+      !shouldReplaceMessages &&
+      !shouldRefreshExistingMessages &&
+      Boolean(newestMessage?.id);
 
     try {
       const messageData = await getMessages(conversationId, {
         limit: MESSAGE_PAGE_SIZE,
+        afterId: shouldUseIncrementalFetch ? newestMessage.id : undefined,
+        signal: abortController.signal,
       });
 
       markApiSuccess();
+
+      if (selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
 
       setMessages((currentMessages) => {
         if (shouldReplaceMessages || currentMessages.length === 0) {
@@ -1472,7 +1666,22 @@ function App() {
       if (shouldReplaceMessages || messagesRef.current.length === 0) {
         setHasMoreOlderMessages(messageData.length >= MESSAGE_PAGE_SIZE);
       }
+
+      const currentPollState = messagePollStateRef.current;
+
+      messagePollStateRef.current = {
+        conversationId,
+        incrementalPolls: shouldUseIncrementalFetch
+          ? (currentPollState.conversationId === conversationId
+              ? currentPollState.incrementalPolls
+              : 0) + 1
+          : 0,
+      };
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+
       const errorMessage = getErrorMessage(err, 'Could not load messages.');
       const normalizedErrorMessage = String(errorMessage).toLowerCase();
 
@@ -1481,6 +1690,7 @@ function App() {
         normalizedErrorMessage.includes('404');
 
       if (conversationWasDeleted) {
+        selectedConversationIdRef.current = null;
         setSelectedConversation(null);
         setMessages([]);
         messagesRef.current = [];
@@ -1492,7 +1702,7 @@ function App() {
       markApiFailure();
       throw err;
     } finally {
-      if (messagesRequestInProgressRef.current === requestKey) {
+      if (messagesRequestInProgressRef.current === requestState) {
         messagesRequestInProgressRef.current = null;
       }
     }
@@ -1507,6 +1717,7 @@ function App() {
       return;
     }
 
+    const conversationId = selectedConversation.id;
     const currentMessages = messagesRef.current;
     const oldestMessage = currentMessages[0];
 
@@ -1517,17 +1728,27 @@ function App() {
     olderMessagesRequestInProgressRef.current = true;
     setIsLoadingOlderMessages(true);
 
+    olderMessagesAbortControllerRef.current?.abort();
+
+    const abortController = new AbortController();
+    olderMessagesAbortControllerRef.current = abortController;
+
     const messagesContainer = messagesContainerRef.current;
     const previousScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const previousScrollTop = messagesContainer?.scrollTop ?? 0;
 
     try {
-      const olderMessages = await getMessages(selectedConversation.id, {
+      const olderMessages = await getMessages(conversationId, {
         limit: MESSAGE_PAGE_SIZE,
         beforeId: oldestMessage.id,
+        signal: abortController.signal,
       });
 
       markApiSuccess();
+
+      if (selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
 
       if (olderMessages.length === 0) {
         setHasMoreOlderMessages(false);
@@ -1552,10 +1773,17 @@ function App() {
           newScrollHeight - previousScrollHeight + previousScrollTop;
       }, 0);
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+
       markApiFailure();
       setError(getErrorMessage(err, 'Could not load older messages.'));
     } finally {
       olderMessagesRequestInProgressRef.current = false;
+      if (olderMessagesAbortControllerRef.current === abortController) {
+        olderMessagesAbortControllerRef.current = null;
+      }
       setIsLoadingOlderMessages(false);
     }
   }
@@ -1570,7 +1798,14 @@ function App() {
     setError('');
     setActivePage(APP_PAGES.INBOX);
 
+    messagesRequestInProgressRef.current?.controller?.abort();
+    olderMessagesAbortControllerRef.current?.abort();
     latestConversationRequestIdRef.current += 1;
+    selectedConversationIdRef.current = conversation.id;
+    messagePollStateRef.current = {
+      conversationId: conversation.id,
+      incrementalPolls: 0,
+    };
 
     setSelectedConversation(conversation);
 
@@ -1583,7 +1818,10 @@ function App() {
     if (conversation.unread_count > 0 && !isTakenByAnotherUser) {
       try {
         await markConversationAsRead(conversation.id);
-        await refreshConversations(conversation.id);
+        await Promise.all([
+          refreshConversations(conversation.id),
+          refreshConversationSummary(),
+        ]);
       } catch (err) {
         setError(getErrorMessage(err, 'Could not mark conversation as read.'));
       }
@@ -1653,7 +1891,15 @@ function App() {
         setActivePage(APP_PAGES.INBOX);
         setActiveConversationView(CONVERSATION_VIEWS.INBOX);
 
-        await refreshConversations(createdConversation.id);
+        await Promise.all([
+          refreshConversations(
+            createdConversation.id,
+            inboxSearchQuery,
+            CONVERSATION_VIEWS.INBOX,
+            { resetPagination: true }
+          ),
+          refreshConversationSummary(),
+        ]);
         await loadMessages(createdConversation.id, { replace: true });
       } else {
         setError('Template was sent, but the conversation could not be opened.');
@@ -1673,7 +1919,10 @@ function App() {
       setError('');
       await takeConversation(selectedConversation.id);
       setActivePage(APP_PAGES.INBOX);
-      await refreshConversations(selectedConversation.id);
+      await Promise.all([
+        refreshConversations(selectedConversation.id),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not take conversation.'));
     }
@@ -1685,7 +1934,10 @@ function App() {
     try {
       setError('');
       await releaseConversation(selectedConversation.id);
-      await refreshConversations(selectedConversation.id);
+      await Promise.all([
+        refreshConversations(selectedConversation.id),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not release conversation.'));
     }
@@ -1708,7 +1960,10 @@ function App() {
     try {
       setError('');
       await closeConversation(selectedConversation.id);
-      await refreshConversations(selectedConversation.id);
+      await Promise.all([
+        refreshConversations(selectedConversation.id),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not mark conversation as done.'));
     }
@@ -1723,13 +1978,21 @@ function App() {
 
       await updateConversationFollowUp(selectedConversation.id, checked);
 
-      if (checked) {
-        setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
-      } else {
-        setActiveConversationView(CONVERSATION_VIEWS.INBOX);
-      }
+      const nextConversationView = checked
+        ? CONVERSATION_VIEWS.FOLLOW_UP
+        : CONVERSATION_VIEWS.INBOX;
 
-      await refreshConversations(selectedConversation.id);
+      setActiveConversationView(nextConversationView);
+
+      await Promise.all([
+        refreshConversations(
+          selectedConversation.id,
+          inboxSearchQuery,
+          nextConversationView,
+          { resetPagination: true }
+        ),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not update follow up.'));
     } finally {
@@ -1743,14 +2006,25 @@ function App() {
     try {
       setError('');
 
+      let nextConversationView = activeConversationView;
+
       if (selectedConversation.status === 'archived') {
         await unarchiveConversation(selectedConversation.id);
-        setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+        nextConversationView = CONVERSATION_VIEWS.INBOX;
+        setActiveConversationView(nextConversationView);
       } else {
         await archiveConversation(selectedConversation.id);
       }
 
-      await refreshConversations(selectedConversation.id);
+      await Promise.all([
+        refreshConversations(
+          selectedConversation.id,
+          inboxSearchQuery,
+          nextConversationView,
+          { resetPagination: true }
+        ),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(
         getErrorMessage(
@@ -1769,6 +2043,7 @@ function App() {
     try {
       setError('');
       await deleteConversation(selectedConversation.id);
+      selectedConversationIdRef.current = null;
       setSelectedConversation(null);
       setMessages([]);
       messagesRef.current = [];
@@ -1776,7 +2051,10 @@ function App() {
       setIsLoadingOlderMessages(false);
       setError('');
       setShowDeleteConfirm(false);
-      await refreshConversations();
+      await Promise.all([
+        refreshConversations(),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not delete conversation.'));
     }
@@ -1806,7 +2084,10 @@ function App() {
 
       setOpenReactionPickerMessageId(null);
 
-      await refreshConversations(selectedConversation?.id || null);
+      await Promise.all([
+        refreshConversations(selectedConversation?.id || null),
+        refreshConversationSummary(),
+      ]);
     } catch (err) {
       setError(err.message || 'Failed to send reaction');
     } finally {
@@ -1839,11 +2120,22 @@ function App() {
   setConversationDraft(conversationId, '');
 
   try {
-    await sendMessage(conversationId, messageToSend);
-    await closeConversation(conversationId);
+    const sentMessage = await sendMessage(conversationId, messageToSend);
+
+    setMessages((currentMessages) =>
+      mergeMessagesById(currentMessages, sentMessage)
+    );
+
     setActiveConversationView(CONVERSATION_VIEWS.INBOX);
-    await loadMessages(conversationId);
-    await refreshConversations(conversationId);
+    await Promise.all([
+      refreshConversations(
+        conversationId,
+        inboxSearchQuery,
+        CONVERSATION_VIEWS.INBOX,
+        { resetPagination: true }
+      ),
+      refreshConversationSummary(),
+    ]);
 
     window.setTimeout(() => {
       messageInputRef.current?.focus();
@@ -1859,6 +2151,23 @@ function App() {
     }, 0);
   }
 }
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      setIsPageVisible(document.visibilityState !== 'hidden');
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      conversationAbortControllerRef.current?.abort();
+      conversationSummaryAbortControllerRef.current?.abort();
+      loadMoreConversationsAbortControllerRef.current?.abort();
+      messagesRequestInProgressRef.current?.controller?.abort();
+      olderMessagesAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -1877,12 +2186,20 @@ function App() {
   }, [token, activePage]);
 
   useEffect(() => {
+    messagesRequestInProgressRef.current?.controller?.abort();
+    olderMessagesAbortControllerRef.current?.abort();
+    selectedConversationIdRef.current = selectedConversation?.id || null;
+
     if (selectedConversation && activePage === APP_PAGES.INBOX) {
       setError('');
       setMessages([]);
       messagesRef.current = [];
       setHasMoreOlderMessages(true);
       setIsLoadingOlderMessages(false);
+      messagePollStateRef.current = {
+        conversationId: selectedConversation.id,
+        incrementalPolls: 0,
+      };
 
       loadMessages(selectedConversation.id, { replace: true }).catch(() => {
         // Error is handled inside loadMessages.
@@ -1936,32 +2253,45 @@ function App() {
   }, [selectedConversation?.id, lastMessageId]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX) {
+    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
       return undefined;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      const selectedConversationId = selectedConversation?.id || null;
+    loadMoreConversationsAbortControllerRef.current?.abort();
 
-      refreshConversations(selectedConversationId, inboxSearchQuery).catch(() => {
-        // Silent search refresh failure.
-      });
+    const timeoutId = window.setTimeout(() => {
+      refreshConversations(
+        selectedConversationIdRef.current,
+        inboxSearchQuery,
+        activeConversationView,
+        { resetPagination: true }
+      ).catch(() => {
+          // Silent search or view refresh failure.
+        });
     }, 350);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [token, activePage, inboxSearchQuery, selectedConversation?.id]);
+  }, [
+    token,
+    activePage,
+    isPageVisible,
+    inboxSearchQuery,
+    activeConversationView,
+  ]);
 
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
 
     if (filteredConversations.length === 0) {
+      selectedConversationIdRef.current = null;
       setSelectedConversation(null);
       return;
     }
 
     if (!selectedConversation) {
+      selectedConversationIdRef.current = filteredConversations[0].id;
       setSelectedConversation(filteredConversations[0]);
       return;
     }
@@ -1971,6 +2301,7 @@ function App() {
     );
 
     if (!selectedStillVisible) {
+      selectedConversationIdRef.current = filteredConversations[0].id;
       setSelectedConversation(filteredConversations[0]);
     }
   }, [
@@ -1983,38 +2314,152 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (
+      !token ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible ||
+      inboxSearchQuery.trim()
+    ) {
+      return undefined;
+    }
 
-    const intervalId = window.setInterval(() => {
-      const selectedConversationId = selectedConversation?.id || null;
+    let cancelled = false;
+    let timeoutId = null;
+    let failureCount = 0;
 
-      refreshConversations(selectedConversationId, inboxSearchQuery).catch(() => {
-        // Silent conversations auto-refresh failure.
-      });
-    }, AUTO_REFRESH_INTERVAL_MS);
+    const scheduleNextPoll = (delay) => {
+      if (!cancelled) {
+        timeoutId = window.setTimeout(runPoll, delay);
+      }
+    };
+
+    const runPoll = async () => {
+      try {
+        await refreshConversations(
+          selectedConversation?.id || null,
+          '',
+          activeConversationView
+        );
+        failureCount = 0;
+      } catch {
+        failureCount += 1;
+      }
+
+      const nextDelay = Math.min(
+        MAX_POLL_BACKOFF_MS,
+        AUTO_REFRESH_INTERVAL_MS * 2 ** failureCount
+      );
+      scheduleNextPoll(nextDelay);
+    };
+
+    scheduleNextPoll(AUTO_REFRESH_INTERVAL_MS);
 
     return () => {
-      window.clearInterval(intervalId);
+      cancelled = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, [token, selectedConversation?.id, inboxSearchQuery]);
+  }, [
+    token,
+    activePage,
+    isPageVisible,
+    selectedConversation?.id,
+    activeConversationView,
+    inboxSearchQuery,
+  ]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX || !selectedConversation?.id) {
+    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId = null;
+
+    const runSummaryPoll = async () => {
+      try {
+        await refreshConversationSummary();
+      } catch {
+        // Connection state is handled by refreshConversationSummary.
+      }
+
+      if (!cancelled) {
+        timeoutId = window.setTimeout(
+          runSummaryPoll,
+          SUMMARY_REFRESH_INTERVAL_MS
+        );
+      }
+    };
+
+    timeoutId = window.setTimeout(
+      runSummaryPoll,
+      SUMMARY_REFRESH_INTERVAL_MS
+    );
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+    // This effect is keyed by page visibility/auth state; the refresh helper
+    // intentionally reads the latest abort-controller ref on every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, activePage, isPageVisible]);
+
+  useEffect(() => {
+    if (
+      !token ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible ||
+      !selectedConversation?.id
+    ) {
       return undefined;
     }
 
     const selectedConversationId = selectedConversation.id;
+    let cancelled = false;
+    let timeoutId = null;
+    let failureCount = 0;
 
-    const intervalId = window.setInterval(() => {
-      loadMessages(selectedConversationId).catch(() => {
-        // Silent messages auto-refresh failure.
-      });
-    }, ACTIVE_CHAT_REFRESH_INTERVAL_MS);
+    const scheduleNextPoll = (delay) => {
+      if (!cancelled) {
+        timeoutId = window.setTimeout(runPoll, delay);
+      }
+    };
+
+    const runPoll = async () => {
+      const pollState = messagePollStateRef.current;
+      const shouldRefreshExisting =
+        pollState.conversationId !== selectedConversationId ||
+        pollState.incrementalPolls >= FULL_MESSAGE_SYNC_EVERY_POLLS;
+
+      try {
+        await loadMessages(selectedConversationId, {
+          refreshExisting: shouldRefreshExisting,
+        });
+        failureCount = 0;
+      } catch {
+        failureCount += 1;
+      }
+
+      const nextDelay = Math.min(
+        MAX_POLL_BACKOFF_MS,
+        ACTIVE_CHAT_REFRESH_INTERVAL_MS * 2 ** failureCount
+      );
+      scheduleNextPoll(nextDelay);
+    };
+
+    scheduleNextPoll(ACTIVE_CHAT_REFRESH_INTERVAL_MS);
 
     return () => {
-      window.clearInterval(intervalId);
+      cancelled = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, [token, activePage, selectedConversation?.id]);
+  }, [token, activePage, isPageVisible, selectedConversation?.id]);
 
   function renderReportsPanel() {
     const summary = reportData?.summary || {};
@@ -2598,6 +3043,17 @@ function App() {
                 </button>
               );
             })
+          )}
+
+          {filteredConversations.length > 0 && hasMoreConversations && (
+            <button
+              type="button"
+              className="load-more-conversations-button"
+              onClick={loadMoreConversations}
+              disabled={isLoadingMoreConversations}
+            >
+              {isLoadingMoreConversations ? 'Loading...' : 'Load more conversations'}
+            </button>
           )}
         </div>
       </section>

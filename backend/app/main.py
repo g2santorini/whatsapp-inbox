@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from sqlalchemy import func, inspect, or_, text
+from sqlalchemy import and_, case, func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -36,7 +36,7 @@ from .reporting_service import get_template_report_items_data
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
-APP_VERSION = "sendro-message-author-attribution-2026-05-07"
+APP_VERSION = "sendro-performance-phase1-2026-08-01"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
@@ -270,41 +270,34 @@ def attach_customer_service_window_data(
 
     conversation_ids = [conversation.id for conversation in conversations]
 
-    last_inbound_rows = (
+    customer_activity_rows = (
         db.query(
             models.Message.conversation_id,
-            func.max(models.Message.created_at).label("last_inbound_at"),
+            func.max(
+                case(
+                    (
+                        models.Message.direction == "inbound",
+                        models.Message.created_at,
+                    ),
+                    else_=None,
+                )
+            ).label("last_inbound_at"),
+            func.max(models.Message.inbound_reaction_at).label(
+                "last_inbound_reaction_at"
+            ),
         )
-        .filter(
-            models.Message.conversation_id.in_(conversation_ids),
-            models.Message.direction == "inbound",
-        )
+        .filter(models.Message.conversation_id.in_(conversation_ids))
         .group_by(models.Message.conversation_id)
         .all()
     )
 
     last_inbound_by_conversation_id = {
-        row.conversation_id: row.last_inbound_at for row in last_inbound_rows
+        row.conversation_id: row.last_inbound_at for row in customer_activity_rows
     }
-
-    last_inbound_reaction_rows = (
-        db.query(
-            models.Message.conversation_id,
-            func.max(models.Message.inbound_reaction_at).label(
-                "last_inbound_reaction_at"
-            ),
-        )
-        .filter(
-            models.Message.conversation_id.in_(conversation_ids),
-            models.Message.inbound_reaction_at.isnot(None),
-        )
-        .group_by(models.Message.conversation_id)
-        .all()
-    )
 
     last_inbound_reaction_by_conversation_id = {
         row.conversation_id: row.last_inbound_reaction_at
-        for row in last_inbound_reaction_rows
+        for row in customer_activity_rows
     }
 
     latest_message_rows = (
@@ -1648,6 +1641,10 @@ def send_template_webhook(
             )
             continue
 
+        # Duplicate detection has completed, so the current transaction no
+        # longer needs to occupy a connection while Meta processes the send.
+        db.close()
+
         try:
             whatsapp_result = send_meta_template_message(
                 to_phone=phone,
@@ -2612,13 +2609,118 @@ async def read_users_me(
     return current_user
 
 
+@app.get(
+    "/conversations/summary/",
+    response_model=schemas.ConversationSummaryOut,
+)
+def get_conversation_summary(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    active_filter = models.Conversation.status != "archived"
+
+    summary = db.query(
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            active_filter,
+                            models.Conversation.unread_count > 0,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("inbox_unread_conversations"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (active_filter, models.Conversation.unread_count),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("unread_messages"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            active_filter,
+                            models.Conversation.assigned_to_user_id == current_user.id,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("mine"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(active_filter, models.Conversation.follow_up.is_(True)),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("follow_up"),
+        func.coalesce(
+            func.sum(
+                case((models.Conversation.status == "archived", 1), else_=0)
+            ),
+            0,
+        ).label("archived"),
+    ).one()
+
+    return {
+        "inbox_unread_conversations": int(summary.inbox_unread_conversations or 0),
+        "unread_messages": int(summary.unread_messages or 0),
+        "mine": int(summary.mine or 0),
+        "follow_up": int(summary.follow_up or 0),
+        "archived": int(summary.archived or 0),
+    }
+
+
 @app.get("/conversations/", response_model=list[schemas.ConversationOut])
 def get_conversations(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[models.User, Depends(get_current_active_user)],
-    q: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=100),
+    view: str = Query(default="all"),
+    limit: int | None = Query(default=None, ge=1, le=201),
+    offset: int = Query(default=0, ge=0),
 ):
     query = db.query(models.Conversation)
+
+    normalized_view = view.strip().lower()
+
+    if normalized_view not in {"all", "inbox", "mine", "follow_up", "archived"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid conversation view",
+        )
+
+    if normalized_view == "inbox":
+        query = query.filter(models.Conversation.status != "archived")
+    elif normalized_view == "mine":
+        query = query.filter(
+            models.Conversation.status != "archived",
+            models.Conversation.assigned_to_user_id == current_user.id,
+        )
+    elif normalized_view == "follow_up":
+        query = query.filter(
+            models.Conversation.status != "archived",
+            models.Conversation.follow_up.is_(True),
+        )
+    elif normalized_view == "archived":
+        query = query.filter(models.Conversation.status == "archived")
 
     search_query = q.strip() if q else ""
 
@@ -2640,7 +2742,18 @@ def get_conversations(
             )
         )
 
-    conversations = query.order_by(models.Conversation.updated_at.desc()).all()
+    ordered_query = query.order_by(
+        models.Conversation.updated_at.desc(),
+        models.Conversation.id.desc(),
+    )
+
+    if offset:
+        ordered_query = ordered_query.offset(offset)
+
+    if limit is not None:
+        ordered_query = ordered_query.limit(limit)
+
+    conversations = ordered_query.all()
 
     return attach_customer_service_window_data(db, conversations)
 
@@ -2722,6 +2835,13 @@ def create_conversation_and_send_template(
             detail="Preview content is required",
         )
 
+    current_user_id = current_user.id
+
+    # Authentication and validation queries start a transaction. Release that
+    # database connection while Meta's API is doing network I/O, then let this
+    # Session acquire a connection again only when persistence resumes.
+    db.close()
+
     whatsapp_result = send_whatsapp_template_message(
         to_phone=f"+{normalized_phone}",
         template_name=template_definition.meta_template_name,
@@ -2756,7 +2876,7 @@ def create_conversation_and_send_template(
             last_message_at=now,
             created_at=now,
             updated_at=now,
-            user_id=current_user.id,
+            user_id=current_user_id,
         )
 
         db.add(conversation)
@@ -2780,7 +2900,7 @@ def create_conversation_and_send_template(
         whatsapp_message_id=whatsapp_message_id,
         whatsapp_status="sent" if whatsapp_message_id else None,
         whatsapp_status_updated_at=now if whatsapp_message_id else None,
-        user_id=current_user.id,
+        user_id=current_user_id,
         conversation_id=conversation.id,
     )
 
@@ -2790,7 +2910,7 @@ def create_conversation_and_send_template(
 
     print(
         f"[SEND_TEMPLATE] conversation_id={conversation.id} "
-        f"user_id={current_user.id} "
+        f"user_id={current_user_id} "
         f"template_type={template_type} "
         f"meta_template={template_definition.meta_template_name} "
         f"wamid={whatsapp_message_id} "
@@ -2910,8 +3030,17 @@ def get_message_media(
             detail="You do not have access to this media",
         )
 
+    media_id = db_message.media_id
+    media_mime_type = db_message.media_mime_type
+    media_filename = db_message.media_filename
+    message_id_for_filename = db_message.id
+
+    # Media retrieval can involve two slow external requests. Everything needed
+    # from PostgreSQL is already loaded, so release the connection first.
+    db.close()
+
     media_info_url = (
-        f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/" f"{db_message.media_id}"
+        f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/" f"{media_id}"
     )
 
     headers = {
@@ -2953,12 +3082,12 @@ def get_message_media(
 
     media_type = (
         media_response.headers.get("Content-Type")
-        or db_message.media_mime_type
+        or media_mime_type
         or "application/octet-stream"
     )
 
     safe_filename = (
-        db_message.media_filename or f"whatsapp-media-{db_message.id}"
+        media_filename or f"whatsapp-media-{message_id_for_filename}"
     ).replace('"', "")
 
     return Response(
@@ -3005,13 +3134,27 @@ def create_message(
 
     ensure_customer_service_window_is_open(db, conversation_id)
 
+    recipient_phone = conversation.contact_phone
+    current_user_id = current_user.id
+
+    # Do not occupy a pooled database connection during the external request.
+    db.close()
+
     whatsapp_result = send_whatsapp_text_message(
-        to_phone=conversation.contact_phone,
+        to_phone=recipient_phone,
         text=message.content,
     )
 
     whatsapp_message_id = extract_whatsapp_message_id(whatsapp_result)
     now = datetime.utcnow()
+
+    conversation = get_conversation(db, conversation_id)
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Message was sent, but the conversation no longer exists",
+        )
 
     db_message = models.Message(
         content=message.content,
@@ -3020,7 +3163,7 @@ def create_message(
         whatsapp_message_id=whatsapp_message_id,
         whatsapp_status="sent" if whatsapp_message_id else None,
         whatsapp_status_updated_at=now if whatsapp_message_id else None,
-        user_id=current_user.id,
+        user_id=current_user_id,
         conversation_id=conversation_id,
     )
 
@@ -3036,7 +3179,7 @@ def create_message(
 
     print(
         f"[SEND] conversation_id={conversation_id} "
-        f"user_id={current_user.id} "
+        f"user_id={current_user_id} "
         f"wamid={whatsapp_message_id} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
@@ -3103,13 +3246,39 @@ def create_message_reaction(
     if reaction_emoji == "":
         reaction_emoji = None
 
+    recipient_phone = conversation.contact_phone
+    whatsapp_message_id = db_message.whatsapp_message_id
+    current_user_id = current_user.id
+
+    # Reactions can wait up to 20 seconds on Meta. Return the read transaction's
+    # connection to the pool before making that network call.
+    db.close()
+
     whatsapp_result = send_whatsapp_reaction_message(
-        to_phone=conversation.contact_phone,
-        whatsapp_message_id=db_message.whatsapp_message_id,
+        to_phone=recipient_phone,
+        whatsapp_message_id=whatsapp_message_id,
         emoji=reaction_emoji,
     )
 
     now = datetime.utcnow()
+
+    db_message = (
+        db.query(models.Message).filter(models.Message.id == message_id).first()
+    )
+
+    if db_message is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reaction was sent, but the message no longer exists",
+        )
+
+    conversation = get_conversation(db, db_message.conversation_id)
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reaction was sent, but the conversation no longer exists",
+        )
 
     db_message.reaction_emoji = reaction_emoji
     db_message.reaction_updated_at = now
@@ -3133,7 +3302,7 @@ def create_message_reaction(
     print(
         f"[REACTION SEND] conversation_id={conversation.id} "
         f"message_id={db_message.id} "
-        f"user_id={current_user.id} "
+        f"user_id={current_user_id} "
         f"emoji={reaction_emoji or '(remove reaction)'} "
         f"whatsapp_result={whatsapp_result}",
         flush=True,
