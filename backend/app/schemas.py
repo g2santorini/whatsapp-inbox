@@ -113,6 +113,14 @@ class ConversationOut(ConversationBase):
         orm_mode = True
 
 
+class ConversationSummaryOut(BaseModel):
+    inbox_unread_conversations: int = 0
+    unread_messages: int = 0
+    mine: int = 0
+    follow_up: int = 0
+    archived: int = 0
+
+
 # =====================
 # WEBHOOK TEMPLATE API
 # =====================

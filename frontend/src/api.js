@@ -125,18 +125,40 @@ export async function getMessageMediaBlob(messageId) {
   return response.blob();
 }
 
-export async function getConversations(searchQuery = '') {
-  const trimmedSearchQuery = String(searchQuery || '').trim();
+export async function getConversations(options = {}) {
+  const normalizedOptions =
+    typeof options === 'string' ? { searchQuery: options } : options;
 
-  if (!trimmedSearchQuery) {
-    return apiRequest('/conversations/');
+  const params = new URLSearchParams();
+  const trimmedSearchQuery = String(normalizedOptions.searchQuery || '').trim();
+
+  if (trimmedSearchQuery) {
+    params.set('q', trimmedSearchQuery);
   }
 
-  const params = new URLSearchParams({
-    q: trimmedSearchQuery,
-  });
+  if (normalizedOptions.view) {
+    params.set('view', String(normalizedOptions.view));
+  }
 
-  return apiRequest(`/conversations/?${params.toString()}`);
+  if (normalizedOptions.limit) {
+    params.set('limit', String(normalizedOptions.limit));
+  }
+
+  if (normalizedOptions.offset) {
+    params.set('offset', String(normalizedOptions.offset));
+  }
+
+  const queryString = params.toString();
+
+  return apiRequest(`/conversations/${queryString ? `?${queryString}` : ''}`, {
+    signal: normalizedOptions.signal,
+  });
+}
+
+export async function getConversationSummary(options = {}) {
+  return apiRequest('/conversations/summary/', {
+    signal: options.signal,
+  });
 }
 
 export async function createConversation(contactName, contactPhone) {
@@ -188,7 +210,10 @@ export async function getMessages(conversationId, options = {}) {
   const queryString = params.toString();
 
   return apiRequest(
-    `/conversations/${conversationId}/messages/${queryString ? `?${queryString}` : ''}`
+    `/conversations/${conversationId}/messages/${queryString ? `?${queryString}` : ''}`,
+    {
+      signal: options.signal,
+    }
   );
 }
 
