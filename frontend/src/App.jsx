@@ -2252,10 +2252,8 @@ function App() {
     loadMoreConversationsAbortControllerRef.current?.abort();
 
     const timeoutId = window.setTimeout(() => {
-      const selectedConversationId = selectedConversation?.id || null;
-
       refreshConversations(
-        selectedConversationId,
+        selectedConversationIdRef.current,
         inboxSearchQuery,
         activeConversationView,
         { resetPagination: true }
@@ -2273,7 +2271,6 @@ function App() {
     isPageVisible,
     inboxSearchQuery,
     activeConversationView,
-    selectedConversation?.id,
   ]);
 
   useEffect(() => {
