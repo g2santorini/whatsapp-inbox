@@ -37,7 +37,6 @@ const MESSAGE_PAGE_SIZE = 30;
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
-const TABLET_SIDEBAR_MEDIA_QUERY = '(max-width: 1050px) and (min-width: 821px)';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
 
 const QUICK_REPLY_PREVIEWS = [
@@ -117,6 +116,9 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     chevron: <><path d="m8 10 4 4 4-4" /></>,
     sidebarCollapse: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m15 9-3 3 3 3" /></>,
     sidebarExpand: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m12 9 3 3-3 3" /></>,
+    responseInbound: <><path d="m16.5 7.5-9 9" /><path d="M14 16.5H7.5V10" /></>,
+    responseOutbound: <><path d="m7.5 16.5 9-9" /><path d="M10 7.5h6.5V14" /></>,
+    responseNeutral: <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />,
     logout: <><path d="M10 4H5v16h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
   };
 
@@ -833,10 +835,7 @@ function App() {
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia(TABLET_SIDEBAR_MEDIA_QUERY).matches;
-  });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [showMobileComposerModes, setShowMobileComposerModes] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
@@ -1314,13 +1313,13 @@ function App() {
     return 'conversation-response-dot-neutral';
   }
 
-  function getConversationResponseGlyph(conversation) {
+  function getConversationResponseIconName(conversation) {
     const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
 
-    if (lastDirection === 'inbound') return '↙';
-    if (lastDirection === 'outbound') return '↗';
+    if (lastDirection === 'inbound') return 'responseInbound';
+    if (lastDirection === 'outbound') return 'responseOutbound';
 
-    return '•';
+    return 'responseNeutral';
   }
 
   function formatReportDate(value) {
@@ -2296,27 +2295,6 @@ function App() {
     }, 0);
   }
 }
-
-  useEffect(() => {
-    const tabletSidebarMedia = window.matchMedia(TABLET_SIDEBAR_MEDIA_QUERY);
-
-    function handleTabletSidebarChange(event) {
-      if (event.matches) {
-        setIsSidebarCollapsed(true);
-        return;
-      }
-
-      if (window.innerWidth > 1050) {
-        setIsSidebarCollapsed(false);
-      }
-    }
-
-    tabletSidebarMedia.addEventListener('change', handleTabletSidebarChange);
-
-    return () => {
-      tabletSidebarMedia.removeEventListener('change', handleTabletSidebarChange);
-    };
-  }, []);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -3309,7 +3287,11 @@ function App() {
                         title={getResponseIndicatorLabel(conversation)}
                         aria-label={getResponseIndicatorLabel(conversation)}
                       >
-                        {getConversationResponseGlyph(conversation)}
+                        <Icon
+                          name={getConversationResponseIconName(conversation)}
+                          size={15}
+                          strokeWidth={2.6}
+                        />
                       </span>
                       {unreadCount > 0 && (
                         <span className="unread-badge">{unreadCount}</span>
