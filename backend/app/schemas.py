@@ -12,6 +12,8 @@ class UserBase(BaseModel):
     username: str
     email: str
     full_name: Optional[str] = None
+    display_name: Optional[str] = None
+    assignment_color: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -33,6 +35,8 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     full_name: Optional[str] = None
+    display_name: Optional[str] = None
+    assignment_color: Optional[str] = None
     role: Optional[str] = None
     disabled: Optional[bool] = None
     can_view_reports: Optional[bool] = None

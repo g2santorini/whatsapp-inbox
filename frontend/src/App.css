@@ -4342,7 +4342,8 @@ body {
   fill: #ffffff !important;
 }
 
-.assigned-badge[class*='assigned-color-'] {
+.assigned-badge[class*='assigned-color-'],
+.assigned-badge.assigned-user-color {
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.28);
   box-shadow: 0 3px 9px rgba(15, 23, 42, 0.15);

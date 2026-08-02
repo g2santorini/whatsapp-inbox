@@ -38,6 +38,18 @@ const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
+const ASSIGNMENT_COLOR_PALETTE = [
+  '#1d4ed8',
+  '#c026d3',
+  '#6d28d9',
+  '#087f5b',
+  '#c2410c',
+  '#be123c',
+  '#047857',
+  '#4338ca',
+  '#a21caf',
+  '#9a3412',
+];
 
 const QUICK_REPLY_PREVIEWS = [
   {
@@ -1070,10 +1082,15 @@ function App() {
     const assignedUser = getAssignedUser(userId);
     if (!assignedUser) return `User #${userId}`;
 
+    const customDisplayName = String(assignedUser.display_name || '').trim();
+
+    if (customDisplayName) {
+      return customDisplayName;
+    }
+
     const rawName = String(
       assignedUser.first_name ||
       assignedUser.full_name ||
-      assignedUser.display_name ||
       assignedUser.username ||
       ''
     ).trim();
@@ -1095,13 +1112,33 @@ function App() {
       userId
     ).toLowerCase();
     const fallbackColorIndex = Array.from(stableValue).reduce(
-      (total, character) => (total + character.charCodeAt(0)) % 10,
+      (total, character) =>
+        (total + character.charCodeAt(0)) % ASSIGNMENT_COLOR_PALETTE.length,
       0
     );
-    const userIndex = users.findIndex((singleUser) => singleUser.id === userId);
-    const colorIndex = userIndex >= 0 ? userIndex % 10 : fallbackColorIndex;
 
-    return `assigned-color-${colorIndex + 1}`;
+    return `assigned-color-${fallbackColorIndex + 1}`;
+  }
+
+  function getAssignedUserColor(userId) {
+    const assignedUser = getAssignedUser(userId);
+    const savedColor = String(assignedUser?.assignment_color || '').trim();
+
+    if (/^#[0-9a-f]{6}$/i.test(savedColor)) {
+      return savedColor;
+    }
+
+    const className = getAssignedUserClass(userId);
+    const colorIndex = Number(className.replace('assigned-color-', '')) - 1;
+    return ASSIGNMENT_COLOR_PALETTE[colorIndex] || ASSIGNMENT_COLOR_PALETTE[0];
+  }
+
+  function handleSettingsUsersChanged(updatedUsers) {
+    setUsers(updatedUsers);
+    setUser((currentUser) => {
+      if (!currentUser?.id) return currentUser;
+      return updatedUsers.find((singleUser) => singleUser.id === currentUser.id) || currentUser;
+    });
   }
 
   function scrollMessagesToBottom() {
@@ -3399,11 +3436,14 @@ function App() {
 
                       {conversation.assigned_to_user_id && (
                         <span
-                          className={`assigned-badge ${getAssignedUserClass(
-                            conversation.assigned_to_user_id
-                          )}`}
+                          className="assigned-badge assigned-user-color"
+                          style={{
+                            backgroundColor: getAssignedUserColor(
+                              conversation.assigned_to_user_id
+                            ),
+                          }}
                         >
-                          Taken by {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                          {getAssignedUserLabel(conversation.assigned_to_user_id)}
                         </span>
                       )}
                     </small>
@@ -3431,7 +3471,7 @@ function App() {
           renderReportsPanel()
         ) : activePage === APP_PAGES.SETTINGS ? (
           user?.role === 'admin' ? (
-            <SettingsPanel />
+            <SettingsPanel onUsersChanged={handleSettingsUsersChanged} />
           ) : (
             <div className="settings-access-denied">
               <div>
@@ -3480,11 +3520,14 @@ function App() {
 
                     {selectedConversation.assigned_to_user_id ? (
                       <span
-                        className={`assigned-badge ${getAssignedUserClass(
-                          selectedConversation.assigned_to_user_id
-                        )}`}
+                        className="assigned-badge assigned-user-color"
+                        style={{
+                          backgroundColor: getAssignedUserColor(
+                            selectedConversation.assigned_to_user_id
+                          ),
+                        }}
                       >
-                        Taken by {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
+                        {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
                       </span>
                     ) : null}
 
@@ -3676,9 +3719,9 @@ function App() {
                       : isCustomerServiceSessionExpired
                         ? 'Session expired — template required'
                         : isConversationTakenByAnotherUser
-                          ? `Taken by ${getAssignedUserLabel(
+                          ? getAssignedUserLabel(
                             selectedConversation.assigned_to_user_id
-                          )}`
+                          )
                           : 'Type a message...'
                   }
                   disabled={

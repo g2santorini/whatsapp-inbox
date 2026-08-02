@@ -204,9 +204,40 @@ def ensure_user_report_permission_column():
     print("✅ Added can_view_reports column to users table", flush=True)
 
 
+def ensure_user_profile_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    columns_to_add = []
+
+    if "display_name" not in columns:
+        columns_to_add.append(("display_name", "VARCHAR"))
+
+    if "assignment_color" not in columns:
+        columns_to_add.append(("assignment_color", "VARCHAR(7)"))
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
 ensure_follow_up_column()
 ensure_message_status_columns()
 ensure_user_report_permission_column()
+ensure_user_profile_columns()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -1183,6 +1214,25 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
+ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def normalize_assignment_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip().lower()
+
+    if not normalized_value:
+        return None
+
+    if not ASSIGNMENT_COLOR_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=400,
+            detail="Assignment color must be a valid hex color such as #1d4ed8",
+        )
+
+    return normalized_value
 
 
 def is_admin(user: models.User) -> bool:
@@ -1322,9 +1372,13 @@ def attach_message_author_data(
             continue
 
         display_name = (
-            author.full_name.strip()
-            if author.full_name and author.full_name.strip()
-            else author.username
+            author.display_name.strip()
+            if author.display_name and author.display_name.strip()
+            else (
+                author.full_name.strip()
+                if author.full_name and author.full_name.strip()
+                else author.username
+            )
         )
 
         message.author_name = display_name
@@ -2297,6 +2351,8 @@ def create_user(
     username = user.username.strip()
     email = user.email.strip().lower()
     full_name = user.full_name.strip() if user.full_name else None
+    display_name = user.display_name.strip() if user.display_name else None
+    assignment_color = normalize_assignment_color(user.assignment_color)
     requested_role = (user.role or "user").strip().lower()
 
     if not username:
@@ -2317,6 +2373,12 @@ def create_user(
             detail="Invalid role. Allowed roles: admin, power_user, user",
         )
 
+    if display_name and len(display_name) > 24:
+        raise HTTPException(
+            status_code=400,
+            detail="Display name must be 24 characters or fewer",
+        )
+
     existing_user = get_user(db, username)
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -2331,6 +2393,8 @@ def create_user(
         username=username,
         email=email,
         full_name=full_name,
+        display_name=display_name,
+        assignment_color=assignment_color,
         hashed_password=hashed_password,
         role=requested_role,
         disabled=False,
@@ -2373,6 +2437,8 @@ def update_user(
     new_username = None
     new_email = None
     new_full_name = None
+    new_display_name = None
+    new_assignment_color = None
     new_role = None
 
     if user_update.username is not None:
@@ -2429,8 +2495,28 @@ def update_user(
             .first()
         )
 
+        if existing_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered",
+            )
+
     if user_update.full_name is not None:
         new_full_name = user_update.full_name.strip() or None
+
+    if user_update.display_name is not None:
+        new_display_name = user_update.display_name.strip() or None
+
+        if new_display_name and len(new_display_name) > 24:
+            raise HTTPException(
+                status_code=400,
+                detail="Display name must be 24 characters or fewer",
+            )
+
+    if user_update.assignment_color is not None:
+        new_assignment_color = normalize_assignment_color(
+            user_update.assignment_color
+        )
 
     if user_update.role is not None:
         new_role = user_update.role.strip().lower()
@@ -2484,6 +2570,12 @@ def update_user(
 
     if user_update.full_name is not None:
         db_user.full_name = new_full_name
+
+    if user_update.display_name is not None:
+        db_user.display_name = new_display_name
+
+    if user_update.assignment_color is not None:
+        db_user.assignment_color = new_assignment_color
 
     if new_role is not None:
         db_user.role = new_role
