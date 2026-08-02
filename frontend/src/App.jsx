@@ -104,6 +104,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     search: <><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4 4" /></>,
     filter: <><path d="M4 5h16l-6 7v6l-4 2v-8z" /></>,
     plus: <><path d="M12 5v14M5 12h14" /></>,
+    clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.5 2" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><path d="M12 7h.01" /></>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
     back: <><path d="m15 18-6-6 6-6" /></>,
@@ -132,6 +133,25 @@ function getInitials(value) {
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
 
   return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+function attachCustomerServiceExpiry(conversations) {
+  const receivedAtMs = Date.now();
+
+  return conversations.map((conversation) => {
+    const secondsLeft = Math.max(
+      0,
+      Number(conversation.customer_service_time_left_seconds || 0)
+    );
+
+    return {
+      ...conversation,
+      customer_service_expires_at_ms:
+        conversation.customer_service_window_open && secondsLeft > 0
+          ? receivedAtMs + (secondsLeft * 1000)
+          : null,
+    };
+  });
 }
 
 function playNotificationSound() {
@@ -837,9 +857,9 @@ function App() {
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const [showMobileComposerModes, setShowMobileComposerModes] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
   const [quickReplySearch, setQuickReplySearch] = useState('');
+  const [customerServiceNowMs, setCustomerServiceNowMs] = useState(() => Date.now());
   const inboxSearchInputRef = useRef(null);
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
@@ -865,9 +885,17 @@ function App() {
   const canReleaseConversation =
     Boolean(selectedConversation) && selectedConversation.assigned_to_user_id === user?.id;
 
+  const selectedCustomerServiceSecondsLeft = getCustomerServiceSecondsLeft(
+    selectedConversation,
+    customerServiceNowMs
+  );
+
   const isCustomerServiceSessionExpired =
     Boolean(selectedConversation) &&
-    !selectedConversation.customer_service_window_open;
+    (
+      !selectedConversation.customer_service_window_open ||
+      selectedCustomerServiceSecondsLeft <= 0
+    );
 
   const canTypeMessage =
     Boolean(selectedConversation) &&
@@ -977,7 +1005,6 @@ function App() {
     setActiveConversationView(view);
     setIsMobileChatOpen(false);
     setIsMobileSearchOpen(false);
-    setShowMobileComposerModes(false);
     setMobileDrawerMode(null);
   }
 
@@ -1043,19 +1070,38 @@ function App() {
     const assignedUser = getAssignedUser(userId);
     if (!assignedUser) return `User #${userId}`;
 
-    return assignedUser.username || `User #${userId}`;
+    const rawName = String(
+      assignedUser.first_name ||
+      assignedUser.full_name ||
+      assignedUser.display_name ||
+      assignedUser.username ||
+      ''
+    ).trim();
+
+    if (!rawName) return `User #${userId}`;
+
+    const firstName = rawName.split(/[\s._-]+/).filter(Boolean)[0] || rawName;
+
+    return `${firstName.charAt(0).toUpperCase()}${firstName.slice(1).toLowerCase()}`;
   }
 
   function getAssignedUserClass(userId) {
     if (!userId) return 'assigned-nobody';
 
     const assignedUser = getAssignedUser(userId);
-    const usernameValue = assignedUser?.username?.toLowerCase() || '';
+    const stableValue = String(
+      assignedUser?.username ||
+      assignedUser?.id ||
+      userId
+    ).toLowerCase();
+    const fallbackColorIndex = Array.from(stableValue).reduce(
+      (total, character) => (total + character.charCodeAt(0)) % 10,
+      0
+    );
+    const userIndex = users.findIndex((singleUser) => singleUser.id === userId);
+    const colorIndex = userIndex >= 0 ? userIndex % 10 : fallbackColorIndex;
 
-    if (usernameValue === 'george') return 'assigned-george';
-    if (usernameValue === 'panagiotis') return 'assigned-panagiotis';
-
-    return 'assigned-other';
+    return `assigned-color-${colorIndex + 1}`;
   }
 
   function scrollMessagesToBottom() {
@@ -1208,6 +1254,21 @@ function App() {
     return '';
   }
 
+  function getMessageStatusTitle(message) {
+    if (!message || message.direction !== 'outbound') {
+      return '';
+    }
+
+    const statusValue = String(message.whatsapp_status || '').toLowerCase();
+
+    if (statusValue === 'sent') return 'Sent';
+    if (statusValue === 'delivered') return 'Delivered';
+    if (statusValue === 'read') return 'Read';
+    if (statusValue === 'failed') return 'Failed';
+
+    return '';
+  }
+
   function getMessageAuthorLabel(message) {
     if (!message || message.direction !== 'outbound') {
       return '';
@@ -1232,35 +1293,49 @@ function App() {
     return '';
   }
 
-  function formatCustomerServiceWindow(conversation) {
+  function getCustomerServiceSecondsLeft(conversation, nowMs) {
     if (!conversation?.customer_service_window_open) {
-      return 'Session expired — template required';
+      return 0;
     }
 
-    const secondsLeft = Number(
-      conversation.customer_service_time_left_seconds || 0
+    const expiresAtMs = Number(conversation.customer_service_expires_at_ms || 0);
+
+    if (!expiresAtMs) {
+      return Math.max(
+        0,
+        Number(conversation.customer_service_time_left_seconds || 0)
+      );
+    }
+
+    return Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
+  }
+
+  function formatCustomerServiceWindow(conversation) {
+    const secondsLeft = getCustomerServiceSecondsLeft(
+      conversation,
+      customerServiceNowMs
     );
 
     if (secondsLeft <= 0) {
-      return 'Session expired — template required';
+      return 'Expired';
     }
 
     const hours = Math.floor(secondsLeft / 3600);
     const minutes = Math.floor((secondsLeft % 3600) / 60);
+    const seconds = secondsLeft % 60;
 
-    return `${hours}h ${minutes}m left`;
+    return [hours, minutes, seconds]
+      .map((value) => String(value).padStart(2, '0'))
+      .join(':');
   }
 
   function getCustomerServiceWindowClass(conversation) {
-    if (!conversation?.customer_service_window_open) {
-      return 'customer-service-expired';
-    }
-
-    const secondsLeft = Number(
-      conversation.customer_service_time_left_seconds || 0
+    const secondsLeft = getCustomerServiceSecondsLeft(
+      conversation,
+      customerServiceNowMs
     );
 
-    if (secondsLeft <= 0) {
+    if (!conversation?.customer_service_window_open || secondsLeft <= 0) {
       return 'customer-service-expired';
     }
 
@@ -1546,7 +1621,9 @@ function App() {
         return;
       }
 
-      const conversationData = rawConversationData.slice(0, requestedLimit);
+      const conversationData = attachCustomerServiceExpiry(
+        rawConversationData.slice(0, requestedLimit)
+      );
 
       loadedConversationLimitRef.current = Math.max(
         CONVERSATION_PAGE_SIZE,
@@ -1639,7 +1716,9 @@ function App() {
         signal: abortController.signal,
       });
 
-      const nextPage = rawConversationData.slice(0, pageSize);
+      const nextPage = attachCustomerServiceExpiry(
+        rawConversationData.slice(0, pageSize)
+      );
 
       setConversations((currentConversations) => {
         const conversationsById = new Map(
@@ -1948,7 +2027,6 @@ function App() {
     setActivePage(APP_PAGES.INBOX);
     setIsMobileChatOpen(true);
     setIsMobileSearchOpen(false);
-    setShowMobileComposerModes(false);
     setMobileDrawerMode(null);
 
     messagesRequestInProgressRef.current?.controller?.abort();
@@ -2295,6 +2373,21 @@ function App() {
     }, 0);
   }
 }
+
+  useEffect(() => {
+    if (!selectedConversation?.customer_service_window_open) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setCustomerServiceNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    selectedConversation?.id,
+    selectedConversation?.customer_service_window_open,
+  ]);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -3393,39 +3486,49 @@ function App() {
                       >
                         Taken by {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
                       </span>
-                    ) : (
-                      <span className="assigned-badge assigned-nobody">Available</span>
-                    )}
-
-                    <span
-                      className={`customer-service-badge ${getCustomerServiceWindowClass(
-                        selectedConversation
-                      )}`}
-                    >
-                      {formatCustomerServiceWindow(selectedConversation)}
-                    </span>
+                    ) : null}
 
                   </p>
-
-                  {isDoneConversation(selectedConversation) && (
-                    <label className="follow-up-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(selectedConversation.follow_up)}
-                        onChange={(event) => handleToggleFollowUp(event.target.checked)}
-                        disabled={isUpdatingFollowUp}
-                      />
-                      <span>To Follow Up</span>
-                    </label>
-                  )}
                 </div>
               </div>
 
+              {isDoneConversation(selectedConversation) && (
+                <div className="chat-header-follow-up">
+                  <label className="follow-up-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedConversation.follow_up)}
+                      onChange={(event) => handleToggleFollowUp(event.target.checked)}
+                      disabled={isUpdatingFollowUp}
+                    />
+                    <span className="follow-up-toggle-track" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span className="follow-up-toggle-label">Follow Up</span>
+                  </label>
+                </div>
+              )}
+
               <div className="chat-header-tools">
-                <span title={formatCustomerServiceWindow(selectedConversation)}>
-                  <Icon name="info" size={21} />
-                </span>
-                <span aria-hidden="true"><Icon name="more" size={22} /></span>
+                <div
+                  className={`customer-service-live ${getCustomerServiceWindowClass(
+                    selectedConversation
+                  )}`}
+                  title={
+                    isCustomerServiceSessionExpired
+                      ? 'Template required'
+                      : 'WhatsApp reply window'
+                  }
+                  aria-label={
+                    isCustomerServiceSessionExpired
+                      ? 'WhatsApp reply window expired'
+                      : `${formatCustomerServiceWindow(selectedConversation)} remaining`
+                  }
+                >
+                  <Icon name="clock" size={18} strokeWidth={2.1} />
+                  <i aria-hidden="true" />
+                  <strong>{formatCustomerServiceWindow(selectedConversation)}</strong>
+                </div>
               </div>
             </header>
 
@@ -3481,6 +3584,8 @@ function App() {
                                 className={`message-status ${getMessageStatusClass(
                                   message
                                 )}`}
+                                title={getMessageStatusTitle(message)}
+                                aria-label={getMessageStatusTitle(message)}
                               >
                                 {getMessageStatusLabel(message)}
                               </span>
@@ -3552,21 +3657,6 @@ function App() {
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <div className="composer-tabs">
-                <span className="active"><Icon name="chat" size={17} />Reply</span>
-                <span className={`composer-mode-secondary ${showMobileComposerModes ? 'mobile-visible' : ''}`}>Note</span>
-                <span className={`composer-mode-secondary ${showMobileComposerModes ? 'mobile-visible' : ''}`}>Internal</span>
-                <button
-                  type="button"
-                  className={`composer-mode-toggle ${showMobileComposerModes ? 'active' : ''}`}
-                  onClick={() => setShowMobileComposerModes((currentValue) => !currentValue)}
-                  aria-label={showMobileComposerModes ? 'Hide note options' : 'Show note options'}
-                  title={showMobileComposerModes ? 'Hide options' : 'More options'}
-                >
-                  {showMobileComposerModes ? '×' : <Icon name="plus" size={16} />}
-                </button>
-              </div>
-
               <div className="composer-body">
                 <textarea
                   ref={messageInputRef}
