@@ -37,6 +37,7 @@ const MESSAGE_PAGE_SIZE = 30;
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
+const TABLET_SIDEBAR_MEDIA_QUERY = '(max-width: 1050px) and (min-width: 821px)';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
 
 const QUICK_REPLY_PREVIEWS = [
@@ -114,6 +115,8 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     quick: <><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2z" /><path d="m18.5 14 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" /></>,
     menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
     chevron: <><path d="m8 10 4 4 4-4" /></>,
+    sidebarCollapse: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m15 9-3 3 3 3" /></>,
+    sidebarExpand: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m12 9 3 3-3 3" /></>,
     logout: <><path d="M10 4H5v16h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
   };
 
@@ -830,6 +833,12 @@ function App() {
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(TABLET_SIDEBAR_MEDIA_QUERY).matches;
+  });
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [showMobileComposerModes, setShowMobileComposerModes] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
   const [quickReplySearch, setQuickReplySearch] = useState('');
   const inboxSearchInputRef = useRef(null);
@@ -968,6 +977,8 @@ function App() {
     setActivePage(APP_PAGES.INBOX);
     setActiveConversationView(view);
     setIsMobileChatOpen(false);
+    setIsMobileSearchOpen(false);
+    setShowMobileComposerModes(false);
     setMobileDrawerMode(null);
   }
 
@@ -987,9 +998,12 @@ function App() {
     setActivePage(APP_PAGES.INBOX);
     setIsMobileChatOpen(false);
     setMobileDrawerMode(null);
+    setIsMobileSearchOpen((currentValue) => !currentValue);
 
     window.setTimeout(() => {
-      inboxSearchInputRef.current?.focus();
+      if (!isMobileSearchOpen) {
+        inboxSearchInputRef.current?.focus();
+      }
     }, 0);
   }
 
@@ -1934,6 +1948,8 @@ function App() {
     setError('');
     setActivePage(APP_PAGES.INBOX);
     setIsMobileChatOpen(true);
+    setIsMobileSearchOpen(false);
+    setShowMobileComposerModes(false);
     setMobileDrawerMode(null);
 
     messagesRequestInProgressRef.current?.controller?.abort();
@@ -2280,6 +2296,27 @@ function App() {
     }, 0);
   }
 }
+
+  useEffect(() => {
+    const tabletSidebarMedia = window.matchMedia(TABLET_SIDEBAR_MEDIA_QUERY);
+
+    function handleTabletSidebarChange(event) {
+      if (event.matches) {
+        setIsSidebarCollapsed(true);
+        return;
+      }
+
+      if (window.innerWidth > 1050) {
+        setIsSidebarCollapsed(false);
+      }
+    }
+
+    tabletSidebarMedia.addEventListener('change', handleTabletSidebarChange);
+
+    return () => {
+      tabletSidebarMedia.removeEventListener('change', handleTabletSidebarChange);
+    };
+  }, []);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -2884,8 +2921,29 @@ function App() {
           <img src={sendroLogo} alt="Sendro" className="mobile-app-logo mobile-app-logo-white" />
           <img src={sendroLogo} alt="" className="mobile-app-logo mobile-app-logo-accent" aria-hidden="true" />
         </div>
+        <button
+          type="button"
+          className={`mobile-new-conversation-button ${showNewConversationForm ? 'active' : ''}`}
+          onClick={() => {
+            setError('');
+            setActivePage(APP_PAGES.INBOX);
+            setIsMobileChatOpen(false);
+            setIsMobileSearchOpen(false);
+            setMobileDrawerMode(null);
+            setShowNewConversationForm((currentValue) => !currentValue);
+          }}
+          aria-label={showNewConversationForm ? 'Close new conversation form' : 'Create new conversation'}
+          title={showNewConversationForm ? 'Close' : 'New conversation'}
+        >
+          {showNewConversationForm ? '×' : <Icon name="plus" size={22} />}
+        </button>
         <div className="mobile-app-actions">
-          <button type="button" onClick={focusMobileInboxSearch} aria-label="Search conversations">
+          <button
+            type="button"
+            onClick={focusMobileInboxSearch}
+            aria-label={isMobileSearchOpen ? 'Hide conversation search' : 'Search conversations'}
+            aria-pressed={isMobileSearchOpen}
+          >
             <Icon name="search" size={25} />
           </button>
           <button type="button" onClick={() => setMobileDrawerMode('menu')} aria-label="Open menu">
@@ -2894,13 +2952,22 @@ function App() {
         </div>
       </header>
 
-      <aside className="blue-sidebar">
+      <aside className={`blue-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="blue-sidebar-top">
           <div className="blue-brand">
             <div className="blue-brand-logo-wrap">
               <img src={sendroLogo} alt="Sendro" className="blue-brand-logo blue-brand-logo-white" />
               <img src={sendroLogo} alt="" className="blue-brand-logo blue-brand-logo-accent" aria-hidden="true" />
             </div>
+            <button
+              type="button"
+              className="blue-sidebar-toggle"
+              onClick={() => setIsSidebarCollapsed((currentValue) => !currentValue)}
+              aria-label={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              title={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            >
+              <Icon name={isSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse'} size={18} />
+            </button>
           </div>
 
           <div className="blue-section-title">Workspace</div>
@@ -2911,8 +2978,9 @@ function App() {
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''
                 }`}
               onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+              title="Inbox"
             >
-              <span className="blue-nav-label"><Icon name="inbox" />Inbox</span>
+              <span className="blue-nav-label"><Icon name="inbox" /><span>Inbox</span></span>
               {inboxUnreadCount > 0 && <strong>{inboxUnreadCount}</strong>}
             </button>
 
@@ -2921,8 +2989,9 @@ function App() {
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
                 }`}
               onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}
+              title="Mine"
             >
-              <span className="blue-nav-label"><Icon name="user" />Mine</span>
+              <span className="blue-nav-label"><Icon name="user" /><span>Mine</span></span>
               {mineCount > 0 && <strong>{mineCount}</strong>}
             </button>
 
@@ -2931,8 +3000,9 @@ function App() {
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
                 }`}
               onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}
+              title="To Follow Up"
             >
-              <span className="blue-nav-label"><Icon name="follow" />To Follow Up</span>
+              <span className="blue-nav-label"><Icon name="follow" /><span>To Follow Up</span></span>
               {Number(conversationSummary?.follow_up || 0) > 0 && (
                 <strong>{conversationSummary.follow_up}</strong>
               )}
@@ -2943,19 +3013,17 @@ function App() {
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ARCHIVED ? 'active' : ''
                 }`}
               onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}
+              title="Archived"
             >
-              <span className="blue-nav-label"><Icon name="archive" />Archived</span>
-              {Number(conversationSummary?.archived || 0) > 0 && (
-                <strong>{conversationSummary.archived}</strong>
-              )}
+              <span className="blue-nav-label"><Icon name="archive" /><span>Archived</span></span>
             </button>
           </div>
 
           <div className="blue-section-title blue-section-spaced">Channel</div>
           <div className="blue-channel-row">
             <span className="whatsapp-mark">W</span>
-            <span>WhatsApp</span>
-            <strong>{browserUnreadCount || conversations.length}</strong>
+            <span className="blue-channel-label">WhatsApp</span>
+            {browserUnreadCount > 0 && <strong>{browserUnreadCount}</strong>}
           </div>
 
           <div className="blue-section-title blue-section-spaced">Tools</div>
@@ -2964,26 +3032,28 @@ function App() {
             <button
               type="button"
               className={`blue-settings-button ${activePage === APP_PAGES.REPORTS ? 'active' : ''}`}
+              title="Reports"
               onClick={() => {
                 setActivePage(APP_PAGES.REPORTS);
                 setSelectedConversation(null);
                 setIsMobileChatOpen(false);
               }}
             >
-              <Icon name="reports" />Reports
+              <Icon name="reports" /><span className="blue-tool-label">Reports</span>
             </button>
           )}
 
           <button
             type="button"
             className={`blue-settings-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
-              onClick={() => {
-                setActivePage(APP_PAGES.SETTINGS);
-                setSelectedConversation(null);
-                setIsMobileChatOpen(false);
-              }}
-            >
-            <Icon name="settings" />Settings
+            title="Settings"
+            onClick={() => {
+              setActivePage(APP_PAGES.SETTINGS);
+              setSelectedConversation(null);
+              setIsMobileChatOpen(false);
+            }}
+          >
+            <Icon name="settings" /><span className="blue-tool-label">Settings</span>
           </button>
         </div>
 
@@ -3007,8 +3077,8 @@ function App() {
             </span>
           </div>
 
-          <button className="blue-logout-button" onClick={handleLogout}>
-            <Icon name="logout" size={18} />Logout
+          <button className="blue-logout-button" onClick={handleLogout} title="Logout">
+            <Icon name="logout" size={18} /><span>Logout</span>
           </button>
         </div>
       </aside>
@@ -3059,7 +3129,7 @@ function App() {
             </button>
           </div>
 
-          <div className="inbox-search">
+          <div className={`inbox-search ${isMobileSearchOpen ? 'mobile-search-open' : ''}`}>
             <Icon name="search" size={19} />
             <input
               ref={inboxSearchInputRef}
@@ -3502,8 +3572,17 @@ function App() {
             <form className="composer" onSubmit={handleSendMessage}>
               <div className="composer-tabs">
                 <span className="active"><Icon name="chat" size={17} />Reply</span>
-                <span>Note</span>
-                <span>Internal</span>
+                <span className={`composer-mode-secondary ${showMobileComposerModes ? 'mobile-visible' : ''}`}>Note</span>
+                <span className={`composer-mode-secondary ${showMobileComposerModes ? 'mobile-visible' : ''}`}>Internal</span>
+                <button
+                  type="button"
+                  className={`composer-mode-toggle ${showMobileComposerModes ? 'active' : ''}`}
+                  onClick={() => setShowMobileComposerModes((currentValue) => !currentValue)}
+                  aria-label={showMobileComposerModes ? 'Hide note options' : 'Show note options'}
+                  title={showMobileComposerModes ? 'Hide options' : 'More options'}
+                >
+                  {showMobileComposerModes ? '×' : <Icon name="plus" size={16} />}
+                </button>
               </div>
 
               <div className="composer-body">
