@@ -104,6 +104,69 @@ export async function resetUserPassword(userId, password) {
   });
 }
 
+export async function getQuickReplyCategories() {
+  return apiRequest('/quick-reply-categories/');
+}
+
+export async function createQuickReplyCategory(categoryData) {
+  return apiRequest('/quick-reply-categories/', {
+    method: 'POST',
+    body: JSON.stringify(categoryData),
+  });
+}
+
+export async function updateQuickReplyCategory(categoryId, updates) {
+  return apiRequest(`/quick-reply-categories/${categoryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteQuickReplyCategory(categoryId) {
+  return apiRequest(`/quick-reply-categories/${categoryId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getQuickReplies(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.q && String(filters.q).trim()) {
+    params.set('q', String(filters.q).trim());
+  }
+
+  if (filters.categoryId !== undefined && filters.categoryId !== null) {
+    params.set('category_id', String(filters.categoryId));
+  }
+
+  if (filters.favoritesOnly) {
+    params.set('favorites_only', 'true');
+  }
+
+  const queryString = params.toString();
+  return apiRequest(`/quick-replies/${queryString ? `?${queryString}` : ''}`);
+}
+
+export async function createQuickReply(quickReplyData) {
+  return apiRequest('/quick-replies/', {
+    method: 'POST',
+    body: JSON.stringify(quickReplyData),
+  });
+}
+
+export async function updateQuickReply(quickReplyId, updates) {
+  return apiRequest(`/quick-replies/${quickReplyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteQuickReply(quickReplyId) {
+  return apiRequest(`/quick-replies/${quickReplyId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function getMessageMediaBlob(messageId) {
   const token = getToken();
 

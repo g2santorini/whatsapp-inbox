@@ -47,6 +47,76 @@ class UserPasswordReset(BaseModel):
 
 
 # =====================
+# QUICK REPLIES
+# =====================
+
+
+class QuickReplyCategoryCreate(BaseModel):
+    name: str
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyCategoryOut(BaseModel):
+    id: int
+    name: str
+    parent_id: Optional[int] = None
+    sort_order: int
+    reply_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class QuickReplyCreate(BaseModel):
+    title: str
+    content: str
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    scope: str = "personal"
+    is_favorite: bool = False
+    sort_order: Optional[int] = None
+
+
+class QuickReplyUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    scope: Optional[str] = None
+    is_favorite: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    parent_category_id: Optional[int] = None
+    parent_category_name: Optional[str] = None
+    scope: str
+    is_favorite: bool
+    sort_order: int
+    created_by_user_id: int
+    created_by_name: Optional[str] = None
+    can_edit: bool = False
+    can_delete: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+# =====================
 # MESSAGE
 # =====================
 

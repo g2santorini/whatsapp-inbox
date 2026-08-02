@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from .database import Base
 
@@ -18,6 +27,63 @@ class User(Base):
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     can_view_reports = Column(Boolean, default=False, nullable=False)
+
+
+class QuickReplyCategory(Base):
+    __tablename__ = "quick_reply_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(60), unique=True, index=True, nullable=False)
+    parent_id = Column(
+        Integer,
+        ForeignKey("quick_reply_categories.id"),
+        nullable=True,
+    )
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QuickReply(Base):
+    __tablename__ = "quick_replies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(100), index=True, nullable=False)
+    shortcut = Column(String(40), unique=True, index=True, nullable=True)
+    content = Column(Text, nullable=False)
+    scope = Column(String(16), default="personal", nullable=False, index=True)
+    category_id = Column(
+        Integer,
+        ForeignKey("quick_reply_categories.id"),
+        nullable=True,
+    )
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QuickReplyFavorite(Base):
+    __tablename__ = "quick_reply_favorites"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "quick_reply_id",
+            name="uq_quick_reply_favorite_user_reply",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    quick_reply_id = Column(
+        Integer,
+        ForeignKey("quick_replies.id"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Conversation(Base):

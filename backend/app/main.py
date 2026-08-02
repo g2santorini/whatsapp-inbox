@@ -1215,6 +1215,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
 ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+QUICK_REPLY_SHORTCUT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+QUICK_REPLY_SCOPES = {"team", "personal"}
 
 
 def normalize_assignment_color(value: str | None) -> str | None:
@@ -1241,6 +1243,30 @@ def is_admin(user: models.User) -> bool:
 
 def is_power_user(user: models.User) -> bool:
     return user.role == "power_user"
+
+
+def can_create_quick_replies(user: models.User) -> bool:
+    return bool(user and not user.disabled)
+
+
+def can_create_quick_reply_scope(user: models.User, scope: str) -> bool:
+    return scope == "personal" or (scope == "team" and is_admin(user))
+
+
+def can_view_quick_reply(user: models.User, quick_reply: models.QuickReply) -> bool:
+    return quick_reply.scope == "team" or (
+        quick_reply.scope == "personal"
+        and quick_reply.created_by_user_id == user.id
+    )
+
+
+def can_edit_quick_reply(user: models.User, quick_reply: models.QuickReply) -> bool:
+    return (
+        quick_reply.scope == "team" and is_admin(user)
+    ) or (
+        quick_reply.scope == "personal"
+        and quick_reply.created_by_user_id == user.id
+    )
 
 
 def can_view_all_conversations(user: models.User) -> bool:
@@ -2624,6 +2650,730 @@ def reset_user_password(
     db.refresh(db_user)
 
     return db_user
+
+
+def normalize_quick_reply_category_name(value: str | None) -> str:
+    normalized_value = " ".join(str(value or "").strip().split())
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Category name cannot be empty")
+
+    if len(normalized_value) > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="Category name must be 60 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_title(value: str | None) -> str:
+    normalized_value = " ".join(str(value or "").strip().split())
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Quick reply title cannot be empty")
+
+    if len(normalized_value) > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply title must be 100 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_content(value: str | None) -> str:
+    normalized_value = str(value or "").strip()
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Quick reply content cannot be empty")
+
+    if len(normalized_value) > 4000:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply content must be 4,000 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_shortcut(value: str | None) -> str | None:
+    normalized_value = str(value or "").strip().lower().lstrip("/")
+
+    if not normalized_value:
+        return None
+
+    if not QUICK_REPLY_SHORTCUT_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Shortcut can contain lowercase letters, numbers, hyphens and "
+                "underscores only"
+            ),
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_scope(value: str | None) -> str:
+    normalized_value = str(value or "personal").strip().lower()
+
+    if normalized_value not in QUICK_REPLY_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply scope must be team or personal",
+        )
+
+    return normalized_value
+
+
+def visible_quick_reply_filter(current_user: models.User):
+    return or_(
+        models.QuickReply.scope == "team",
+        and_(
+            models.QuickReply.scope == "personal",
+            models.QuickReply.created_by_user_id == current_user.id,
+        ),
+    )
+
+
+def get_favorite_quick_reply_ids(
+    db: Session,
+    user_id: int,
+    quick_reply_ids: set[int] | None = None,
+) -> set[int]:
+    query = db.query(models.QuickReplyFavorite.quick_reply_id).filter(
+        models.QuickReplyFavorite.user_id == user_id
+    )
+
+    if quick_reply_ids is not None:
+        if not quick_reply_ids:
+            return set()
+        query = query.filter(
+            models.QuickReplyFavorite.quick_reply_id.in_(quick_reply_ids)
+        )
+
+    return {quick_reply_id for (quick_reply_id,) in query.all()}
+
+
+def set_quick_reply_favorite(
+    db: Session,
+    user_id: int,
+    quick_reply_id: int,
+    is_favorite: bool,
+) -> None:
+    existing_favorite = (
+        db.query(models.QuickReplyFavorite)
+        .filter(
+            models.QuickReplyFavorite.user_id == user_id,
+            models.QuickReplyFavorite.quick_reply_id == quick_reply_id,
+        )
+        .first()
+    )
+
+    if is_favorite and not existing_favorite:
+        db.add(
+            models.QuickReplyFavorite(
+                user_id=user_id,
+                quick_reply_id=quick_reply_id,
+                created_at=datetime.utcnow(),
+            )
+        )
+    elif not is_favorite and existing_favorite:
+        db.delete(existing_favorite)
+
+
+def get_quick_reply_category_or_404(
+    db: Session,
+    category_id: int,
+) -> models.QuickReplyCategory:
+    category = (
+        db.query(models.QuickReplyCategory)
+        .filter(models.QuickReplyCategory.id == category_id)
+        .first()
+    )
+
+    if not category:
+        raise HTTPException(status_code=404, detail="Quick reply category not found")
+
+    return category
+
+
+def validate_quick_reply_parent_category(
+    db: Session,
+    parent_id: int | None,
+    category_id: int | None = None,
+) -> models.QuickReplyCategory | None:
+    if parent_id is None:
+        return None
+
+    if category_id is not None and parent_id == category_id:
+        raise HTTPException(status_code=400, detail="A category cannot contain itself")
+
+    parent = get_quick_reply_category_or_404(db, parent_id)
+
+    if parent.parent_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply categories support one subcategory level",
+        )
+
+    if category_id is not None:
+        child_exists = (
+            db.query(models.QuickReplyCategory)
+            .filter(models.QuickReplyCategory.parent_id == category_id)
+            .first()
+        )
+
+        if child_exists:
+            raise HTTPException(
+                status_code=400,
+                detail="A category with subcategories cannot become a subcategory",
+            )
+
+    return parent
+
+
+def quick_reply_category_to_out(
+    category: models.QuickReplyCategory,
+    reply_count: int = 0,
+) -> dict:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "parent_id": category.parent_id,
+        "sort_order": category.sort_order,
+        "reply_count": int(reply_count or 0),
+        "created_at": category.created_at,
+        "updated_at": category.updated_at,
+    }
+
+
+def quick_reply_to_out(
+    quick_reply: models.QuickReply,
+    current_user: models.User,
+    categories_by_id: dict[int, models.QuickReplyCategory],
+    users_by_id: dict[int, models.User],
+    favorite_quick_reply_ids: set[int],
+) -> dict:
+    category = categories_by_id.get(quick_reply.category_id)
+    parent_category = (
+        categories_by_id.get(category.parent_id)
+        if category and category.parent_id
+        else None
+    )
+    creator = users_by_id.get(quick_reply.created_by_user_id)
+    creator_name = None
+
+    if creator:
+        creator_name = (
+            creator.display_name
+            or creator.full_name
+            or creator.username
+        )
+
+    return {
+        "id": quick_reply.id,
+        "title": quick_reply.title,
+        "content": quick_reply.content,
+        "shortcut": quick_reply.shortcut,
+        "category_id": quick_reply.category_id,
+        "category_name": category.name if category else None,
+        "parent_category_id": parent_category.id if parent_category else None,
+        "parent_category_name": parent_category.name if parent_category else None,
+        "scope": quick_reply.scope,
+        "is_favorite": quick_reply.id in favorite_quick_reply_ids,
+        "sort_order": quick_reply.sort_order,
+        "created_by_user_id": quick_reply.created_by_user_id,
+        "created_by_name": creator_name,
+        "can_edit": can_edit_quick_reply(current_user, quick_reply),
+        "can_delete": can_edit_quick_reply(current_user, quick_reply),
+        "created_at": quick_reply.created_at,
+        "updated_at": quick_reply.updated_at,
+    }
+
+
+@app.get(
+    "/quick-reply-categories/",
+    response_model=list[schemas.QuickReplyCategoryOut],
+)
+def get_quick_reply_categories(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    categories = (
+        db.query(models.QuickReplyCategory)
+        .order_by(
+            models.QuickReplyCategory.sort_order.asc(),
+            models.QuickReplyCategory.name.asc(),
+        )
+        .all()
+    )
+    counts = dict(
+        db.query(
+            models.QuickReply.category_id,
+            func.count(models.QuickReply.id),
+        )
+        .filter(
+            models.QuickReply.category_id.isnot(None),
+            visible_quick_reply_filter(current_user),
+        )
+        .group_by(models.QuickReply.category_id)
+        .all()
+    )
+
+    root_categories = [category for category in categories if category.parent_id is None]
+    ordered_categories = []
+    included_category_ids = set()
+
+    for root_category in root_categories:
+        ordered_categories.append(root_category)
+        included_category_ids.add(root_category.id)
+
+        for child_category in categories:
+            if child_category.parent_id == root_category.id:
+                ordered_categories.append(child_category)
+                included_category_ids.add(child_category.id)
+
+    ordered_categories.extend(
+        category
+        for category in categories
+        if category.id not in included_category_ids
+    )
+
+    return [
+        quick_reply_category_to_out(category, counts.get(category.id, 0))
+        for category in ordered_categories
+    ]
+
+
+@app.post(
+    "/quick-reply-categories/",
+    response_model=schemas.QuickReplyCategoryOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quick_reply_category(
+    category_create: schemas.QuickReplyCategoryCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can create quick reply categories",
+        )
+
+    name = normalize_quick_reply_category_name(category_create.name)
+    validate_quick_reply_parent_category(db, category_create.parent_id)
+
+    duplicate = (
+        db.query(models.QuickReplyCategory)
+        .filter(func.lower(models.QuickReplyCategory.name) == name.lower())
+        .first()
+    )
+
+    if duplicate:
+        raise HTTPException(status_code=400, detail="Category name already exists")
+
+    sort_order = category_create.sort_order
+
+    if sort_order is None:
+        highest_sort_order = (
+            db.query(func.max(models.QuickReplyCategory.sort_order)).scalar() or 0
+        )
+        sort_order = highest_sort_order + 10
+
+    category = models.QuickReplyCategory(
+        name=name,
+        parent_id=category_create.parent_id,
+        sort_order=max(0, int(sort_order)),
+        created_by_user_id=current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+
+    return quick_reply_category_to_out(category)
+
+
+@app.patch(
+    "/quick-reply-categories/{category_id}",
+    response_model=schemas.QuickReplyCategoryOut,
+)
+def update_quick_reply_category(
+    category_id: int,
+    category_update: schemas.QuickReplyCategoryUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can update quick reply categories",
+        )
+
+    category = get_quick_reply_category_or_404(db, category_id)
+    updates = category_update.dict(exclude_unset=True)
+
+    if "name" in updates:
+        name = normalize_quick_reply_category_name(updates["name"])
+        duplicate = (
+            db.query(models.QuickReplyCategory)
+            .filter(
+                func.lower(models.QuickReplyCategory.name) == name.lower(),
+                models.QuickReplyCategory.id != category_id,
+            )
+            .first()
+        )
+
+        if duplicate:
+            raise HTTPException(status_code=400, detail="Category name already exists")
+
+        category.name = name
+
+    if "parent_id" in updates:
+        validate_quick_reply_parent_category(
+            db,
+            updates["parent_id"],
+            category_id=category_id,
+        )
+        category.parent_id = updates["parent_id"]
+
+    if "sort_order" in updates and updates["sort_order"] is not None:
+        category.sort_order = max(0, int(updates["sort_order"]))
+
+    category.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(category)
+
+    reply_count = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.category_id == category.id)
+        .count()
+    )
+    return quick_reply_category_to_out(category, reply_count)
+
+
+@app.delete("/quick-reply-categories/{category_id}")
+def delete_quick_reply_category(
+    category_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can delete quick reply categories",
+        )
+
+    category = get_quick_reply_category_or_404(db, category_id)
+    db.query(models.QuickReply).filter(
+        models.QuickReply.category_id == category.id
+    ).update({models.QuickReply.category_id: None}, synchronize_session=False)
+    db.query(models.QuickReplyCategory).filter(
+        models.QuickReplyCategory.parent_id == category.id
+    ).update({models.QuickReplyCategory.parent_id: None}, synchronize_session=False)
+    db.delete(category)
+    db.commit()
+
+    return {"status": "deleted", "category_id": category_id}
+
+
+@app.get("/quick-replies/", response_model=list[schemas.QuickReplyOut])
+def get_quick_replies(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    q: str | None = Query(default=None, max_length=120),
+    category_id: int | None = Query(default=None),
+    favorites_only: bool = Query(default=False),
+):
+    query = db.query(models.QuickReply).filter(
+        visible_quick_reply_filter(current_user)
+    )
+
+    if category_id is not None:
+        query = query.filter(models.QuickReply.category_id == category_id)
+
+    if favorites_only:
+        query = query.join(
+            models.QuickReplyFavorite,
+            and_(
+                models.QuickReplyFavorite.quick_reply_id == models.QuickReply.id,
+                models.QuickReplyFavorite.user_id == current_user.id,
+            ),
+        )
+
+    search_value = str(q or "").strip()
+
+    if search_value:
+        search_pattern = f"%{search_value}%"
+        query = query.outerjoin(
+            models.QuickReplyCategory,
+            models.QuickReply.category_id == models.QuickReplyCategory.id,
+        ).filter(
+            or_(
+                models.QuickReply.title.ilike(search_pattern),
+                models.QuickReply.shortcut.ilike(search_pattern),
+                models.QuickReply.content.ilike(search_pattern),
+                models.QuickReplyCategory.name.ilike(search_pattern),
+            )
+        )
+
+    quick_replies = query.order_by(
+        models.QuickReply.sort_order.asc(),
+        models.QuickReply.title.asc(),
+    ).all()
+    categories = db.query(models.QuickReplyCategory).all()
+    creator_ids = {reply.created_by_user_id for reply in quick_replies}
+    creators = (
+        db.query(models.User).filter(models.User.id.in_(creator_ids)).all()
+        if creator_ids
+        else []
+    )
+    categories_by_id = {category.id: category for category in categories}
+    users_by_id = {creator.id: creator for creator in creators}
+    favorite_quick_reply_ids = get_favorite_quick_reply_ids(
+        db,
+        current_user.id,
+        {reply.id for reply in quick_replies},
+    )
+
+    quick_replies.sort(
+        key=lambda reply: (
+            reply.id not in favorite_quick_reply_ids,
+            reply.sort_order,
+            reply.title.lower(),
+        )
+    )
+
+    return [
+        quick_reply_to_out(
+            quick_reply,
+            current_user,
+            categories_by_id,
+            users_by_id,
+            favorite_quick_reply_ids,
+        )
+        for quick_reply in quick_replies
+    ]
+
+
+def ensure_unique_quick_reply_shortcut(
+    db: Session,
+    shortcut: str | None,
+    quick_reply_id: int | None = None,
+) -> None:
+    if not shortcut:
+        return
+
+    query = db.query(models.QuickReply).filter(
+        func.lower(models.QuickReply.shortcut) == shortcut.lower()
+    )
+
+    if quick_reply_id is not None:
+        query = query.filter(models.QuickReply.id != quick_reply_id)
+
+    if query.first():
+        raise HTTPException(status_code=400, detail="Shortcut already exists")
+
+
+@app.post(
+    "/quick-replies/",
+    response_model=schemas.QuickReplyOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quick_reply(
+    quick_reply_create: schemas.QuickReplyCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not can_create_quick_replies(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to create quick replies",
+        )
+
+    title = normalize_quick_reply_title(quick_reply_create.title)
+    content = normalize_quick_reply_content(quick_reply_create.content)
+    shortcut = normalize_quick_reply_shortcut(quick_reply_create.shortcut)
+    quick_reply_scope = normalize_quick_reply_scope(quick_reply_create.scope)
+
+    if not can_create_quick_reply_scope(current_user, quick_reply_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can create team quick replies",
+        )
+
+    ensure_unique_quick_reply_shortcut(db, shortcut)
+
+    if quick_reply_create.category_id is not None:
+        get_quick_reply_category_or_404(db, quick_reply_create.category_id)
+
+    sort_order = quick_reply_create.sort_order
+
+    if sort_order is None:
+        highest_sort_order = db.query(func.max(models.QuickReply.sort_order)).scalar() or 0
+        sort_order = highest_sort_order + 10
+
+    quick_reply = models.QuickReply(
+        title=title,
+        content=content,
+        shortcut=shortcut,
+        scope=quick_reply_scope,
+        category_id=quick_reply_create.category_id,
+        sort_order=max(0, int(sort_order)),
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    db.add(quick_reply)
+    db.flush()
+    set_quick_reply_favorite(
+        db,
+        current_user.id,
+        quick_reply.id,
+        bool(quick_reply_create.is_favorite),
+    )
+    db.commit()
+    db.refresh(quick_reply)
+
+    categories = db.query(models.QuickReplyCategory).all()
+    return quick_reply_to_out(
+        quick_reply,
+        current_user,
+        {category.id: category for category in categories},
+        {current_user.id: current_user},
+        {quick_reply.id} if quick_reply_create.is_favorite else set(),
+    )
+
+
+@app.patch("/quick-replies/{quick_reply_id}", response_model=schemas.QuickReplyOut)
+def update_quick_reply(
+    quick_reply_id: int,
+    quick_reply_update: schemas.QuickReplyUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    quick_reply = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.id == quick_reply_id)
+        .first()
+    )
+
+    if not quick_reply:
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_view_quick_reply(current_user, quick_reply):
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    updates = quick_reply_update.dict(exclude_unset=True)
+    content_updates = {
+        field_name: value
+        for field_name, value in updates.items()
+        if field_name != "is_favorite"
+    }
+
+    if content_updates and not can_edit_quick_reply(current_user, quick_reply):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit this quick reply",
+        )
+
+    if "title" in updates:
+        quick_reply.title = normalize_quick_reply_title(updates["title"])
+
+    if "content" in updates:
+        quick_reply.content = normalize_quick_reply_content(updates["content"])
+
+    if "shortcut" in updates:
+        shortcut = normalize_quick_reply_shortcut(updates["shortcut"])
+        ensure_unique_quick_reply_shortcut(db, shortcut, quick_reply.id)
+        quick_reply.shortcut = shortcut
+
+    if "category_id" in updates:
+        if updates["category_id"] is not None:
+            get_quick_reply_category_or_404(db, updates["category_id"])
+        quick_reply.category_id = updates["category_id"]
+
+    if "scope" in updates:
+        requested_scope = normalize_quick_reply_scope(updates["scope"])
+
+        if not can_create_quick_reply_scope(current_user, requested_scope):
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins can create team quick replies",
+            )
+
+        quick_reply.scope = requested_scope
+
+    if "is_favorite" in updates and updates["is_favorite"] is not None:
+        set_quick_reply_favorite(
+            db,
+            current_user.id,
+            quick_reply.id,
+            bool(updates["is_favorite"]),
+        )
+
+    if "sort_order" in updates and updates["sort_order"] is not None:
+        quick_reply.sort_order = max(0, int(updates["sort_order"]))
+
+    if content_updates:
+        quick_reply.updated_by_user_id = current_user.id
+        quick_reply.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(quick_reply)
+
+    categories = db.query(models.QuickReplyCategory).all()
+    creator = (
+        db.query(models.User)
+        .filter(models.User.id == quick_reply.created_by_user_id)
+        .first()
+    )
+    return quick_reply_to_out(
+        quick_reply,
+        current_user,
+        {category.id: category for category in categories},
+        {creator.id: creator} if creator else {},
+        get_favorite_quick_reply_ids(db, current_user.id, {quick_reply.id}),
+    )
+
+
+@app.delete("/quick-replies/{quick_reply_id}")
+def delete_quick_reply(
+    quick_reply_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    quick_reply = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.id == quick_reply_id)
+        .first()
+    )
+
+    if not quick_reply:
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_view_quick_reply(current_user, quick_reply):
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_edit_quick_reply(current_user, quick_reply):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to delete this quick reply",
+        )
+
+    db.query(models.QuickReplyFavorite).filter(
+        models.QuickReplyFavorite.quick_reply_id == quick_reply.id
+    ).delete(synchronize_session=False)
+    db.delete(quick_reply)
+    db.commit()
+
+    return {"status": "deleted", "quick_reply_id": quick_reply_id}
 
 
 @app.post("/token", response_model=Token)

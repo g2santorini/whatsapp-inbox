@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   archiveOldConversations,
+  createQuickReply,
+  createQuickReplyCategory,
   createUser,
+  deleteQuickReply,
+  deleteQuickReplyCategory,
   getCurrentUser,
+  getQuickReplies,
+  getQuickReplyCategories,
   getUsers,
   resetUserPassword,
+  updateQuickReply,
+  updateQuickReplyCategory,
   updateUser,
 } from '../api';
 import './SettingsPanel.css';
@@ -38,9 +46,8 @@ const SETTINGS_SECTIONS = [
   {
     id: 'quick-replies',
     label: 'Quick Replies',
-    description: 'Categories and answers',
+    description: 'Folders, answers and shortcuts',
     icon: 'reply',
-    badge: 'Next',
   },
   {
     id: 'automation',
@@ -83,6 +90,20 @@ const EMPTY_EDIT_USER_FORM = {
 const EMPTY_PASSWORD_RESET_FORM = {
   password: '',
   confirmPassword: '',
+};
+
+const EMPTY_QUICK_REPLY_FORM = {
+  title: '',
+  shortcut: '',
+  category_id: '',
+  content: '',
+  scope: 'personal',
+  is_favorite: false,
+};
+
+const EMPTY_CATEGORY_FORM = {
+  name: '',
+  parent_id: '',
 };
 
 const SETTINGS_ICONS = {
@@ -147,6 +168,19 @@ const SETTINGS_ICONS = {
       <path d="M3 6h6l2 2h10v11H3z" />
     </>
   ),
+  edit: (
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V4h6v3M6 7l1 13h10l1-13" />
+    </>
+  ),
+  star: <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6-5.4-2.9-5.4 2.9 1-6-4.4-4.3 6.1-.9Z" />,
 };
 
 function SettingsIcon({ name, size = 18 }) {
@@ -274,7 +308,7 @@ function formatArchiveDateTime(value) {
   }).format(date);
 }
 
-function SettingsPanel({ onUsersChanged }) {
+function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
   const [activeSection, setActiveSection] = useState('team');
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
@@ -296,6 +330,20 @@ function SettingsPanel({ onUsersChanged }) {
     EMPTY_PASSWORD_RESET_FORM
   );
 
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [quickReplyCategories, setQuickReplyCategories] = useState([]);
+  const [quickReplySearch, setQuickReplySearch] = useState('');
+  const [quickReplyCategoryFilter, setQuickReplyCategoryFilter] = useState('all');
+  const [isLoadingQuickReplies, setIsLoadingQuickReplies] = useState(true);
+  const [isSavingQuickReply, setIsSavingQuickReply] = useState(false);
+  const [updatingFavoriteQuickReplyId, setUpdatingFavoriteQuickReplyId] = useState(null);
+  const [showQuickReplyForm, setShowQuickReplyForm] = useState(false);
+  const [editingQuickReplyId, setEditingQuickReplyId] = useState(null);
+  const [quickReplyForm, setQuickReplyForm] = useState(EMPTY_QUICK_REPLY_FORM);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [categoryForm, setCategoryForm] = useState(EMPTY_CATEGORY_FORM);
+
   const [archiveOldHours, setArchiveOldHours] = useState('36');
   const [archivePreview, setArchivePreview] = useState(null);
   const [isPreviewingArchive, setIsPreviewingArchive] = useState(false);
@@ -303,6 +351,10 @@ function SettingsPanel({ onUsersChanged }) {
     useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
+  const canContributeQuickReplies = Boolean(currentUser);
+  const availableSettingsSections = isAdmin
+    ? SETTINGS_SECTIONS
+    : SETTINGS_SECTIONS.filter((section) => section.id === 'quick-replies');
   const visibleUsers = useMemo(
     () => users.filter((singleUser) => !isSystemUser(singleUser)),
     [users]
@@ -326,6 +378,43 @@ function SettingsPanel({ onUsersChanged }) {
 
   const activeUsers = visibleUsers.filter((singleUser) => !singleUser.disabled).length;
   const blockedUsers = visibleUsers.filter((singleUser) => singleUser.disabled).length;
+  const rootQuickReplyCategories = useMemo(
+    () => quickReplyCategories.filter((category) => !category.parent_id),
+    [quickReplyCategories]
+  );
+  const filteredQuickReplies = useMemo(() => {
+    const query = quickReplySearch.trim().toLowerCase();
+
+    return quickReplies.filter((reply) => {
+      let matchesCategory = true;
+
+      if (quickReplyCategoryFilter === 'favorites') {
+        matchesCategory = Boolean(reply.is_favorite);
+      } else if (quickReplyCategoryFilter === 'team') {
+        matchesCategory = reply.scope === 'team';
+      } else if (quickReplyCategoryFilter === 'mine') {
+        matchesCategory = reply.scope === 'personal';
+      } else if (quickReplyCategoryFilter !== 'all') {
+        const selectedCategoryId = Number(quickReplyCategoryFilter);
+        matchesCategory =
+          reply.category_id === selectedCategoryId ||
+          reply.parent_category_id === selectedCategoryId;
+      }
+
+      if (!matchesCategory) return false;
+      if (!query) return true;
+
+      return [
+        reply.title,
+        reply.shortcut,
+        reply.category_name,
+        reply.parent_category_name,
+        reply.content,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [quickReplies, quickReplyCategoryFilter, quickReplySearch]);
 
   function publishUsers(nextUsers) {
     const sortedUsers = sortUsers(nextUsers);
@@ -356,11 +445,34 @@ function SettingsPanel({ onUsersChanged }) {
       ]);
 
       setCurrentUser(currentUserData);
+      if (currentUserData?.role !== 'admin') {
+        setActiveSection('quick-replies');
+      }
       publishUsers(usersData);
     } catch (err) {
       setSettingsError(getErrorMessage(err, 'Could not load users.'));
     } finally {
       setIsLoadingUsers(false);
+    }
+  }
+
+  async function loadQuickReplyData() {
+    try {
+      setIsLoadingQuickReplies(true);
+      setSettingsError('');
+
+      const [categoryData, quickReplyData] = await Promise.all([
+        getQuickReplyCategories(),
+        getQuickReplies(),
+      ]);
+
+      setQuickReplyCategories(categoryData);
+      setQuickReplies(quickReplyData);
+      onQuickRepliesChanged?.(quickReplyData, categoryData);
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not load quick replies.'));
+    } finally {
+      setIsLoadingQuickReplies(false);
     }
   }
 
@@ -585,6 +697,226 @@ function SettingsPanel({ onUsersChanged }) {
     }
   }
 
+  function getQuickReplyCategoryLabel(reply) {
+    return [reply.parent_category_name, reply.category_name]
+      .filter(Boolean)
+      .join(' / ') || 'Uncategorized';
+  }
+
+  function resetQuickReplyEditor() {
+    setShowQuickReplyForm(false);
+    setEditingQuickReplyId(null);
+    setQuickReplyForm(EMPTY_QUICK_REPLY_FORM);
+  }
+
+  function startCreatingQuickReply() {
+    setSettingsError('');
+    setSettingsSuccess('');
+    setEditingQuickReplyId(null);
+    setQuickReplyForm({
+      ...EMPTY_QUICK_REPLY_FORM,
+      scope:
+        isAdmin && quickReplyCategoryFilter !== 'mine' ? 'team' : 'personal',
+      category_id:
+        !['all', 'team', 'mine', 'favorites'].includes(quickReplyCategoryFilter)
+          ? quickReplyCategoryFilter
+          : '',
+    });
+    setShowQuickReplyForm(true);
+  }
+
+  function startEditingQuickReply(reply) {
+    if (!reply.can_edit) return;
+
+    setSettingsError('');
+    setSettingsSuccess('');
+    setEditingQuickReplyId(reply.id);
+    setQuickReplyForm({
+      title: reply.title || '',
+      shortcut: reply.shortcut || '',
+      category_id: reply.category_id ? String(reply.category_id) : '',
+      content: reply.content || '',
+      scope: reply.scope || 'personal',
+      is_favorite: Boolean(reply.is_favorite),
+    });
+    setShowQuickReplyForm(true);
+  }
+
+  function updateQuickReplyForm(fieldName, value) {
+    setQuickReplyForm((currentForm) => ({
+      ...currentForm,
+      [fieldName]: value,
+    }));
+  }
+
+  async function handleSaveQuickReply(event) {
+    event.preventDefault();
+
+    if (!quickReplyForm.title.trim() || !quickReplyForm.content.trim()) {
+      setSettingsError('Add a title and reply text.');
+      return;
+    }
+
+    try {
+      setIsSavingQuickReply(true);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const payload = {
+        title: quickReplyForm.title.trim(),
+        shortcut: quickReplyForm.shortcut.trim() || null,
+        category_id: quickReplyForm.category_id
+          ? Number(quickReplyForm.category_id)
+          : null,
+        content: quickReplyForm.content.trim(),
+        scope: quickReplyForm.scope,
+        is_favorite: Boolean(quickReplyForm.is_favorite),
+      };
+
+      if (editingQuickReplyId) {
+        await updateQuickReply(editingQuickReplyId, payload);
+        setSettingsSuccess('Quick reply updated.');
+      } else {
+        await createQuickReply(payload);
+        setSettingsSuccess('Quick reply created.');
+      }
+
+      resetQuickReplyEditor();
+      await loadQuickReplyData();
+      setSettingsSuccess(
+        editingQuickReplyId ? 'Quick reply updated.' : 'Quick reply created.'
+      );
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not save quick reply.'));
+    } finally {
+      setIsSavingQuickReply(false);
+    }
+  }
+
+  async function handleDeleteQuickReply(reply) {
+    if (!reply.can_delete) return;
+
+    const confirmed = window.confirm(`Delete “${reply.title}”?`);
+    if (!confirmed) return;
+
+    try {
+      setSettingsError('');
+      setSettingsSuccess('');
+      await deleteQuickReply(reply.id);
+      await loadQuickReplyData();
+      setSettingsSuccess('Quick reply deleted.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not delete quick reply.'));
+    }
+  }
+
+  async function handleToggleQuickReplyFavorite(reply) {
+    if (updatingFavoriteQuickReplyId === reply.id) return;
+
+    try {
+      setUpdatingFavoriteQuickReplyId(reply.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+      const updatedReply = await updateQuickReply(reply.id, {
+        is_favorite: !reply.is_favorite,
+      });
+      const nextReplies = quickReplies.map((currentReply) =>
+        currentReply.id === updatedReply.id ? updatedReply : currentReply
+      );
+      setQuickReplies(nextReplies);
+      onQuickRepliesChanged?.(nextReplies, quickReplyCategories);
+      setSettingsSuccess(
+        updatedReply.is_favorite
+          ? 'Added to your Favorites.'
+          : 'Removed from your Favorites.'
+      );
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not update your Favorites.'));
+    } finally {
+      setUpdatingFavoriteQuickReplyId(null);
+    }
+  }
+
+  function resetCategoryEditor() {
+    setShowCategoryForm(false);
+    setEditingCategoryId(null);
+    setCategoryForm(EMPTY_CATEGORY_FORM);
+  }
+
+  function startCreatingCategory() {
+    setSettingsError('');
+    setSettingsSuccess('');
+    setEditingCategoryId(null);
+    setCategoryForm(EMPTY_CATEGORY_FORM);
+    setShowCategoryForm(true);
+  }
+
+  function startEditingCategory(category) {
+    setSettingsError('');
+    setSettingsSuccess('');
+    setEditingCategoryId(category.id);
+    setCategoryForm({
+      name: category.name || '',
+      parent_id: category.parent_id ? String(category.parent_id) : '',
+    });
+    setShowCategoryForm(true);
+  }
+
+  async function handleSaveCategory(event) {
+    event.preventDefault();
+
+    if (!categoryForm.name.trim()) {
+      setSettingsError('Add a category name.');
+      return;
+    }
+
+    try {
+      setSettingsError('');
+      setSettingsSuccess('');
+      const payload = {
+        name: categoryForm.name.trim(),
+        parent_id: categoryForm.parent_id ? Number(categoryForm.parent_id) : null,
+      };
+
+      if (editingCategoryId) {
+        await updateQuickReplyCategory(editingCategoryId, payload);
+      } else {
+        await createQuickReplyCategory(payload);
+      }
+
+      const successMessage = editingCategoryId
+        ? 'Category updated.'
+        : 'Category created.';
+      resetCategoryEditor();
+      await loadQuickReplyData();
+      setSettingsSuccess(successMessage);
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not save category.'));
+    }
+  }
+
+  async function handleDeleteCategory(category) {
+    const confirmed = window.confirm(
+      `Delete “${category.name}”? Its replies will move to Uncategorized.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setSettingsError('');
+      setSettingsSuccess('');
+      await deleteQuickReplyCategory(category.id);
+
+      if (quickReplyCategoryFilter === String(category.id)) {
+        setQuickReplyCategoryFilter('all');
+      }
+
+      await loadQuickReplyData();
+      setSettingsSuccess('Category deleted. Replies were kept.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not delete category.'));
+    }
+  }
+
   async function handlePreviewArchiveOldConversations() {
     try {
       setIsPreviewingArchive(true);
@@ -650,6 +982,7 @@ function SettingsPanel({ onUsersChanged }) {
 
   useEffect(() => {
     loadUsers();
+    loadQuickReplyData();
   }, []);
 
   const editingPreviewUser = {
@@ -664,7 +997,11 @@ function SettingsPanel({ onUsersChanged }) {
           <div>
             <span className="settings-kicker">Workspace settings</span>
             <h1>Settings</h1>
-            <p>Manage the people, permissions and tools behind your Sendro inbox.</p>
+            <p>
+              {isAdmin
+                ? 'Manage the people, permissions and tools behind your Sendro inbox.'
+                : 'Create and maintain your private answers and personal Favorites.'}
+            </p>
           </div>
 
           <div className="settings-workspace-pill">
@@ -680,7 +1017,7 @@ function SettingsPanel({ onUsersChanged }) {
           <nav className="settings-navigation" aria-label="Settings sections">
             <span className="settings-navigation-label">Settings</span>
 
-            {SETTINGS_SECTIONS.map((section) => (
+            {availableSettingsSections.map((section) => (
               <button
                 key={section.id}
                 type="button"
@@ -709,8 +1046,12 @@ function SettingsPanel({ onUsersChanged }) {
             <div className="settings-navigation-note">
               <SettingsIcon name="shield" size={17} />
               <span>
-                <strong>Admin protected</strong>
-                <small>Only admins can save changes.</small>
+                <strong>{isAdmin ? 'Admin controls' : 'Personal controls'}</strong>
+                <small>
+                  {isAdmin
+                    ? 'Manage the complete workspace.'
+                    : 'Only you can see your personal replies.'}
+                </small>
               </span>
             </div>
           </nav>
@@ -722,7 +1063,7 @@ function SettingsPanel({ onUsersChanged }) {
               </div>
             )}
 
-            {activeSection === 'team' && (
+            {activeSection === 'team' && isAdmin && (
               <div className="settings-view">
                 <div className="settings-view-heading">
                   <div>
@@ -1112,53 +1453,317 @@ function SettingsPanel({ onUsersChanged }) {
               <div className="settings-view">
                 <div className="settings-view-heading">
                   <div>
-                    <span className="settings-section-eyebrow">Coming next</span>
+                    <span className="settings-section-eyebrow">Answer library</span>
                     <h2>Quick Replies</h2>
-                    <p>The permanent home for every company answer, category and shortcut.</p>
+                    <p>Use shared Team Replies, keep private My Replies and choose your own Favorites.</p>
                   </div>
-                  <span className="settings-phase-badge">Next batch</span>
+                  <div className="settings-heading-actions">
+                    <button
+                      type="button"
+                      className="settings-icon-button"
+                      onClick={loadQuickReplyData}
+                      disabled={isLoadingQuickReplies}
+                      aria-label="Refresh quick replies"
+                      title="Refresh quick replies"
+                    >
+                      <SettingsIcon name="refresh" />
+                    </button>
+                    {canContributeQuickReplies && (
+                      <button
+                        type="button"
+                        className="settings-primary-button"
+                        onClick={showQuickReplyForm ? resetQuickReplyEditor : startCreatingQuickReply}
+                      >
+                        <SettingsIcon name="plus" size={17} />
+                        {showQuickReplyForm ? 'Close editor' : 'New quick reply'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <section className="settings-feature-hero">
-                  <div className="settings-feature-orbit">
-                    <span><SettingsIcon name="reply" size={28} /></span>
+                <div className="settings-stat-strip quick-reply-stats">
+                  <div>
+                    <span className="settings-stat-icon blue"><SettingsIcon name="reply" /></span>
+                    <span><strong>{quickReplies.filter((reply) => reply.scope === 'team').length}</strong><small>Team replies</small></span>
                   </div>
                   <div>
-                    <span className="settings-section-eyebrow">Planned workflow</span>
-                    <h3>One answer library, everywhere</h3>
-                    <p>
-                      Admins will organize categories and answers here. The team will use
-                      them from the desktop panel, the mobile drawer or by typing “/”.
-                    </p>
+                    <span className="settings-stat-icon green"><SettingsIcon name="reply" /></span>
+                    <span><strong>{quickReplies.filter((reply) => reply.scope === 'personal').length}</strong><small>My replies</small></span>
                   </div>
-                </section>
+                  <div>
+                    <span className="settings-stat-icon orange"><SettingsIcon name="star" /></span>
+                    <span><strong>{quickReplies.filter((reply) => reply.is_favorite).length}</strong><small>My Favorites</small></span>
+                  </div>
+                </div>
 
-                <div className="settings-feature-grid">
-                  <article>
-                    <span><SettingsIcon name="folder" /></span>
-                    <h3>Categories</h3>
-                    <p>Pricing, availability, booking, policies and any custom folder.</p>
-                  </article>
-                  <article>
-                    <span><SettingsIcon name="search" /></span>
-                    <h3>Fast search</h3>
-                    <p>Find the right answer instantly from desktop or mobile.</p>
-                  </article>
-                  <article>
-                    <span><SettingsIcon name="shield" /></span>
-                    <h3>Role controlled</h3>
-                    <p>Admins manage, Power Users contribute, Users insert and send.</p>
-                  </article>
-                  <article>
-                    <span><SettingsIcon name="reply" /></span>
-                    <h3>Insert, then edit</h3>
-                    <p>“Use” fills the composer without sending automatically.</p>
-                  </article>
+                {showQuickReplyForm && (
+                  <form className="quick-reply-editor-card" onSubmit={handleSaveQuickReply}>
+                    <div className="quick-reply-editor-heading">
+                      <div>
+                        <span className="settings-section-eyebrow">
+                          {editingQuickReplyId ? 'Edit answer' : 'New answer'}
+                        </span>
+                        <h3>{editingQuickReplyId ? 'Update quick reply' : 'Create quick reply'}</h3>
+                      </div>
+                      <button type="button" onClick={resetQuickReplyEditor} aria-label="Close editor">×</button>
+                    </div>
+
+                    <div className="quick-reply-editor-grid">
+                      <label>
+                        <span>Title</span>
+                        <input
+                          value={quickReplyForm.title}
+                          onChange={(event) => updateQuickReplyForm('title', event.target.value)}
+                          placeholder="e.g. Sunset cruise price"
+                          maxLength="100"
+                          disabled={isSavingQuickReply}
+                        />
+                      </label>
+                      <label>
+                        <span>Shortcut</span>
+                        <div className="quick-reply-shortcut-input">
+                          <strong>/</strong>
+                          <input
+                            value={quickReplyForm.shortcut}
+                            onChange={(event) => updateQuickReplyForm('shortcut', event.target.value.replace(/^\/+/, '').toLowerCase())}
+                            placeholder="sunset-price"
+                            maxLength="40"
+                            disabled={isSavingQuickReply}
+                          />
+                        </div>
+                      </label>
+                      <label>
+                        <span>Visibility</span>
+                        <select
+                          value={quickReplyForm.scope}
+                          onChange={(event) => updateQuickReplyForm('scope', event.target.value)}
+                          disabled={isSavingQuickReply || !isAdmin || Boolean(editingQuickReplyId)}
+                        >
+                          {isAdmin && <option value="team">Team reply · visible to everyone</option>}
+                          <option value="personal">My reply · visible only to me</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Category</span>
+                        <select
+                          value={quickReplyForm.category_id}
+                          onChange={(event) => updateQuickReplyForm('category_id', event.target.value)}
+                          disabled={isSavingQuickReply}
+                        >
+                          <option value="">Uncategorized</option>
+                          {quickReplyCategories.map((category) => {
+                            const parent = quickReplyCategories.find((item) => item.id === category.parent_id);
+                            return (
+                              <option key={category.id} value={category.id}>
+                                {parent ? `${parent.name} / ` : ''}{category.name}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+                      <label className="quick-reply-favorite-toggle">
+                        <input
+                          type="checkbox"
+                          checked={quickReplyForm.is_favorite}
+                          onChange={(event) => updateQuickReplyForm('is_favorite', event.target.checked)}
+                          disabled={isSavingQuickReply}
+                        />
+                        <span><SettingsIcon name="star" size={17} /> Add to my Favorites</span>
+                      </label>
+                    </div>
+
+                    <label className="quick-reply-content-field">
+                      <span>Reply text</span>
+                      <textarea
+                        value={quickReplyForm.content}
+                        onChange={(event) => updateQuickReplyForm('content', event.target.value)}
+                        placeholder="Write the complete answer exactly as the team should see it..."
+                        rows="7"
+                        maxLength="4000"
+                        disabled={isSavingQuickReply}
+                      />
+                      <small>{quickReplyForm.content.length} / 4000</small>
+                    </label>
+
+                    <div className="quick-reply-editor-actions">
+                      <span>It will be inserted into the composer — never sent automatically.</span>
+                      <button type="button" className="settings-secondary-button" onClick={resetQuickReplyEditor} disabled={isSavingQuickReply}>Cancel</button>
+                      <button type="submit" className="settings-primary-button" disabled={isSavingQuickReply || !quickReplyForm.title.trim() || !quickReplyForm.content.trim()}>
+                        {isSavingQuickReply ? 'Saving...' : editingQuickReplyId ? 'Save changes' : 'Create reply'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="quick-reply-manager">
+                  <aside className="quick-reply-folder-panel">
+                    <div className="quick-reply-folder-heading">
+                      <div>
+                        <span className="settings-section-eyebrow">Folders</span>
+                        <h3>Categories</h3>
+                      </div>
+                      {isAdmin && (
+                        <button type="button" onClick={showCategoryForm ? resetCategoryEditor : startCreatingCategory} aria-label="Add category" title="Add category">
+                          {showCategoryForm ? '×' : <SettingsIcon name="plus" size={17} />}
+                        </button>
+                      )}
+                    </div>
+
+                    {showCategoryForm && isAdmin && (
+                      <form className="quick-reply-category-form" onSubmit={handleSaveCategory}>
+                        <input
+                          value={categoryForm.name}
+                          onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="Category name"
+                          maxLength="60"
+                          autoFocus
+                        />
+                        <select
+                          value={categoryForm.parent_id}
+                          onChange={(event) => setCategoryForm((current) => ({ ...current, parent_id: event.target.value }))}
+                        >
+                          <option value="">Top-level folder</option>
+                          {rootQuickReplyCategories
+                            .filter((category) => category.id !== editingCategoryId)
+                            .map((category) => <option key={category.id} value={category.id}>Inside {category.name}</option>)}
+                        </select>
+                        <div>
+                          <button type="button" onClick={resetCategoryEditor}>Cancel</button>
+                          <button type="submit" disabled={!categoryForm.name.trim()}>
+                            {editingCategoryId ? 'Save' : 'Add'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div className="quick-reply-folder-list">
+                      <button
+                        type="button"
+                        className={quickReplyCategoryFilter === 'all' ? 'active' : ''}
+                        onClick={() => setQuickReplyCategoryFilter('all')}
+                      >
+                        <span><SettingsIcon name="reply" size={16} />All replies</span>
+                        <strong>{quickReplies.length}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        className={quickReplyCategoryFilter === 'team' ? 'active' : ''}
+                        onClick={() => setQuickReplyCategoryFilter('team')}
+                      >
+                        <span><SettingsIcon name="users" size={16} />Team replies</span>
+                        <strong>{quickReplies.filter((reply) => reply.scope === 'team').length}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        className={quickReplyCategoryFilter === 'mine' ? 'active' : ''}
+                        onClick={() => setQuickReplyCategoryFilter('mine')}
+                      >
+                        <span><SettingsIcon name="reply" size={16} />My replies</span>
+                        <strong>{quickReplies.filter((reply) => reply.scope === 'personal').length}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        className={quickReplyCategoryFilter === 'favorites' ? 'active favorite' : 'favorite'}
+                        onClick={() => setQuickReplyCategoryFilter('favorites')}
+                      >
+                        <span><SettingsIcon name="star" size={16} />My Favorites</span>
+                        <strong>{quickReplies.filter((reply) => reply.is_favorite).length}</strong>
+                      </button>
+
+                      {quickReplyCategories.map((category) => (
+                        <div className={`quick-reply-folder-row ${category.parent_id ? 'child' : ''}`} key={category.id}>
+                          <button
+                            type="button"
+                            className={quickReplyCategoryFilter === String(category.id) ? 'active' : ''}
+                            onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+                          >
+                            <span><SettingsIcon name="folder" size={16} />{category.name}</span>
+                            <strong>{quickReplies.filter((reply) => reply.category_id === category.id || reply.parent_category_id === category.id).length}</strong>
+                          </button>
+                          {isAdmin && (
+                            <span className="quick-reply-folder-actions">
+                              <button type="button" onClick={() => startEditingCategory(category)} title="Edit category" aria-label={`Edit ${category.name}`}><SettingsIcon name="edit" size={14} /></button>
+                              <button type="button" onClick={() => handleDeleteCategory(category)} title="Delete category" aria-label={`Delete ${category.name}`}><SettingsIcon name="trash" size={14} /></button>
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </aside>
+
+                  <section className="quick-reply-library-panel">
+                    <div className="quick-reply-library-toolbar">
+                      <label>
+                        <SettingsIcon name="search" size={18} />
+                        <input
+                          value={quickReplySearch}
+                          onChange={(event) => setQuickReplySearch(event.target.value)}
+                          placeholder="Search title, shortcut, category or reply text..."
+                        />
+                        {quickReplySearch && <button type="button" onClick={() => setQuickReplySearch('')} aria-label="Clear search">×</button>}
+                      </label>
+                      <span>{filteredQuickReplies.length} replies</span>
+                    </div>
+
+                    {isLoadingQuickReplies ? (
+                      <div className="quick-reply-settings-empty">Loading quick replies...</div>
+                    ) : filteredQuickReplies.length === 0 ? (
+                      <div className="quick-reply-settings-empty">
+                        <SettingsIcon name="reply" size={24} />
+                        <strong>No quick replies found</strong>
+                        <span>Create the first answer or change your filters.</span>
+                      </div>
+                    ) : (
+                      <div className="quick-reply-settings-list">
+                        {filteredQuickReplies.map((reply) => (
+                          <article key={reply.id}>
+                            <div className="quick-reply-settings-card-heading">
+                              <button
+                                type="button"
+                                className={reply.is_favorite ? 'favorite active' : 'favorite'}
+                                onClick={() => handleToggleQuickReplyFavorite(reply)}
+                                disabled={updatingFavoriteQuickReplyId === reply.id}
+                                aria-label={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+                                aria-pressed={Boolean(reply.is_favorite)}
+                                title={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+                              >
+                                <SettingsIcon name="star" size={17} />
+                              </button>
+                              <div>
+                                <h3>{reply.title}</h3>
+                                <span>{getQuickReplyCategoryLabel(reply)}</span>
+                              </div>
+                              <span className={`quick-reply-scope-badge ${reply.scope}`}>
+                                {reply.scope === 'personal' ? 'Mine' : 'Team'}
+                              </span>
+                              {reply.shortcut && <code>/{reply.shortcut}</code>}
+                            </div>
+                            <p>{reply.content}</p>
+                            <footer>
+                              <small>
+                                {reply.scope === 'personal'
+                                  ? 'Private · visible only to you'
+                                  : `Team reply · by ${reply.created_by_name || 'Sendro team'}`}
+                              </small>
+                              <span>
+                                {reply.can_edit && (
+                                  <button type="button" onClick={() => startEditingQuickReply(reply)}><SettingsIcon name="edit" size={15} />Edit</button>
+                                )}
+                                {reply.can_delete && (
+                                  <button type="button" className="danger" onClick={() => handleDeleteQuickReply(reply)}><SettingsIcon name="trash" size={15} />Delete</button>
+                                )}
+                              </span>
+                            </footer>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 </div>
               </div>
             )}
 
-            {activeSection === 'automation' && (
+            {activeSection === 'automation' && isAdmin && (
               <div className="settings-view">
                 <div className="settings-view-heading">
                   <div>

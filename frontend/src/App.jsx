@@ -8,6 +8,9 @@ import {
   clearToken,
   getCurrentUser,
   getUsers,
+  getQuickReplies,
+  getQuickReplyCategories,
+  updateQuickReply,
   getConversations,
   getConversationSummary,
   createTemplateConversation,
@@ -49,33 +52,6 @@ const ASSIGNMENT_COLOR_PALETTE = [
   '#4338ca',
   '#a21caf',
   '#9a3412',
-];
-
-const QUICK_REPLY_PREVIEWS = [
-  {
-    id: 'greeting',
-    title: 'Welcome',
-    category: 'General',
-    content: 'Hello! Thank you for contacting Sunset Oia. How may I help you?',
-  },
-  {
-    id: 'booking-reference',
-    title: 'Booking reference',
-    category: 'Booking',
-    content: 'Could you please share your booking reference so I can check this for you?',
-  },
-  {
-    id: 'availability',
-    title: 'Check availability',
-    category: 'Availability',
-    content: 'Of course. Which date and cruise would you like me to check?',
-  },
-  {
-    id: 'closing',
-    title: 'Thank you',
-    category: 'General',
-    content: 'Thank you! If you need anything else, we are here to help.',
-  },
 ];
 
 const CONVERSATION_VIEWS = {
@@ -124,6 +100,7 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
     take: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="M18 12v6M15 15h6" /></>,
     release: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="m16 13 4 4m0-4-4 4" /></>,
     delete: <><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="m6 7 1 13h10l1-13" /><path d="M10 11v5M14 11v5" /></>,
+    folder: <><path d="M3 6h6l2 2h10v11H3z" /></>,
     quick: <><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2z" /><path d="m18.5 14 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" /></>,
     menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
     chevron: <><path d="m8 10 4 4 4-4" /></>,
@@ -145,6 +122,23 @@ function getInitials(value) {
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
 
   return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+function getQuickReplySlashMatch(value, cursorPosition) {
+  const draft = String(value || '');
+  const safeCursorPosition = Number.isInteger(cursorPosition)
+    ? cursorPosition
+    : draft.length;
+  const beforeCursor = draft.slice(0, safeCursorPosition);
+  const match = beforeCursor.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
+
+  if (!match) return null;
+
+  return {
+    query: match[2] || '',
+    start: safeCursorPosition - (match[2]?.length || 0) - 1,
+    end: safeCursorPosition,
+  };
 }
 
 function attachCustomerServiceExpiry(conversations) {
@@ -870,7 +864,16 @@ function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [quickReplyCategories, setQuickReplyCategories] = useState([]);
   const [quickReplySearch, setQuickReplySearch] = useState('');
+  const [quickReplyCategoryFilter, setQuickReplyCategoryFilter] = useState('all');
+  const [isLoadingQuickReplies, setIsLoadingQuickReplies] = useState(false);
+  const [quickRepliesError, setQuickRepliesError] = useState('');
+  const [copiedQuickReplyId, setCopiedQuickReplyId] = useState(null);
+  const [favoritingQuickReplyIds, setFavoritingQuickReplyIds] = useState([]);
+  const [slashQuickReplyMatch, setSlashQuickReplyMatch] = useState(null);
+  const [activeSlashReplyIndex, setActiveSlashReplyIndex] = useState(0);
   const [customerServiceNowMs, setCustomerServiceNowMs] = useState(() => Date.now());
   const inboxSearchInputRef = useRef(null);
 
@@ -1004,13 +1007,53 @@ function App() {
   });
 
   const normalizedQuickReplySearch = quickReplySearch.trim().toLowerCase();
-  const filteredQuickReplies = QUICK_REPLY_PREVIEWS.filter((reply) => {
+  const filteredQuickReplies = quickReplies.filter((reply) => {
+    let matchesCategory = true;
+
+    if (quickReplyCategoryFilter === 'favorites') {
+      matchesCategory = Boolean(reply.is_favorite);
+    } else if (quickReplyCategoryFilter === 'team') {
+      matchesCategory = reply.scope === 'team';
+    } else if (quickReplyCategoryFilter === 'mine') {
+      matchesCategory = reply.scope === 'personal';
+    } else if (quickReplyCategoryFilter !== 'all') {
+      const selectedCategoryId = Number(quickReplyCategoryFilter);
+      matchesCategory =
+        reply.category_id === selectedCategoryId ||
+        reply.parent_category_id === selectedCategoryId;
+    }
+
+    if (!matchesCategory) return false;
     if (!normalizedQuickReplySearch) return true;
 
-    return `${reply.title} ${reply.category} ${reply.content}`
-      .toLowerCase()
-      .includes(normalizedQuickReplySearch);
+    return [
+      reply.title,
+      reply.shortcut,
+      reply.category_name,
+      reply.parent_category_name,
+      reply.content,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuickReplySearch));
   });
+  const normalizedSlashQuickReplyQuery = String(
+    slashQuickReplyMatch?.query || ''
+  ).toLowerCase();
+  const slashQuickReplies = quickReplies
+    .filter((reply) => {
+      if (!normalizedSlashQuickReplyQuery) return true;
+
+      return [
+        reply.shortcut,
+        reply.title,
+        reply.category_name,
+        reply.parent_category_name,
+        reply.content,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSlashQuickReplyQuery));
+    })
+    .slice(0, 7);
 
   function openConversationView(view) {
     setActivePage(APP_PAGES.INBOX);
@@ -1020,16 +1063,240 @@ function App() {
     setMobileDrawerMode(null);
   }
 
-  function handleInsertQuickReply(content) {
-    if (!selectedConversationId) return;
+  async function loadQuickReplyData() {
+    try {
+      setIsLoadingQuickReplies(true);
+      setQuickRepliesError('');
 
-    setConversationDraft(selectedConversationId, content);
+      const [categoryData, replyData] = await Promise.all([
+        getQuickReplyCategories(),
+        getQuickReplies(),
+      ]);
+
+      setQuickReplyCategories(categoryData);
+      setQuickReplies(replyData);
+    } catch (err) {
+      setQuickRepliesError(getErrorMessage(err, 'Could not load quick replies.'));
+    } finally {
+      setIsLoadingQuickReplies(false);
+    }
+  }
+
+  function handleSettingsQuickRepliesChanged(updatedReplies, updatedCategories) {
+    setQuickReplies(updatedReplies);
+    setQuickReplyCategories(updatedCategories);
+    setQuickRepliesError('');
+    setQuickReplyCategoryFilter((currentFilter) => {
+      if (['all', 'team', 'mine', 'favorites'].includes(currentFilter)) {
+        return currentFilter;
+      }
+
+      return updatedCategories.some(
+        (category) => String(category.id) === currentFilter
+      )
+        ? currentFilter
+        : 'all';
+    });
+  }
+
+  function getQuickReplyCategoryLabel(reply) {
+    return [reply.parent_category_name, reply.category_name]
+      .filter(Boolean)
+      .join(' / ') || 'General';
+  }
+
+  async function handleToggleQuickReplyFavorite(reply) {
+    if (favoritingQuickReplyIds.includes(reply.id)) return;
+
+    const nextFavoriteValue = !reply.is_favorite;
+    setFavoritingQuickReplyIds((currentIds) => [...currentIds, reply.id]);
+    setQuickReplies((currentReplies) =>
+      currentReplies.map((currentReply) =>
+        currentReply.id === reply.id
+          ? { ...currentReply, is_favorite: nextFavoriteValue }
+          : currentReply
+      )
+    );
+
+    try {
+      const updatedReply = await updateQuickReply(reply.id, {
+        is_favorite: nextFavoriteValue,
+      });
+      setQuickReplies((currentReplies) =>
+        currentReplies.map((currentReply) =>
+          currentReply.id === updatedReply.id ? updatedReply : currentReply
+        )
+      );
+    } catch (err) {
+      setQuickReplies((currentReplies) =>
+        currentReplies.map((currentReply) =>
+          currentReply.id === reply.id ? reply : currentReply
+        )
+      );
+      setQuickRepliesError(
+        getErrorMessage(err, 'Could not update your Favorites.')
+      );
+    } finally {
+      setFavoritingQuickReplyIds((currentIds) =>
+        currentIds.filter((replyId) => replyId !== reply.id)
+      );
+    }
+  }
+
+  function insertQuickReplyIntoComposer(reply, options = {}) {
+    if (!selectedConversationId || !canTypeMessage) return;
+
+    const currentDraft = newMessage;
+    const textarea = messageInputRef.current;
+    const slashMatch = options.slashMatch || null;
+    const selectionStart = slashMatch?.start ?? textarea?.selectionStart ?? currentDraft.length;
+    const selectionEnd = slashMatch?.end ?? textarea?.selectionEnd ?? selectionStart;
+    const beforeSelection = currentDraft.slice(0, selectionStart);
+    const afterSelection = currentDraft.slice(selectionEnd);
+    const leadingSeparator =
+      !slashMatch && beforeSelection && !/\s$/.test(beforeSelection) ? '\n' : '';
+    const trailingSeparator =
+      afterSelection && !/^\s/.test(afterSelection) ? '\n' : '';
+    const insertedContent = `${leadingSeparator}${reply.content}${trailingSeparator}`;
+    const nextDraft = `${beforeSelection}${insertedContent}${afterSelection}`;
+    const nextCursorPosition = beforeSelection.length + insertedContent.length;
+
+    setConversationDraft(selectedConversationId, nextDraft);
     setIsMobileChatOpen(true);
     setMobileDrawerMode(null);
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
 
     window.setTimeout(() => {
       messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(
+        nextCursorPosition,
+        nextCursorPosition
+      );
     }, 0);
+  }
+
+  function handleQuickReplyDragStart(event, reply) {
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-sendro-quick-reply', reply.content);
+    event.dataTransfer.setData('text/plain', reply.content);
+  }
+
+  async function handleCopyQuickReply(reply) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reply.content);
+      } else {
+        const temporaryTextarea = document.createElement('textarea');
+        temporaryTextarea.value = reply.content;
+        temporaryTextarea.style.position = 'fixed';
+        temporaryTextarea.style.opacity = '0';
+        document.body.appendChild(temporaryTextarea);
+        temporaryTextarea.select();
+        const copied = document.execCommand('copy');
+        temporaryTextarea.remove();
+
+        if (!copied) {
+          throw new Error('Copy failed');
+        }
+      }
+      setCopiedQuickReplyId(reply.id);
+      window.setTimeout(() => {
+        setCopiedQuickReplyId((currentId) =>
+          currentId === reply.id ? null : currentId
+        );
+      }, 1600);
+    } catch {
+      setError('Could not copy quick reply.');
+    }
+  }
+
+  function handleQuickReplyDrop(event) {
+    event.preventDefault();
+    const content = event.dataTransfer.getData('application/x-sendro-quick-reply');
+    if (!content || !canTypeMessage) return;
+    insertQuickReplyIntoComposer({ content });
+  }
+
+  function handleComposerDraftChange(event) {
+    const nextDraft = event.target.value;
+    const slashMatch = getQuickReplySlashMatch(
+      nextDraft,
+      event.target.selectionStart
+    );
+
+    setConversationDraft(selectedConversationId, nextDraft);
+    setSlashQuickReplyMatch(slashMatch);
+    setActiveSlashReplyIndex(0);
+  }
+
+  function openSlashQuickReplyPicker() {
+    if (!selectedConversationId || !canTypeMessage) return;
+
+    const textarea = messageInputRef.current;
+    const cursorPosition = textarea?.selectionStart ?? newMessage.length;
+    const beforeCursor = newMessage.slice(0, cursorPosition);
+    const afterCursor = newMessage.slice(cursorPosition);
+    const prefix = beforeCursor && !/\s$/.test(beforeCursor) ? ' /' : '/';
+    const nextDraft = `${beforeCursor}${prefix}${afterCursor}`;
+    const nextCursorPosition = beforeCursor.length + prefix.length;
+
+    setConversationDraft(selectedConversationId, nextDraft);
+    setSlashQuickReplyMatch({
+      query: '',
+      start: nextCursorPosition - 1,
+      end: nextCursorPosition,
+    });
+    setActiveSlashReplyIndex(0);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    }, 0);
+  }
+
+  function handleComposerKeyDown(event) {
+    if (slashQuickReplyMatch) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveSlashReplyIndex((currentIndex) =>
+          slashQuickReplies.length
+            ? (currentIndex + 1) % slashQuickReplies.length
+            : 0
+        );
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveSlashReplyIndex((currentIndex) =>
+          slashQuickReplies.length
+            ? (currentIndex - 1 + slashQuickReplies.length) % slashQuickReplies.length
+            : 0
+        );
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSlashQuickReplyMatch(null);
+        return;
+      }
+
+      if (event.key === 'Enter' && !event.shiftKey && slashQuickReplies.length > 0) {
+        event.preventDefault();
+        insertQuickReplyIntoComposer(
+          slashQuickReplies[activeSlashReplyIndex] || slashQuickReplies[0],
+          { slashMatch: slashQuickReplyMatch }
+        );
+        return;
+      }
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage(event);
+    }
   }
 
   function focusMobileInboxSearch() {
@@ -1046,27 +1313,63 @@ function App() {
   }
 
   function renderQuickReplyList() {
+    if (isLoadingQuickReplies) {
+      return <div className="quick-reply-empty">Loading quick replies...</div>;
+    }
+
+    if (quickRepliesError) {
+      return (
+        <div className="quick-reply-empty quick-reply-load-error">
+          <span>{quickRepliesError}</span>
+          <button type="button" onClick={loadQuickReplyData}>Try again</button>
+        </div>
+      );
+    }
+
     if (filteredQuickReplies.length === 0) {
       return <div className="quick-reply-empty">No quick replies found.</div>;
     }
 
     return filteredQuickReplies.map((reply) => (
-      <article className="quick-reply-card" key={reply.id}>
+      <article
+        className="quick-reply-card"
+        key={reply.id}
+        draggable={canTypeMessage}
+        onDragStart={(event) => handleQuickReplyDragStart(event, reply)}
+      >
         <div className="quick-reply-card-heading">
-          <span className="quick-reply-star">★</span>
+          <button
+            type="button"
+            className={reply.is_favorite ? 'quick-reply-star active' : 'quick-reply-star'}
+            onClick={() => handleToggleQuickReplyFavorite(reply)}
+            disabled={favoritingQuickReplyIds.includes(reply.id)}
+            aria-label={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+            aria-pressed={Boolean(reply.is_favorite)}
+            title={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+          >
+            ★
+          </button>
           <div>
             <strong>{reply.title}</strong>
-            <small>{reply.category}</small>
+            <small>
+              {reply.scope === 'personal' ? 'My reply' : 'Team'} · {getQuickReplyCategoryLabel(reply)}
+              {reply.shortcut ? ` · /${reply.shortcut}` : ''}
+            </small>
           </div>
         </div>
         <p>{reply.content}</p>
-        <button
-          type="button"
-          onClick={() => handleInsertQuickReply(reply.content)}
-          disabled={!selectedConversationId}
-        >
-          Insert
-        </button>
+        <div className="quick-reply-card-actions">
+          <button type="button" onClick={() => handleCopyQuickReply(reply)}>
+            {copiedQuickReplyId === reply.id ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            type="button"
+            onClick={() => insertQuickReplyIntoComposer(reply)}
+            disabled={!selectedConversationId || !canTypeMessage}
+          >
+            Insert
+          </button>
+        </div>
       </article>
     ));
   }
@@ -1838,6 +2141,15 @@ function App() {
 
     setReportData(null);
     setReportsError('');
+    setQuickReplies([]);
+    setQuickReplyCategories([]);
+    setQuickReplySearch('');
+    setQuickReplyCategoryFilter('all');
+    setQuickRepliesError('');
+    setCopiedQuickReplyId(null);
+    setFavoritingQuickReplyIds([]);
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
     setReportFilters({
       operation_date: '',
       date_from: '',
@@ -1867,6 +2179,7 @@ function App() {
       await Promise.all([
         refreshConversations(),
         refreshConversationSummary(),
+        loadQuickReplyData(),
       ]);
     } catch (err) {
       clearToken();
@@ -2377,6 +2690,8 @@ function App() {
   setIsSending(true);
   setError('');
   setConversationDraft(conversationId, '');
+  setSlashQuickReplyMatch(null);
+  setActiveSlashReplyIndex(0);
 
   try {
     const sentMessage = await sendMessage(conversationId, messageToSend);
@@ -2484,6 +2799,8 @@ function App() {
       setHasMoreOlderMessages(true);
       setIsLoadingOlderMessages(false);
     }
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
   }, [selectedConversation?.id, activePage]);
 
   const lastMessageId =
@@ -3470,23 +3787,10 @@ function App() {
         {activePage === APP_PAGES.REPORTS && canCurrentUserViewReports ? (
           renderReportsPanel()
         ) : activePage === APP_PAGES.SETTINGS ? (
-          user?.role === 'admin' ? (
-            <SettingsPanel onUsersChanged={handleSettingsUsersChanged} />
-          ) : (
-            <div className="settings-access-denied">
-              <div>
-                <span>Settings locked</span>
-                <h2>Admin access required</h2>
-                <p>
-                  Settings are available only to admins. You can still use the inbox according
-                  to your role permissions.
-                </p>
-                <button type="button" onClick={() => setActivePage(APP_PAGES.INBOX)}>
-                  Back to conversations
-                </button>
-              </div>
-            </div>
-          )
+          <SettingsPanel
+            onUsersChanged={handleSettingsUsersChanged}
+            onQuickRepliesChanged={handleSettingsQuickRepliesChanged}
+          />
         ) : selectedConversation ? (
           <>
             <header className="chat-header">
@@ -3704,15 +4008,12 @@ function App() {
                 <textarea
                   ref={messageInputRef}
                   value={newMessage}
-                  onChange={(event) =>
-                    setConversationDraft(selectedConversationId, event.target.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      handleSendMessage(event);
-                    }
+                  onChange={handleComposerDraftChange}
+                  onKeyDown={handleComposerKeyDown}
+                  onDragOver={(event) => {
+                    if (canTypeMessage) event.preventDefault();
                   }}
+                  onDrop={handleQuickReplyDrop}
                   placeholder={
                     selectedConversation.status === 'archived'
                       ? 'Archived conversation'
@@ -3732,11 +4033,53 @@ function App() {
                   rows="2"
                 />
 
+                {slashQuickReplyMatch && canTypeMessage && (
+                  <div className="quick-reply-slash-picker">
+                    <div className="quick-reply-slash-picker-header">
+                      <span>Quick Replies</span>
+                      <small>
+                        {slashQuickReplyMatch.query
+                          ? `Results for /${slashQuickReplyMatch.query}`
+                          : 'Type to search · ↑↓ to navigate'}
+                      </small>
+                    </div>
+
+                    {slashQuickReplies.length === 0 ? (
+                      <div className="quick-reply-slash-empty">No matching quick replies.</div>
+                    ) : (
+                      <div className="quick-reply-slash-results">
+                        {slashQuickReplies.map((reply, index) => (
+                          <button
+                            type="button"
+                            key={reply.id}
+                            className={index === activeSlashReplyIndex ? 'active' : ''}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => insertQuickReplyIntoComposer(reply, { slashMatch: slashQuickReplyMatch })}
+                          >
+                            <span className={reply.is_favorite ? 'favorite' : ''}>★</span>
+                            <span>
+                              <strong>{reply.title}</strong>
+                              <small>{getQuickReplyCategoryLabel(reply)}</small>
+                            </span>
+                            <code>/{reply.shortcut || reply.title.toLowerCase().replace(/\s+/g, '-')}</code>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="composer-footer">
-                  <div className="composer-helper">
+                  <button
+                    type="button"
+                    className="composer-helper"
+                    onClick={openSlashQuickReplyPicker}
+                    disabled={!canTypeMessage}
+                    title="Open Quick Replies"
+                  >
                     <span className="quick-reply-slash">/</span>
                     <span>Quick reply</span>
-                  </div>
+                  </button>
                   <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
                     <span>{isSending ? 'Sending...' : 'Send'}</span>
                     <Icon name="send" size={18} />
@@ -3786,15 +4129,77 @@ function App() {
           </div>
 
           <div className="quick-reply-categories">
-            <span className="active">All</span>
-            <span>Booking</span>
-            <span>Availability</span>
-            <span>General</span>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'all' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'team' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('team')}
+            >
+              Team
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'mine' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('mine')}
+            >
+              My Replies
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'favorites' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('favorites')}
+            >
+              ★ Favorites
+            </button>
+            {quickReplyCategories.filter((category) => !category.parent_id).map((category) => (
+              <button
+                type="button"
+                key={category.id}
+                className={quickReplyCategoryFilter === String(category.id) ? 'active' : ''}
+                onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+              >
+                {category.parent_id ? '↳ ' : ''}{category.name}
+              </button>
+            ))}
           </div>
 
+          {quickReplyCategories.length > 0 && (
+            <div className="quick-reply-panel-folders">
+              <div>
+                <span>FOLDERS</span>
+                <small>{quickReplyCategories.length}</small>
+              </div>
+              <div>
+                {quickReplyCategories.map((category) => (
+                  <button
+                    type="button"
+                    key={category.id}
+                    className={`${category.parent_id ? 'child' : ''} ${quickReplyCategoryFilter === String(category.id) ? 'active' : ''}`}
+                    onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+                  >
+                    <span><Icon name="folder" size={15} />{category.name}</span>
+                    <strong>
+                      {quickReplies.filter(
+                        (reply) =>
+                          reply.category_id === category.id ||
+                          reply.parent_category_id === category.id
+                      ).length}
+                    </strong>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="quick-reply-section-title">
-            <span>STARTER REPLIES</span>
-            <small>Editable replies come next</small>
+            <span>QUICK REPLIES</span>
+            <small>{filteredQuickReplies.length} saved · drag or click to insert</small>
           </div>
 
           <div className="quick-reply-list">{renderQuickReplyList()}</div>
@@ -3851,6 +4256,46 @@ function App() {
                     onChange={(event) => setQuickReplySearch(event.target.value)}
                     placeholder="Search quick replies..."
                   />
+                </div>
+                <div className="quick-reply-categories mobile">
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'all' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('all')}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'team' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('team')}
+                  >
+                    Team
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'mine' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('mine')}
+                  >
+                    My Replies
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'favorites' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('favorites')}
+                  >
+                    ★ Favorites
+                  </button>
+                  {quickReplyCategories.map((category) => (
+                    <button
+                      type="button"
+                      key={category.id}
+                      className={quickReplyCategoryFilter === String(category.id) ? 'active' : ''}
+                      onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+                    >
+                      {category.name}
+                    </button>
+                  ))}
                 </div>
                 <div className="mobile-quick-reply-list">{renderQuickReplyList()}</div>
               </>
