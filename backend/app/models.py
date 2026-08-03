@@ -23,6 +23,7 @@ class User(Base):
     full_name = Column(String, nullable=True)
     display_name = Column(String, nullable=True)
     assignment_color = Column(String(7), nullable=True)
+    assignment_text_color = Column(String(7), nullable=True)
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)

@@ -5045,3 +5045,107 @@ body {
     grid-template-columns: auto minmax(0, 1fr);
   }
 }
+
+/* Phase 8: mobile exit confirmation */
+
+.exit-confirm-overlay {
+  position: fixed;
+  z-index: 6000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  background: rgba(5, 20, 42, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.exit-confirm-modal {
+  width: 100%;
+  max-width: 360px;
+  padding: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 64px rgba(5, 20, 42, 0.24);
+  text-align: center;
+}
+
+.exit-confirm-mark {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 14px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #0b63f6, #074fc9);
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(7, 92, 240, 0.22);
+}
+
+.exit-confirm-modal h3 {
+  margin: 0;
+  color: #10213f;
+  font-size: 20px;
+}
+
+.exit-confirm-modal p {
+  margin: 8px 0 0;
+  color: #687894;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.exit-confirm-actions {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.exit-confirm-actions button {
+  min-height: 43px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.exit-confirm-actions .stay {
+  background: #075cf0;
+  color: #ffffff;
+  box-shadow: 0 7px 16px rgba(7, 92, 240, 0.2);
+}
+
+.exit-confirm-actions .exit {
+  border-color: #f0c7c7;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.exit-confirm-actions button:focus-visible {
+  outline: 3px solid rgba(7, 92, 240, 0.2);
+  outline-offset: 2px;
+}
+
+/* Phase 8: desktop-only composer and reply-window refinements */
+
+@media (min-width: 821px) {
+  .composer textarea {
+    padding-top: 4px;
+    padding-bottom: 10px;
+  }
+
+  .customer-service-live strong {
+    font-size: 15px;
+  }
+
+  .customer-service-live svg {
+    width: 20px;
+    height: 20px;
+  }
+}

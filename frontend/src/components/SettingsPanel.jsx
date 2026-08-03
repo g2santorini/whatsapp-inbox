@@ -36,6 +36,18 @@ const COLOR_PRESETS = [
   '#9a3412',
 ];
 
+const TEXT_COLOR_PRESETS = [
+  '#ffffff',
+  '#10213f',
+  '#111827',
+  '#1d4ed8',
+  '#087f5b',
+  '#be123c',
+];
+
+const AUTOMATIC_DARK_TEXT_COLOR = '#10213f';
+const AUTOMATIC_LIGHT_TEXT_COLOR = '#ffffff';
+
 const SETTINGS_SECTIONS = [
   {
     id: 'team',
@@ -72,6 +84,7 @@ const EMPTY_NEW_USER_FORM = {
   full_name: '',
   display_name: '',
   assignment_color: COLOR_PRESETS[0],
+  assignment_text_color: '',
   password: '',
   role: 'user',
 };
@@ -82,6 +95,7 @@ const EMPTY_EDIT_USER_FORM = {
   full_name: '',
   display_name: '',
   assignment_color: COLOR_PRESETS[0],
+  assignment_text_color: '',
   role: 'user',
   disabled: false,
   can_view_reports: false,
@@ -210,6 +224,43 @@ function normalizeColor(value, fallback = COLOR_PRESETS[0]) {
   return HEX_COLOR_REGEX.test(normalized) ? normalized : fallback;
 }
 
+function normalizeOptionalColor(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return HEX_COLOR_REGEX.test(normalized) ? normalized : '';
+}
+
+function getRelativeLuminance(hexColor) {
+  const normalized = normalizeColor(hexColor).slice(1);
+  const channels = [0, 2, 4].map((offset) => {
+    const channel = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function getAutomaticTextColor(backgroundColor) {
+  const backgroundLuminance = getRelativeLuminance(backgroundColor);
+  const darkLuminance = getRelativeLuminance(AUTOMATIC_DARK_TEXT_COLOR);
+  const lightContrast = 1.05 / (backgroundLuminance + 0.05);
+  const darkContrast =
+    (Math.max(backgroundLuminance, darkLuminance) + 0.05) /
+    (Math.min(backgroundLuminance, darkLuminance) + 0.05);
+
+  return lightContrast >= darkContrast
+    ? AUTOMATIC_LIGHT_TEXT_COLOR
+    : AUTOMATIC_DARK_TEXT_COLOR;
+}
+
+function getBadgeTextColor(textColor, backgroundColor) {
+  return (
+    normalizeOptionalColor(textColor) ||
+    getAutomaticTextColor(backgroundColor)
+  );
+}
+
 function getErrorMessage(err, fallbackMessage) {
   let errorMessage = fallbackMessage;
 
@@ -264,6 +315,10 @@ function getFallbackColor(user) {
 
 function getUserColor(user) {
   return normalizeColor(user?.assignment_color, getFallbackColor(user));
+}
+
+function getUserTextColor(user) {
+  return getBadgeTextColor(user?.assignment_text_color, getUserColor(user));
 }
 
 function getInitials(user) {
@@ -511,6 +566,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
       full_name: userToEdit.full_name || '',
       display_name: userToEdit.display_name || getUserDisplayLabel(userToEdit),
       assignment_color: getUserColor(userToEdit),
+      assignment_text_color: normalizeOptionalColor(
+        userToEdit.assignment_text_color
+      ),
       role: ROLE_OPTIONS.some((role) => role.value === userToEdit.role)
         ? userToEdit.role
         : 'user',
@@ -586,6 +644,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
         full_name: fullName,
         display_name: displayName,
         assignment_color: normalizeColor(newUserForm.assignment_color),
+        assignment_text_color: normalizeOptionalColor(
+          newUserForm.assignment_text_color
+        ),
         password,
         role,
       });
@@ -641,6 +702,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
         full_name: fullName,
         display_name: displayName,
         assignment_color: normalizeColor(editUserForm.assignment_color),
+        assignment_text_color: normalizeOptionalColor(
+          editUserForm.assignment_text_color
+        ),
         role: editUserForm.role,
         disabled: Boolean(editUserForm.disabled),
         can_view_reports: reportsIncludedByRole(editUserForm.role)
@@ -1222,10 +1286,60 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                           </label>
                           <span
                             className="settings-badge-preview"
-                            style={{ backgroundColor: normalizeColor(newUserForm.assignment_color) }}
+                            style={{
+                              backgroundColor: normalizeColor(newUserForm.assignment_color),
+                              color: getBadgeTextColor(
+                                newUserForm.assignment_text_color,
+                                newUserForm.assignment_color
+                              ),
+                            }}
                           >
                             {newUserForm.display_name.trim() || newUserForm.full_name.trim().split(/\s+/)[0] || newUserForm.username || 'User'}
                           </span>
+                        </div>
+                      </div>
+
+                      <div className="settings-color-field settings-form-span">
+                        <span>Badge text color</span>
+                        <div className="settings-color-row">
+                          <button
+                            type="button"
+                            className={`settings-auto-color-button ${!normalizeOptionalColor(newUserForm.assignment_text_color) ? 'selected' : ''}`}
+                            onClick={() => updateNewUserForm('assignment_text_color', '')}
+                            aria-pressed={!normalizeOptionalColor(newUserForm.assignment_text_color)}
+                            disabled={isCreatingUser}
+                          >
+                            Auto
+                          </button>
+                          <div className="settings-color-options">
+                            {TEXT_COLOR_PRESETS.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                className={normalizeOptionalColor(newUserForm.assignment_text_color) === color ? 'selected' : ''}
+                                style={{ '--swatch-color': color }}
+                                onClick={() => updateNewUserForm('assignment_text_color', color)}
+                                aria-label={`Use text color ${color}`}
+                                aria-pressed={normalizeOptionalColor(newUserForm.assignment_text_color) === color}
+                                disabled={isCreatingUser}
+                              />
+                            ))}
+                          </div>
+                          <label className="settings-custom-color">
+                            <input
+                              type="color"
+                              value={
+                                normalizeOptionalColor(newUserForm.assignment_text_color) ||
+                                getAutomaticTextColor(newUserForm.assignment_color)
+                              }
+                              onChange={(event) => updateNewUserForm('assignment_text_color', event.target.value)}
+                              disabled={isCreatingUser}
+                            />
+                            Custom
+                          </label>
+                          <small className="settings-auto-color-note">
+                            Auto chooses light or dark text for the background.
+                          </small>
                         </div>
                       </div>
                     </div>
@@ -1275,6 +1389,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                         const isCurrentUser = currentUser?.id === singleUser.id;
                         const isEditing = editingUserId === singleUser.id;
                         const userColor = getUserColor(singleUser);
+                        const userTextColor = getUserTextColor(singleUser);
 
                         return (
                           <article className={`settings-user-row ${isEditing ? 'editing' : ''}`} key={singleUser.id}>
@@ -1294,7 +1409,10 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                             </div>
 
                             <div className="settings-user-summary-actions">
-                              <span className="settings-badge-preview" style={{ backgroundColor: userColor }}>
+                              <span
+                                className="settings-badge-preview"
+                                style={{ backgroundColor: userColor, color: userTextColor }}
+                              >
                                 {getUserDisplayLabel(singleUser)}
                               </span>
                               <span className="settings-role-label">{formatRole(singleUser.role)}</span>
@@ -1321,7 +1439,13 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                   </div>
                                   <span
                                     className="settings-badge-preview large"
-                                    style={{ backgroundColor: normalizeColor(editUserForm.assignment_color) }}
+                                    style={{
+                                      backgroundColor: normalizeColor(editUserForm.assignment_color),
+                                      color: getBadgeTextColor(
+                                        editUserForm.assignment_text_color,
+                                        editUserForm.assignment_color
+                                      ),
+                                    }}
                                   >
                                     {editUserForm.display_name.trim() || getUserDisplayLabel(editingPreviewUser)}
                                   </span>
@@ -1367,6 +1491,50 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                         <input type="color" value={normalizeColor(editUserForm.assignment_color)} onChange={(event) => updateEditUserForm('assignment_color', event.target.value)} disabled={isUpdating} />
                                         Custom
                                       </label>
+                                    </div>
+                                  </div>
+
+                                  <div className="settings-color-field settings-form-span">
+                                    <span>Badge text color</span>
+                                    <div className="settings-color-row">
+                                      <button
+                                        type="button"
+                                        className={`settings-auto-color-button ${!normalizeOptionalColor(editUserForm.assignment_text_color) ? 'selected' : ''}`}
+                                        onClick={() => updateEditUserForm('assignment_text_color', '')}
+                                        aria-pressed={!normalizeOptionalColor(editUserForm.assignment_text_color)}
+                                        disabled={isUpdating}
+                                      >
+                                        Auto
+                                      </button>
+                                      <div className="settings-color-options">
+                                        {TEXT_COLOR_PRESETS.map((color) => (
+                                          <button
+                                            key={color}
+                                            type="button"
+                                            className={normalizeOptionalColor(editUserForm.assignment_text_color) === color ? 'selected' : ''}
+                                            style={{ '--swatch-color': color }}
+                                            onClick={() => updateEditUserForm('assignment_text_color', color)}
+                                            aria-label={`Use text color ${color}`}
+                                            aria-pressed={normalizeOptionalColor(editUserForm.assignment_text_color) === color}
+                                            disabled={isUpdating}
+                                          />
+                                        ))}
+                                      </div>
+                                      <label className="settings-custom-color">
+                                        <input
+                                          type="color"
+                                          value={
+                                            normalizeOptionalColor(editUserForm.assignment_text_color) ||
+                                            getAutomaticTextColor(editUserForm.assignment_color)
+                                          }
+                                          onChange={(event) => updateEditUserForm('assignment_text_color', event.target.value)}
+                                          disabled={isUpdating}
+                                        />
+                                        Custom
+                                      </label>
+                                      <small className="settings-auto-color-note">
+                                        Auto chooses light or dark text for the background.
+                                      </small>
                                     </div>
                                   </div>
                                 </div>

@@ -41,6 +41,20 @@ const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
+const MOBILE_LAYOUT_QUERY = '(max-width: 820px)';
+const MOBILE_HISTORY_STATE_KEY = '__sendroMobileNavigation';
+const MOBILE_HISTORY_LAYERS = {
+  EXIT_BOUNDARY: 'exit-boundary',
+  LIST: 'list',
+  CONVERSATION: 'conversation',
+  PAGE: 'page',
+  DRAWER: 'drawer',
+  SEARCH: 'search',
+  NEW_CONVERSATION: 'new-conversation',
+  QUICK_REPLIES: 'quick-replies',
+  REACTION: 'reaction',
+  DELETE_CONFIRM: 'delete-confirm',
+};
 const ASSIGNMENT_COLOR_PALETTE = [
   '#1d4ed8',
   '#c026d3',
@@ -53,6 +67,9 @@ const ASSIGNMENT_COLOR_PALETTE = [
   '#a21caf',
   '#9a3412',
 ];
+const AUTOMATIC_DARK_TEXT_COLOR = '#10213f';
+const AUTOMATIC_LIGHT_TEXT_COLOR = '#ffffff';
+const HEX_COLOR_REGEX = /^#[0-9a-f]{6}$/i;
 
 const CONVERSATION_VIEWS = {
   INBOX: 'inbox',
@@ -66,6 +83,40 @@ const APP_PAGES = {
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
+
+function getRelativeLuminance(hexColor) {
+  const normalized = String(hexColor || '').trim().replace('#', '');
+
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) {
+    return 0;
+  }
+
+  const channels = [0, 2, 4].map((offset) => {
+    const channel = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function getAutomaticTextColor(backgroundColor) {
+  const backgroundLuminance = getRelativeLuminance(backgroundColor);
+  const darkLuminance = getRelativeLuminance(AUTOMATIC_DARK_TEXT_COLOR);
+  const lightContrast = 1.05 / (backgroundLuminance + 0.05);
+  const darkContrast =
+    (Math.max(backgroundLuminance, darkLuminance) + 0.05) /
+    (Math.min(backgroundLuminance, darkLuminance) + 0.05);
+
+  return lightContrast >= darkContrast
+    ? AUTOMATIC_LIGHT_TEXT_COLOR
+    : AUTOMATIC_DARK_TEXT_COLOR;
+}
+
+function isMobileLayout() {
+  return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+}
 
 function Icon({ name, size = 20, strokeWidth = 1.8 }) {
   const commonProps = {
@@ -860,6 +911,7 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
@@ -876,6 +928,10 @@ function App() {
   const [activeSlashReplyIndex, setActiveSlashReplyIndex] = useState(0);
   const [customerServiceNowMs, setCustomerServiceNowMs] = useState(() => Date.now());
   const inboxSearchInputRef = useRef(null);
+  const mobileHistorySessionIdRef = useRef(null);
+  const skipNextMobilePopRef = useRef(false);
+  const allowMobileExitRef = useRef(false);
+  const mobileNavigationSnapshotRef = useRef({});
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -1055,12 +1111,230 @@ function App() {
     })
     .slice(0, 7);
 
+  function getCurrentMobileHistoryMarker() {
+    return window.history.state?.[MOBILE_HISTORY_STATE_KEY] || null;
+  }
+
+  function createMobileHistoryState(layer) {
+    return {
+      ...(window.history.state || {}),
+      [MOBILE_HISTORY_STATE_KEY]: {
+        sessionId: mobileHistorySessionIdRef.current,
+        layer,
+      },
+    };
+  }
+
+  function pushMobileHistoryLayer(layer) {
+    if (!token || !isMobileLayout() || !mobileHistorySessionIdRef.current) {
+      return;
+    }
+
+    const currentMarker = getCurrentMobileHistoryMarker();
+
+    if (
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+      currentMarker.layer === layer
+    ) {
+      return;
+    }
+
+    window.history.pushState(createMobileHistoryState(layer), '', window.location.href);
+  }
+
+  function replaceMobileHistoryLayer(layer) {
+    if (!token || !isMobileLayout() || !mobileHistorySessionIdRef.current) {
+      return;
+    }
+
+    window.history.replaceState(
+      createMobileHistoryState(layer),
+      '',
+      window.location.href
+    );
+  }
+
+  function dismissMobileHistoryLayer(
+    closeLayer,
+    historySteps = 1,
+    expectedLayer = null
+  ) {
+    const currentMarker = getCurrentMobileHistoryMarker();
+    const ownsCurrentEntry =
+      token &&
+      isMobileLayout() &&
+      mobileHistorySessionIdRef.current &&
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+      ![
+        MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY,
+        MOBILE_HISTORY_LAYERS.LIST,
+      ].includes(currentMarker.layer) &&
+      (!expectedLayer || currentMarker.layer === expectedLayer);
+
+    closeLayer();
+
+    if (ownsCurrentEntry) {
+      skipNextMobilePopRef.current = true;
+      window.history.go(-Math.max(1, historySteps));
+    }
+  }
+
+  function openMobileDrawer(mode) {
+    if (mobileDrawerMode || showNewConversationForm || isMobileSearchOpen) {
+      setShowNewConversationForm(false);
+      setIsMobileSearchOpen(false);
+      setMobileDrawerMode(mode);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DRAWER);
+      return;
+    }
+
+    setMobileDrawerMode(mode);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DRAWER);
+  }
+
+  function closeMobileDrawer() {
+    dismissMobileHistoryLayer(
+      () => setMobileDrawerMode(null),
+      1,
+      MOBILE_HISTORY_LAYERS.DRAWER
+    );
+  }
+
+  function toggleNewConversationPanel() {
+    if (showNewConversationForm) {
+      dismissMobileHistoryLayer(
+        () => setShowNewConversationForm(false),
+        1,
+        MOBILE_HISTORY_LAYERS.NEW_CONVERSATION
+      );
+      return;
+    }
+
+    if (isMobileSearchOpen || activePage !== APP_PAGES.INBOX) {
+      setIsMobileSearchOpen(false);
+      setShowNewConversationForm(true);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.NEW_CONVERSATION);
+      return;
+    }
+
+    setShowNewConversationForm(true);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.NEW_CONVERSATION);
+  }
+
+  function closeSlashQuickReplies() {
+    dismissMobileHistoryLayer(() => {
+      setSlashQuickReplyMatch(null);
+      setActiveSlashReplyIndex(0);
+    }, 1, MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+  }
+
+  function toggleReactionPicker(messageId) {
+    if (openReactionPickerMessageId === messageId) {
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
+      return;
+    }
+
+    if (openReactionPickerMessageId) {
+      setOpenReactionPickerMessageId(messageId);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.REACTION);
+      return;
+    }
+
+    setOpenReactionPickerMessageId(messageId);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.REACTION);
+  }
+
+  function closeMobileConversation() {
+    dismissMobileHistoryLayer(() => {
+      setOpenReactionPickerMessageId(null);
+      setSlashQuickReplyMatch(null);
+      setIsMobileChatOpen(false);
+    }, 1, MOBILE_HISTORY_LAYERS.CONVERSATION);
+  }
+
+  function handleMobileChatBack() {
+    if (openReactionPickerMessageId) {
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
+      return;
+    }
+
+    if (slashQuickReplyMatch) {
+      closeSlashQuickReplies();
+      return;
+    }
+
+    closeMobileConversation();
+  }
+
+  function openDeleteConfirmation() {
+    setShowDeleteConfirm(true);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DELETE_CONFIRM);
+  }
+
+  function closeDeleteConfirmation() {
+    dismissMobileHistoryLayer(
+      () => setShowDeleteConfirm(false),
+      1,
+      MOBILE_HISTORY_LAYERS.DELETE_CONFIRM
+    );
+  }
+
+  function handleStayInSendro() {
+    setShowExitConfirm(false);
+  }
+
+  function handleExitSendro() {
+    const currentMarker = getCurrentMobileHistoryMarker();
+
+    setShowExitConfirm(false);
+
+    if (
+      isMobileLayout() &&
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current
+    ) {
+      allowMobileExitRef.current = true;
+      window.history.back();
+      return;
+    }
+
+    window.history.back();
+  }
+
   function openConversationView(view) {
-    setActivePage(APP_PAGES.INBOX);
-    setActiveConversationView(view);
-    setIsMobileChatOpen(false);
-    setIsMobileSearchOpen(false);
-    setMobileDrawerMode(null);
+    const showConversationList = () => {
+      setActivePage(APP_PAGES.INBOX);
+      setActiveConversationView(view);
+      setIsMobileChatOpen(false);
+      setIsMobileSearchOpen(false);
+      setMobileDrawerMode(null);
+    };
+
+    if (
+      mobileDrawerMode ||
+      isMobileChatOpen ||
+      activePage !== APP_PAGES.INBOX
+    ) {
+      dismissMobileHistoryLayer(
+        showConversationList,
+        mobileDrawerMode && activePage !== APP_PAGES.INBOX ? 2 : 1,
+        mobileDrawerMode
+          ? MOBILE_HISTORY_LAYERS.DRAWER
+          : isMobileChatOpen
+            ? MOBILE_HISTORY_LAYERS.CONVERSATION
+            : MOBILE_HISTORY_LAYERS.PAGE
+      );
+      return;
+    }
+
+    showConversationList();
   }
 
   async function loadQuickReplyData() {
@@ -1161,6 +1435,20 @@ function App() {
     const nextDraft = `${beforeSelection}${insertedContent}${afterSelection}`;
     const nextCursorPosition = beforeSelection.length + insertedContent.length;
 
+    if (mobileDrawerMode) {
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
+    } else if (slashQuickReplyMatch && isMobileLayout()) {
+      const currentMarker = getCurrentMobileHistoryMarker();
+
+      if (
+        currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+        currentMarker.layer === MOBILE_HISTORY_LAYERS.QUICK_REPLIES
+      ) {
+        skipNextMobilePopRef.current = true;
+        window.history.back();
+      }
+    }
+
     setConversationDraft(selectedConversationId, nextDraft);
     setIsMobileChatOpen(true);
     setMobileDrawerMode(null);
@@ -1226,6 +1514,14 @@ function App() {
     );
 
     setConversationDraft(selectedConversationId, nextDraft);
+
+    if (slashMatch && !slashQuickReplyMatch) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+    } else if (!slashMatch && slashQuickReplyMatch) {
+      closeSlashQuickReplies();
+      return;
+    }
+
     setSlashQuickReplyMatch(slashMatch);
     setActiveSlashReplyIndex(0);
   }
@@ -1242,6 +1538,9 @@ function App() {
     const nextCursorPosition = beforeCursor.length + prefix.length;
 
     setConversationDraft(selectedConversationId, nextDraft);
+    if (!slashQuickReplyMatch) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+    }
     setSlashQuickReplyMatch({
       query: '',
       start: nextCursorPosition - 1,
@@ -1279,7 +1578,7 @@ function App() {
 
       if (event.key === 'Escape') {
         event.preventDefault();
-        setSlashQuickReplyMatch(null);
+        closeSlashQuickReplies();
         return;
       }
 
@@ -1300,15 +1599,30 @@ function App() {
   }
 
   function focusMobileInboxSearch() {
+    if (isMobileSearchOpen) {
+      dismissMobileHistoryLayer(
+        () => setIsMobileSearchOpen(false),
+        1,
+        MOBILE_HISTORY_LAYERS.SEARCH
+      );
+      return;
+    }
+
     setActivePage(APP_PAGES.INBOX);
     setIsMobileChatOpen(false);
     setMobileDrawerMode(null);
-    setIsMobileSearchOpen((currentValue) => !currentValue);
+
+    if (showNewConversationForm || activePage !== APP_PAGES.INBOX) {
+      setShowNewConversationForm(false);
+      setIsMobileSearchOpen(true);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.SEARCH);
+    } else {
+      setIsMobileSearchOpen(true);
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.SEARCH);
+    }
 
     window.setTimeout(() => {
-      if (!isMobileSearchOpen) {
-        inboxSearchInputRef.current?.focus();
-      }
+      inboxSearchInputRef.current?.focus();
     }, 0);
   }
 
@@ -1434,6 +1748,19 @@ function App() {
     const className = getAssignedUserClass(userId);
     const colorIndex = Number(className.replace('assigned-color-', '')) - 1;
     return ASSIGNMENT_COLOR_PALETTE[colorIndex] || ASSIGNMENT_COLOR_PALETTE[0];
+  }
+
+  function getAssignedUserTextColor(userId) {
+    const assignedUser = getAssignedUser(userId);
+    const savedTextColor = String(
+      assignedUser?.assignment_text_color || ''
+    ).trim();
+
+    if (HEX_COLOR_REGEX.test(savedTextColor)) {
+      return savedTextColor;
+    }
+
+    return getAutomaticTextColor(getAssignedUserColor(userId));
   }
 
   function handleSettingsUsersChanged(updatedUsers) {
@@ -2375,6 +2702,11 @@ function App() {
   async function handleSelectConversation(conversation) {
     setError('');
     setActivePage(APP_PAGES.INBOX);
+
+    if (!isMobileChatOpen) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
+    }
+
     setIsMobileChatOpen(true);
     setIsMobileSearchOpen(false);
     setMobileDrawerMode(null);
@@ -2468,6 +2800,7 @@ function App() {
 
       if (createdConversation?.id) {
         resetNewConversationForm();
+        replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
         setActiveConversationView(CONVERSATION_VIEWS.INBOX);
@@ -2616,13 +2949,15 @@ function App() {
       await deleteConversation(selectedConversation.id);
       selectedConversationIdRef.current = null;
       setSelectedConversation(null);
-      setIsMobileChatOpen(false);
       setMessages([]);
       messagesRef.current = [];
       setHasMoreOlderMessages(true);
       setIsLoadingOlderMessages(false);
       setError('');
-      setShowDeleteConfirm(false);
+      dismissMobileHistoryLayer(() => {
+        setShowDeleteConfirm(false);
+        setIsMobileChatOpen(false);
+      }, 2, MOBILE_HISTORY_LAYERS.DELETE_CONFIRM);
       await Promise.all([
         refreshConversations(),
         refreshConversationSummary(),
@@ -2654,7 +2989,11 @@ function App() {
         )
       );
 
-      setOpenReactionPickerMessageId(null);
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
 
       await Promise.all([
         refreshConversations(selectedConversation?.id || null),
@@ -2690,8 +3029,7 @@ function App() {
   setIsSending(true);
   setError('');
   setConversationDraft(conversationId, '');
-  setSlashQuickReplyMatch(null);
-  setActiveSlashReplyIndex(0);
+  closeSlashQuickReplies();
 
   try {
     const sentMessage = await sendMessage(conversationId, messageToSend);
@@ -2757,6 +3095,191 @@ function App() {
       olderMessagesAbortControllerRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    mobileNavigationSnapshotRef.current = {
+      showDeleteConfirm,
+      showExitConfirm,
+      openReactionPickerMessageId,
+      slashQuickReplyMatch,
+      mobileDrawerMode,
+      showNewConversationForm,
+      isMobileSearchOpen,
+      isMobileChatOpen,
+      activePage,
+    };
+  }, [
+    showDeleteConfirm,
+    showExitConfirm,
+    openReactionPickerMessageId,
+    slashQuickReplyMatch,
+    mobileDrawerMode,
+    showNewConversationForm,
+    isMobileSearchOpen,
+    isMobileChatOpen,
+    activePage,
+  ]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const mobileMediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+
+    function initializeMobileHistory() {
+      if (!mobileMediaQuery.matches) {
+        return;
+      }
+
+      const existingMarker = getCurrentMobileHistoryMarker();
+
+      if (!mobileHistorySessionIdRef.current) {
+        mobileHistorySessionIdRef.current =
+          existingMarker?.sessionId ||
+          `sendro-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+
+      if (
+        existingMarker?.sessionId === mobileHistorySessionIdRef.current &&
+        existingMarker.layer === MOBILE_HISTORY_LAYERS.LIST
+      ) {
+        return;
+      }
+
+      if (existingMarker?.sessionId === mobileHistorySessionIdRef.current) {
+        window.history.replaceState(
+          createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+          '',
+          window.location.href
+        );
+        return;
+      }
+
+      window.history.replaceState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY),
+        '',
+        window.location.href
+      );
+      window.history.pushState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+        '',
+        window.location.href
+      );
+    }
+
+    function handleMobilePopState(event) {
+      if (!mobileMediaQuery.matches) {
+        return;
+      }
+
+      const marker = event.state?.[MOBILE_HISTORY_STATE_KEY];
+
+      if (marker?.sessionId !== mobileHistorySessionIdRef.current) {
+        return;
+      }
+
+      if (skipNextMobilePopRef.current) {
+        skipNextMobilePopRef.current = false;
+        return;
+      }
+
+      if (allowMobileExitRef.current) {
+        if (marker.layer !== MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY) {
+          window.history.back();
+          return;
+        }
+
+        allowMobileExitRef.current = false;
+        const exitLocation = window.location.href;
+
+        window.history.back();
+        window.setTimeout(() => {
+          const currentMarker = getCurrentMobileHistoryMarker();
+
+          if (
+            document.visibilityState !== 'hidden' &&
+            window.location.href === exitLocation &&
+            currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+            currentMarker.layer === MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY
+          ) {
+            window.location.replace('about:blank');
+          }
+        }, 500);
+        return;
+      }
+
+      const snapshot = mobileNavigationSnapshotRef.current;
+
+      if (snapshot.showExitConfirm) {
+        window.history.pushState(
+          createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+          '',
+          window.location.href
+        );
+        setShowExitConfirm(false);
+        return;
+      }
+
+      if (snapshot.showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+        return;
+      }
+
+      if (snapshot.openReactionPickerMessageId) {
+        setOpenReactionPickerMessageId(null);
+        return;
+      }
+
+      if (snapshot.slashQuickReplyMatch) {
+        setSlashQuickReplyMatch(null);
+        setActiveSlashReplyIndex(0);
+        return;
+      }
+
+      if (snapshot.mobileDrawerMode) {
+        setMobileDrawerMode(null);
+        return;
+      }
+
+      if (snapshot.showNewConversationForm) {
+        setShowNewConversationForm(false);
+        return;
+      }
+
+      if (snapshot.isMobileSearchOpen) {
+        setIsMobileSearchOpen(false);
+        return;
+      }
+
+      if (snapshot.activePage !== APP_PAGES.INBOX) {
+        setActivePage(APP_PAGES.INBOX);
+        setIsMobileChatOpen(false);
+        return;
+      }
+
+      if (snapshot.isMobileChatOpen) {
+        setIsMobileChatOpen(false);
+        return;
+      }
+
+      window.history.pushState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+        '',
+        window.location.href
+      );
+      setShowExitConfirm(true);
+    }
+
+    initializeMobileHistory();
+    window.addEventListener('popstate', handleMobilePopState);
+    mobileMediaQuery.addEventListener?.('change', initializeMobileHistory);
+
+    return () => {
+      window.removeEventListener('popstate', handleMobilePopState);
+      mobileMediaQuery.removeEventListener?.('change', initializeMobileHistory);
+    };
+  }, [token]);
 
   useEffect(() => {
     if (token) {
@@ -3353,9 +3876,7 @@ function App() {
             setError('');
             setActivePage(APP_PAGES.INBOX);
             setIsMobileChatOpen(false);
-            setIsMobileSearchOpen(false);
-            setMobileDrawerMode(null);
-            setShowNewConversationForm((currentValue) => !currentValue);
+            toggleNewConversationPanel();
           }}
           aria-label={showNewConversationForm ? 'Close new conversation form' : 'Create new conversation'}
           title={showNewConversationForm ? 'Close' : 'New conversation'}
@@ -3371,7 +3892,7 @@ function App() {
           >
             <Icon name="search" size={25} />
           </button>
-          <button type="button" onClick={() => setMobileDrawerMode('menu')} aria-label="Open menu">
+          <button type="button" onClick={() => openMobileDrawer('menu')} aria-label="Open menu">
             <Icon name="menu" size={27} />
           </button>
         </div>
@@ -3544,7 +4065,7 @@ function App() {
               className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
               onClick={() => {
                 setError('');
-                setShowNewConversationForm((currentValue) => !currentValue);
+                toggleNewConversationPanel();
               }}
               type="button"
               aria-label="Create new conversation"
@@ -3758,6 +4279,9 @@ function App() {
                             backgroundColor: getAssignedUserColor(
                               conversation.assigned_to_user_id
                             ),
+                            color: getAssignedUserTextColor(
+                              conversation.assigned_to_user_id
+                            ),
                           }}
                         >
                           {getAssignedUserLabel(conversation.assigned_to_user_id)}
@@ -3797,7 +4321,7 @@ function App() {
               <button
                 type="button"
                 className="mobile-chat-back"
-                onClick={() => setIsMobileChatOpen(false)}
+                onClick={handleMobileChatBack}
                 aria-label="Back to conversations"
               >
                 <Icon name="back" size={27} />
@@ -3827,6 +4351,9 @@ function App() {
                         className="assigned-badge assigned-user-color"
                         style={{
                           backgroundColor: getAssignedUserColor(
+                            selectedConversation.assigned_to_user_id
+                          ),
+                          color: getAssignedUserTextColor(
                             selectedConversation.assigned_to_user_id
                           ),
                         }}
@@ -3955,11 +4482,7 @@ function App() {
                               type="button"
                               className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
                                 }`}
-                              onClick={() =>
-                                setOpenReactionPickerMessageId((currentMessageId) =>
-                                  currentMessageId === message.id ? null : message.id
-                                )
-                              }
+                              onClick={() => toggleReactionPicker(message.id)}
                               disabled={reactingMessageIds.includes(message.id)}
                               title="React"
                             >
@@ -4099,7 +4622,7 @@ function App() {
                 <Icon name="archive" size={19} />
                 <span>{selectedConversation.status === 'archived' ? 'Inbox' : 'Archive'}</span>
               </button>
-              <button type="button" className="danger" onClick={() => setShowDeleteConfirm(true)}>
+              <button type="button" className="danger" onClick={openDeleteConfirmation}>
                 <Icon name="delete" size={19} /><span>Delete</span>
               </button>
             </div>
@@ -4213,9 +4736,21 @@ function App() {
           type="button"
           className={!isMobileChatOpen && activePage === APP_PAGES.INBOX ? 'active' : ''}
           onClick={() => {
-            setActivePage(APP_PAGES.INBOX);
-            setIsMobileChatOpen(false);
-            setMobileDrawerMode(null);
+            const showConversationList = () => {
+              setActivePage(APP_PAGES.INBOX);
+              setIsMobileChatOpen(false);
+              setMobileDrawerMode(null);
+            };
+
+            if (activePage !== APP_PAGES.INBOX) {
+              dismissMobileHistoryLayer(
+                showConversationList,
+                1,
+                MOBILE_HISTORY_LAYERS.PAGE
+              );
+            } else {
+              showConversationList();
+            }
           }}
         >
           <Icon name="chat" size={24} /><span>Conversations</span>
@@ -4231,20 +4766,20 @@ function App() {
           </span>
           <span>Inbox</span>
         </button>
-        <button type="button" onClick={() => setMobileDrawerMode('quick')}>
+        <button type="button" onClick={() => openMobileDrawer('quick')}>
           <Icon name="quick" size={25} /><span>Quick Replies</span>
         </button>
-        <button type="button" onClick={() => setMobileDrawerMode('menu')}>
+        <button type="button" onClick={() => openMobileDrawer('menu')}>
           <Icon name="more" size={26} /><span>More</span>
         </button>
       </nav>
 
       {mobileDrawerMode && (
-        <div className="mobile-drawer-overlay" onClick={() => setMobileDrawerMode(null)}>
+        <div className="mobile-drawer-overlay" onClick={closeMobileDrawer}>
           <aside className="mobile-drawer" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-drawer-header">
               <strong>{mobileDrawerMode === 'quick' ? 'Quick Replies' : 'Menu'}</strong>
-              <button type="button" onClick={() => setMobileDrawerMode(null)} aria-label="Close">×</button>
+              <button type="button" onClick={closeMobileDrawer} aria-label="Close">×</button>
             </div>
 
             {mobileDrawerMode === 'quick' ? (
@@ -4315,6 +4850,7 @@ function App() {
                     setActivePage(APP_PAGES.REPORTS);
                     setMobileDrawerMode(null);
                     setIsMobileChatOpen(false);
+                    replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.PAGE);
                   }}>
                     <Icon name="reports" />Reports
                   </button>
@@ -4323,6 +4859,7 @@ function App() {
                   setActivePage(APP_PAGES.SETTINGS);
                   setMobileDrawerMode(null);
                   setIsMobileChatOpen(false);
+                  replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.PAGE);
                 }}>
                   <Icon name="settings" />Settings
                 </button>
@@ -4335,10 +4872,34 @@ function App() {
         </div>
       )}
 
+      {showExitConfirm && (
+        <div className="exit-confirm-overlay" onClick={handleStayInSendro}>
+          <div
+            className="exit-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="exit-sendro-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="exit-confirm-mark" aria-hidden="true">S</span>
+            <h3 id="exit-sendro-title">Exit Sendro?</h3>
+            <p>Are you sure you want to leave Sendro?</p>
+            <div className="exit-confirm-actions">
+              <button type="button" className="stay" onClick={handleStayInSendro} autoFocus>
+                Stay
+              </button>
+              <button type="button" className="exit" onClick={handleExitSendro}>
+                Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDeleteConfirm && selectedConversation && (
         <div
           className="delete-confirm-overlay"
-          onClick={() => setShowDeleteConfirm(false)}
+          onClick={closeDeleteConfirmation}
         >
           <div
             className="delete-confirm-modal"
@@ -4352,7 +4913,7 @@ function App() {
               <button
                 type="button"
                 className="delete-confirm-cancel"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={closeDeleteConfirmation}
               >
                 Cancel
               </button>
