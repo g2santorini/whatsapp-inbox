@@ -2284,7 +2284,8 @@ body {
   filter:
     brightness(1.18)
     saturate(1.1)
-    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.18))
+    drop-shadow(0 0 1px rgba(255, 255, 255, 0.92))
+    drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.72))
     drop-shadow(0 5px 10px rgba(0, 0, 0, 0.28));
 }
 
@@ -3423,10 +3424,11 @@ body {
     top: -26px;
     object-fit: unset;
     filter:
-      brightness(1.18)
+      brightness(1.22)
       saturate(1.1)
-      drop-shadow(0 1px 1px rgba(255, 255, 255, 0.18))
-      drop-shadow(0 5px 10px rgba(0, 0, 0, 0.28));
+      drop-shadow(0 0 1.15px rgba(255, 255, 255, 0.98))
+      drop-shadow(0 0 0.7px rgba(255, 255, 255, 0.78))
+      drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
   }
 
   .mobile-app-actions {
@@ -3808,9 +3810,12 @@ body {
     padding: 0 13px;
   }
 
-  .mobile-app-logo-wrap,
+  .mobile-app-logo-wrap {
+    width: 124px;
+  }
+
   .mobile-app-logo {
-    width: 103px;
+    width: 149px;
   }
 
   .chat-header {
