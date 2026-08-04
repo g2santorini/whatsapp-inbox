@@ -18,7 +18,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., max_length=128)
     role: Optional[str] = None
 
 
@@ -27,6 +27,7 @@ class UserOut(UserBase):
     role: str
     disabled: bool
     can_view_reports: bool
+    must_change_password: bool
 
     class Config:
         orm_mode = True
@@ -45,7 +46,12 @@ class UserUpdate(BaseModel):
 
 
 class UserPasswordReset(BaseModel):
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., max_length=128)
+
+
+class UserPasswordChange(BaseModel):
+    current_password: str = Field(..., max_length=128)
+    new_password: str = Field(..., max_length=128)
 
 
 # =====================

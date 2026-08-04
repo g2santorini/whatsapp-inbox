@@ -1569,6 +1569,11 @@
   box-shadow: 0 0 0 3px rgba(230, 91, 101, 0.1);
 }
 
+.settings-account-status.pending i {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
 .settings-manage-button {
   min-height: 32px;
   padding: 7px 9px;
@@ -1707,6 +1712,13 @@
 
 .settings-editor-actions > span {
   flex: 1;
+}
+
+.settings-self-password-note {
+  max-width: 230px;
+  color: #8391a7;
+  font-size: 9.5px;
+  line-height: 1.4;
 }
 
 .settings-empty-state {

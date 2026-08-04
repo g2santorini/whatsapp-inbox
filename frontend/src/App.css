@@ -923,6 +923,58 @@ textarea {
   cursor: pointer;
 }
 
+.login-card button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-field > span {
+  color: #29445f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.password-change-card {
+  max-width: 420px;
+}
+
+.password-change-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid #d7e5f2;
+  border-radius: 14px;
+  background: #f3f8fd;
+}
+
+.password-change-intro strong {
+  color: #0b2949;
+  font-size: 14px;
+}
+
+.password-change-intro span,
+.password-requirement {
+  color: #5d7188;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.password-requirement {
+  margin-top: -4px;
+}
+
+.login-session-card {
+  min-height: 116px;
+  justify-content: center;
+}
+
 .login-recovery {
   margin-top: -3px;
 }
@@ -977,6 +1029,18 @@ textarea {
   color: #991b1b;
   font-size: 14px;
   font-weight: 700;
+}
+
+.login-success-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #bce6d4;
+  border-radius: 12px;
+  background: #eefbf5;
+  color: #087f5b;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
 }
 
 /* Empty chat */

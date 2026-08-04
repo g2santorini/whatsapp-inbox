@@ -77,6 +77,7 @@ const ARCHIVE_OLD_OPTIONS = [
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HEX_COLOR_REGEX = /^#[0-9a-f]{6}$/i;
+const PASSWORD_MIN_LENGTH = 10;
 
 const EMPTY_NEW_USER_FORM = {
   username: '',
@@ -615,11 +616,16 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
     const email = newUserForm.email.trim();
     const fullName = newUserForm.full_name.trim();
     const displayName = newUserForm.display_name.trim();
-    const password = newUserForm.password.trim();
+    const password = newUserForm.password;
     const role = newUserForm.role;
 
     if (!username || !email || !password) {
       setSettingsError('Username, email, and temporary password are required.');
+      return;
+    }
+
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setSettingsError(`Temporary password must be at least ${PASSWORD_MIN_LENGTH} characters long.`);
       return;
     }
 
@@ -727,16 +733,16 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
   async function handleResetPassword(event, userToUpdate) {
     event.preventDefault();
 
-    const password = resetPasswordForm.password.trim();
-    const confirmPassword = resetPasswordForm.confirmPassword.trim();
+    const password = resetPasswordForm.password;
+    const confirmPassword = resetPasswordForm.confirmPassword;
 
     if (!password || !confirmPassword) {
       setSettingsError('Password and confirmation are required.');
       return;
     }
 
-    if (password.length < 6) {
-      setSettingsError('Password must be at least 6 characters long.');
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setSettingsError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long.`);
       return;
     }
 
@@ -750,10 +756,11 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
       setSettingsError('');
       setSettingsSuccess('');
 
-      await resetUserPassword(userToUpdate.id, password);
+      const updatedUser = await resetUserPassword(userToUpdate.id, password);
+      replaceUser(updatedUser);
       setResetPasswordUserId(null);
       setResetPasswordForm(EMPTY_PASSWORD_RESET_FORM);
-      setSettingsSuccess('Password reset successfully.');
+      setSettingsSuccess('Temporary password set. Existing sessions were signed out.');
     } catch (err) {
       setSettingsError(getErrorMessage(err, 'Could not reset password.'));
     } finally {
@@ -1239,11 +1246,13 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                         <input
                           value={newUserForm.password}
                           onChange={(event) => updateNewUserForm('password', event.target.value)}
-                          placeholder="At least 6 characters"
+                          placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
                           type="password"
-                          minLength="6"
+                          minLength={PASSWORD_MIN_LENGTH}
+                          maxLength="128"
                           disabled={isCreatingUser}
                         />
+                        <small>The user must replace this password at first sign-in.</small>
                       </label>
 
                       <label>
@@ -1416,8 +1425,8 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                 {getUserDisplayLabel(singleUser)}
                               </span>
                               <span className="settings-role-label">{formatRole(singleUser.role)}</span>
-                              <span className={`settings-account-status ${singleUser.disabled ? 'blocked' : 'active'}`}>
-                                <i /> {singleUser.disabled ? 'Blocked' : 'Active'}
+                              <span className={`settings-account-status ${singleUser.disabled ? 'blocked' : singleUser.must_change_password ? 'pending' : 'active'}`}>
+                                <i /> {singleUser.disabled ? 'Blocked' : singleUser.must_change_password ? 'Reset required' : 'Active'}
                               </span>
                               <button
                                 type="button"
@@ -1575,19 +1584,19 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                   </label>
                                 </div>
 
-                                {resetPasswordUserId === singleUser.id && (
+                                {!isCurrentUser && resetPasswordUserId === singleUser.id && (
                                   <div className="settings-password-panel">
                                     <div>
                                       <strong>Reset password</strong>
-                                      <small>Set a new temporary password with at least 6 characters.</small>
+                                      <small>Set a temporary password. The user must replace it at next sign-in.</small>
                                     </div>
                                     <label>
                                       <span>New password</span>
-                                      <input value={resetPasswordForm.password} onChange={(event) => updateResetPasswordForm('password', event.target.value)} type="password" minLength="6" disabled={isUpdating} />
+                                      <input value={resetPasswordForm.password} onChange={(event) => updateResetPasswordForm('password', event.target.value)} type="password" minLength={PASSWORD_MIN_LENGTH} maxLength="128" disabled={isUpdating} />
                                     </label>
                                     <label>
                                       <span>Confirm password</span>
-                                      <input value={resetPasswordForm.confirmPassword} onChange={(event) => updateResetPasswordForm('confirmPassword', event.target.value)} type="password" minLength="6" disabled={isUpdating} />
+                                      <input value={resetPasswordForm.confirmPassword} onChange={(event) => updateResetPasswordForm('confirmPassword', event.target.value)} type="password" minLength={PASSWORD_MIN_LENGTH} maxLength="128" disabled={isUpdating} />
                                     </label>
                                     <button type="button" className="settings-secondary-button" onClick={(event) => handleResetPassword(event, singleUser)} disabled={isUpdating}>
                                       {isUpdating ? 'Saving...' : 'Update password'}
@@ -1596,10 +1605,14 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                 )}
 
                                 <div className="settings-editor-actions">
-                                  <button type="button" className="settings-text-button" onClick={() => startResetPassword(singleUser)} disabled={isUpdating}>
-                                    <SettingsIcon name="lock" size={16} />
-                                    {resetPasswordUserId === singleUser.id ? 'Close password reset' : 'Reset password'}
-                                  </button>
+                                  {!isCurrentUser ? (
+                                    <button type="button" className="settings-text-button" onClick={() => startResetPassword(singleUser)} disabled={isUpdating}>
+                                      <SettingsIcon name="lock" size={16} />
+                                      {resetPasswordUserId === singleUser.id ? 'Close password reset' : 'Reset password'}
+                                    </button>
+                                  ) : (
+                                    <small className="settings-self-password-note">Your own password cannot be reset from the admin panel.</small>
+                                  )}
                                   <span />
                                   <button type="button" className="settings-secondary-button" onClick={cancelEditingUser} disabled={isUpdating}>Cancel</button>
                                   <button type="submit" className="settings-primary-button" disabled={isUpdating}>

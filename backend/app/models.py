@@ -28,6 +28,19 @@ class User(Base):
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     can_view_reports = Column(Boolean, default=False, nullable=False)
+    auth_version = Column(Integer, default=1, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
+
+
+class LoginThrottle(Base):
+    __tablename__ = "login_throttles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    throttle_key = Column(String(64), unique=True, index=True, nullable=False)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    window_started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+    last_failed_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
 
 
 class QuickReplyCategory(Base):

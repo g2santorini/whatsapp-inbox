@@ -6,6 +6,7 @@ import {
   getToken,
   login,
   clearToken,
+  changeMyPassword,
   getCurrentUser,
   getUsers,
   getQuickReplies,
@@ -39,6 +40,7 @@ const MAX_LOADED_CONVERSATIONS = 200;
 const MESSAGE_PAGE_SIZE = 30;
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
+const PASSWORD_MIN_LENGTH = 10;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
 const MOBILE_LAYOUT_QUERY = '(max-width: 820px)';
@@ -82,6 +84,12 @@ const APP_PAGES = {
   INBOX: 'inbox',
   REPORTS: 'reports',
   SETTINGS: 'settings',
+};
+
+const EMPTY_REQUIRED_PASSWORD_CHANGE = {
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
 };
 
 function getRelativeLuminance(hexColor) {
@@ -828,6 +836,12 @@ function App() {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginNotice, setLoginNotice] = useState('');
+  const [requiredPasswordChange, setRequiredPasswordChange] = useState(
+    EMPTY_REQUIRED_PASSWORD_CHANGE
+  );
+  const [isChangingRequiredPassword, setIsChangingRequiredPassword] = useState(false);
 
   const [conversations, setConversations] = useState([]);
   const [conversationSummary, setConversationSummary] = useState(null);
@@ -2427,12 +2441,65 @@ function App() {
   async function handleLogin(event) {
     event.preventDefault();
     setError('');
+    setLoginNotice('');
 
     try {
+      setIsLoggingIn(true);
       const data = await login(username, password);
+      setPassword('');
       setToken(data.access_token);
     } catch (err) {
-      setError('Login failed. Check username and password.');
+      if (err.status === 429) {
+        const waitMinutes = Math.max(1, Math.ceil((err.retryAfter || 900) / 60));
+        setError(`Too many login attempts. Try again in about ${waitMinutes} minutes.`);
+      } else {
+        setError('Login failed. Check username and password.');
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  function updateRequiredPasswordChange(fieldName, value) {
+    setRequiredPasswordChange((currentValues) => ({
+      ...currentValues,
+      [fieldName]: value,
+    }));
+  }
+
+  async function handleRequiredPasswordChange(event) {
+    event.preventDefault();
+
+    const {
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    } = requiredPasswordChange;
+
+    setError('');
+
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      setError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters long.`);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    try {
+      setIsChangingRequiredPassword(true);
+      await changeMyPassword(currentPassword, newPassword);
+
+      const signedInUsername = user?.username || username;
+      handleLogout();
+      setUsername(signedInUsername);
+      setLoginNotice('Password updated. Sign in again with your new password.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update password.'));
+    } finally {
+      setIsChangingRequiredPassword(false);
     }
   }
 
@@ -2477,6 +2544,11 @@ function App() {
     setFavoritingQuickReplyIds([]);
     setSlashQuickReplyMatch(null);
     setActiveSlashReplyIndex(0);
+    setPassword('');
+    setIsLoggingIn(false);
+    setLoginNotice('');
+    setRequiredPasswordChange(EMPTY_REQUIRED_PASSWORD_CHANGE);
+    setIsChangingRequiredPassword(false);
     setReportFilters({
       operation_date: '',
       date_from: '',
@@ -2495,6 +2567,10 @@ function App() {
     try {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
+
+      if (currentUser.must_change_password) {
+        return;
+      }
 
       try {
         const usersData = await getUsers();
@@ -3288,14 +3364,19 @@ function App() {
   }, [token]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.REPORTS) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.REPORTS
+    ) {
       return;
     }
 
     loadTemplateReports().catch(() => {
       // Report loading errors are handled inside loadTemplateReports.
     });
-  }, [token, activePage]);
+  }, [token, user, activePage]);
 
   useEffect(() => {
     messagesRequestInProgressRef.current?.controller?.abort();
@@ -3367,7 +3448,13 @@ function App() {
   }, [selectedConversation?.id, lastMessageId]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible
+    ) {
       return undefined;
     }
 
@@ -3389,6 +3476,7 @@ function App() {
     };
   }, [
     token,
+    user,
     activePage,
     isPageVisible,
     inboxSearchQuery,
@@ -3430,6 +3518,8 @@ function App() {
   useEffect(() => {
     if (
       !token ||
+      !user ||
+      user.must_change_password ||
       activePage !== APP_PAGES.INBOX ||
       !isPageVisible ||
       inboxSearchQuery.trim()
@@ -3476,6 +3566,7 @@ function App() {
     };
   }, [
     token,
+    user,
     activePage,
     isPageVisible,
     selectedConversation?.id,
@@ -3484,7 +3575,13 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible
+    ) {
       return undefined;
     }
 
@@ -3520,11 +3617,13 @@ function App() {
     // This effect is keyed by page visibility/auth state; the refresh helper
     // intentionally reads the latest abort-controller ref on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activePage, isPageVisible]);
+  }, [token, user, activePage, isPageVisible]);
 
   useEffect(() => {
     if (
       !token ||
+      !user ||
+      user.must_change_password ||
       activePage !== APP_PAGES.INBOX ||
       !isPageVisible ||
       !selectedConversation?.id
@@ -3573,7 +3672,7 @@ function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [token, activePage, isPageVisible, selectedConversation?.id]);
+  }, [token, user, activePage, isPageVisible, selectedConversation?.id]);
 
   function renderReportsPanel() {
     const summary = reportData?.summary || {};
@@ -3850,7 +3949,9 @@ function App() {
             required
           />
 
-          <button type="submit">Login</button>
+          <button type="submit" disabled={isLoggingIn}>
+            {isLoggingIn ? 'Signing in...' : 'Login'}
+          </button>
 
           <details className="login-recovery">
             <summary>Forgot password?</summary>
@@ -3861,6 +3962,99 @@ function App() {
               </span>
             </div>
           </details>
+
+          {loginNotice && <p className="login-success-message">{loginNotice}</p>}
+          {error && <p className="error-message">{error}</p>}
+        </form>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="login-page">
+        <div className="login-card login-session-card">
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Checking your secure session...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user.must_change_password) {
+    return (
+      <div className="login-page">
+        <form
+          className="login-card password-change-card"
+          onSubmit={handleRequiredPasswordChange}
+        >
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Secure your account</p>
+            </div>
+          </div>
+
+          <div className="password-change-intro">
+            <strong>Choose your own password</strong>
+            <span>
+              Your administrator gave you a temporary password. Replace it before
+              opening the inbox.
+            </span>
+          </div>
+
+          <label className="login-field">
+            <span>Temporary password</span>
+            <input
+              value={requiredPasswordChange.currentPassword}
+              onChange={(event) => updateRequiredPasswordChange('currentPassword', event.target.value)}
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          <label className="login-field">
+            <span>New password</span>
+            <input
+              value={requiredPasswordChange.newPassword}
+              onChange={(event) => updateRequiredPasswordChange('newPassword', event.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength="128"
+              required
+            />
+          </label>
+
+          <label className="login-field">
+            <span>Confirm new password</span>
+            <input
+              value={requiredPasswordChange.confirmPassword}
+              onChange={(event) => updateRequiredPasswordChange('confirmPassword', event.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength="128"
+              required
+            />
+          </label>
+
+          <small className="password-requirement">
+            Use at least {PASSWORD_MIN_LENGTH} characters and avoid names or common passwords.
+          </small>
+
+          <button type="submit" disabled={isChangingRequiredPassword}>
+            {isChangingRequiredPassword ? 'Updating...' : 'Update password'}
+          </button>
 
           {error && <p className="error-message">{error}</p>}
         </form>

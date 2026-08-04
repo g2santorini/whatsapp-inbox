@@ -52,7 +52,12 @@ async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || `Request failed with status ${response.status}`);
+    const requestError = new Error(
+      errorText || `Request failed with status ${response.status}`
+    );
+    requestError.status = response.status;
+    requestError.retryAfter = Number(response.headers.get('Retry-After')) || 0;
+    throw requestError;
   }
 
   return response.json();
@@ -101,6 +106,16 @@ export async function resetUserPassword(userId, password) {
   return apiRequest(`/users/${userId}/password`, {
     method: 'PATCH',
     body: JSON.stringify({ password }),
+  });
+}
+
+export async function changeMyPassword(currentPassword, newPassword) {
+  return apiRequest('/users/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
   });
 }
 

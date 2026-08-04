@@ -17,6 +17,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import and_, case, func, inspect, or_, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -237,10 +238,49 @@ def ensure_user_profile_columns():
             print(f"✅ Added {column_name} column to users table", flush=True)
 
 
+def ensure_user_security_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    columns_to_add = []
+
+    if "auth_version" not in columns:
+        columns_to_add.append(
+            ("auth_version", "INTEGER NOT NULL DEFAULT 1")
+        )
+
+    if "must_change_password" not in columns:
+        boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
+        columns_to_add.append(
+            (
+                "must_change_password",
+                f"BOOLEAN NOT NULL DEFAULT {boolean_default}",
+            )
+        )
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
 ensure_follow_up_column()
 ensure_message_status_columns()
 ensure_user_report_permission_column()
 ensure_user_profile_columns()
+ensure_user_security_columns()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -1216,6 +1256,26 @@ class TemplateMessageRequest(BaseModel):
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+PASSWORD_MIN_LENGTH = 10
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_FAILURE_WINDOW_MINUTES = int(
+    os.getenv("LOGIN_FAILURE_WINDOW_MINUTES", "15")
+)
+LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
+COMMON_PASSWORDS = {
+    "1234567890",
+    "123456789a",
+    "administrator",
+    "changeme123",
+    "letmein123",
+    "password123",
+    "qwerty1234",
+    "sendro1234",
+    "sunsetoia",
+    "welcome123",
+}
+DUMMY_PASSWORD_HASH = pwd_context.hash("sendro-dummy-password-check")
+
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
 ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 QUICK_REPLY_SHORTCUT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
@@ -1332,6 +1392,151 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def validate_new_password(
+    password: str,
+    username: str,
+    email: str,
+):
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+            ),
+        )
+
+    normalized_password = password.casefold()
+    email_name = email.split("@", 1)[0].casefold()
+    blocked_values = {
+        username.casefold(),
+        email.casefold(),
+        email_name,
+        *COMMON_PASSWORDS,
+    }
+
+    if (
+        not password.strip()
+        or len(set(normalized_password)) < 4
+        or normalized_password in blocked_values
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a password that is not your username, email, or a common password",
+        )
+
+
+def get_login_throttle_key(request: Request, username: str) -> str:
+    client_host = request.client.host if request.client else "unknown"
+    normalized_username = username.strip().casefold()
+    raw_key = f"{SECRET_KEY}:{client_host}:{normalized_username}"
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def get_retry_after_seconds(locked_until: datetime, now: datetime) -> int:
+    return max(1, int((locked_until - now).total_seconds()) + 1)
+
+
+def raise_login_throttled(retry_after_seconds: int):
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many login attempts. Please wait before trying again.",
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+
+
+def check_login_throttle(
+    db: Session,
+    throttle_key: str,
+    now: datetime,
+):
+    throttle = (
+        db.query(models.LoginThrottle)
+        .filter(models.LoginThrottle.throttle_key == throttle_key)
+        .with_for_update()
+        .first()
+    )
+
+    if throttle and throttle.locked_until and throttle.locked_until > now:
+        raise_login_throttled(
+            get_retry_after_seconds(throttle.locked_until, now)
+        )
+
+    return throttle
+
+
+def record_login_failure(
+    db: Session,
+    throttle_key: str,
+    throttle: models.LoginThrottle | None,
+    now: datetime,
+) -> int | None:
+    window_start_cutoff = now - timedelta(
+        minutes=LOGIN_FAILURE_WINDOW_MINUTES
+    )
+
+    if throttle is None:
+        throttle = models.LoginThrottle(
+            throttle_key=throttle_key,
+            failed_attempts=0,
+            window_started_at=now,
+            last_failed_at=now,
+        )
+        db.add(throttle)
+    elif throttle.window_started_at < window_start_cutoff:
+        throttle.failed_attempts = 0
+        throttle.window_started_at = now
+        throttle.locked_until = None
+
+    throttle.failed_attempts += 1
+    throttle.last_failed_at = now
+
+    retry_after_seconds = None
+
+    if throttle.failed_attempts >= LOGIN_MAX_FAILURES:
+        throttle.locked_until = now + timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+        retry_after_seconds = get_retry_after_seconds(throttle.locked_until, now)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing_throttle = (
+            db.query(models.LoginThrottle)
+            .filter(models.LoginThrottle.throttle_key == throttle_key)
+            .with_for_update()
+            .first()
+        )
+
+        if existing_throttle is None:
+            raise
+
+        return record_login_failure(
+            db,
+            throttle_key,
+            existing_throttle,
+            now,
+        )
+
+    return retry_after_seconds
+
+
+def clear_login_failures(db: Session, throttle_key: str):
+    db.query(models.LoginThrottle).filter(
+        models.LoginThrottle.throttle_key == throttle_key
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def cleanup_stale_login_throttles(db: Session, now: datetime):
+    stale_cutoff = now - timedelta(days=1)
+    deleted_count = db.query(models.LoginThrottle).filter(
+        models.LoginThrottle.last_failed_at < stale_cutoff
+    ).delete(synchronize_session=False)
+
+    if deleted_count:
+        db.commit()
+
+
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -1441,17 +1646,6 @@ def touch_conversation(conversation: models.Conversation):
     conversation.last_message_at = now
 
 
-def authenticate_user(db: Session, username: str, password: str):
-    user = get_user(db, username)
-    if not user:
-        return False
-
-    if not verify_password(password, user.hashed_password):
-        return False
-
-    return user
-
-
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
 
@@ -1479,6 +1673,7 @@ async def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str | None = payload.get("sub")
+        token_auth_version = payload.get("ver")
 
         if username is None:
             raise credentials_exception
@@ -1493,6 +1688,14 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    current_auth_version = getattr(user, "auth_version", 1) or 1
+
+    if token_auth_version is None:
+        if current_auth_version != 1:
+            raise credentials_exception
+    elif token_auth_version != current_auth_version:
+        raise credentials_exception
+
     return user
 
 
@@ -1501,6 +1704,12 @@ async def get_current_active_user(
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
+
+    if getattr(current_user, "must_change_password", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Password change required",
+        )
 
     return current_user
 
@@ -2437,6 +2646,7 @@ def create_user(
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    validate_new_password(user.password, username, email)
     hashed_password = get_password_hash(user.password)
 
     db_user = models.User(
@@ -2449,6 +2659,7 @@ def create_user(
         hashed_password=hashed_password,
         role=requested_role,
         disabled=False,
+        must_change_password=True,
     )
 
     db.add(db_user)
@@ -2652,6 +2863,51 @@ def update_user(
     return db_user
 
 
+@app.patch("/users/me/password", response_model=schemas.UserOut)
+def change_current_user_password(
+    password_change: schemas.UserPasswordChange,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if not verify_password(
+        password_change.current_password,
+        current_user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Current password is incorrect",
+        )
+
+    validate_new_password(
+        password_change.new_password,
+        current_user.username,
+        current_user.email,
+    )
+
+    if verify_password(
+        password_change.new_password,
+        current_user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from the current password",
+        )
+
+    current_user.hashed_password = get_password_hash(
+        password_change.new_password
+    )
+    current_user.must_change_password = False
+    current_user.auth_version = (current_user.auth_version or 1) + 1
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+
 @app.patch("/users/{user_id}/password", response_model=schemas.UserOut)
 def reset_user_password(
     user_id: int,
@@ -2670,15 +2926,24 @@ def reset_user_password(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    new_password = password_reset.password.strip()
-
-    if len(new_password) < 6:
+    if db_user.id == current_user.id:
         raise HTTPException(
             status_code=400,
-            detail="Password must be at least 6 characters long",
+            detail="Use the personal password change flow for your own account",
+        )
+
+    new_password = password_reset.password
+    validate_new_password(new_password, db_user.username, db_user.email)
+
+    if verify_password(new_password, db_user.hashed_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from the current password",
         )
 
     db_user.hashed_password = get_password_hash(new_password)
+    db_user.must_change_password = True
+    db_user.auth_version = (db_user.auth_version or 1) + 1
 
     db.commit()
     db.refresh(db_user)
@@ -3412,22 +3677,46 @@ def delete_quick_reply(
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
 ):
-    user = authenticate_user(db, form_data.username, form_data.password)
+    now = datetime.utcnow()
+    cleanup_stale_login_throttles(db, now)
+    throttle_key = get_login_throttle_key(request, form_data.username)
+    throttle = check_login_throttle(db, throttle_key, now)
 
-    if not user:
+    user = get_user(db, form_data.username)
+    password_hash = user.hashed_password if user else DUMMY_PASSWORD_HASH
+    password_matches = verify_password(form_data.password, password_hash)
+    login_allowed = bool(user and password_matches and not user.disabled)
+
+    if not login_allowed:
+        retry_after_seconds = record_login_failure(
+            db,
+            throttle_key,
+            throttle,
+            now,
+        )
+
+        if retry_after_seconds is not None:
+            raise_login_throttled(retry_after_seconds)
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    clear_login_failures(db, throttle_key)
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     access_token = create_access_token(
-        data={"sub": user.username},
+        data={
+            "sub": user.username,
+            "ver": user.auth_version or 1,
+        },
         expires_delta=access_token_expires,
     )
 
@@ -3436,8 +3725,11 @@ async def login_for_access_token(
 
 @app.get("/users/me/", response_model=schemas.UserOut)
 async def read_users_me(
-    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
 ):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
     return current_user
 
 
