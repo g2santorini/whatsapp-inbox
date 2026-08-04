@@ -30,6 +30,26 @@ class User(Base):
     can_view_reports = Column(Boolean, default=False, nullable=False)
     auth_version = Column(Integer, default=1, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
+    mfa_secret_encrypted = Column(Text, nullable=True)
+    mfa_pending_secret_encrypted = Column(Text, nullable=True)
+    mfa_recovery_codes_hashed = Column(Text, nullable=True)
+
+    @property
+    def mfa_setup_required(self):
+        return self.role == "admin" and not self.mfa_enabled
+
+
+class MfaLoginChallenge(Base):
+    __tablename__ = "mfa_login_challenges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    challenge_hash = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    consumed_at = Column(DateTime, nullable=True)
 
 
 class LoginThrottle(Base):

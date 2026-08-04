@@ -28,6 +28,8 @@ class UserOut(UserBase):
     disabled: bool
     can_view_reports: bool
     must_change_password: bool
+    mfa_enabled: bool
+    mfa_setup_required: bool
 
     class Config:
         orm_mode = True
@@ -52,6 +54,26 @@ class UserPasswordReset(BaseModel):
 class UserPasswordChange(BaseModel):
     current_password: str = Field(..., max_length=128)
     new_password: str = Field(..., max_length=128)
+
+
+class MfaSetupStartOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=32)
+
+
+class MfaSetupConfirmOut(BaseModel):
+    enabled: bool
+    recovery_codes: list[str]
+
+
+class MfaResetOut(BaseModel):
+    user_id: int
+    mfa_enabled: bool
+    mfa_setup_required: bool
 
 
 # =====================

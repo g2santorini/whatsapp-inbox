@@ -1,9 +1,14 @@
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 
+import pyotp
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -276,11 +281,51 @@ def ensure_user_security_columns():
             print(f"✅ Added {column_name} column to users table", flush=True)
 
 
+def ensure_user_mfa_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
+    columns_to_add = []
+
+    if "mfa_enabled" not in columns:
+        columns_to_add.append(
+            ("mfa_enabled", f"BOOLEAN NOT NULL DEFAULT {boolean_default}")
+        )
+
+    if "mfa_secret_encrypted" not in columns:
+        columns_to_add.append(("mfa_secret_encrypted", "TEXT"))
+
+    if "mfa_pending_secret_encrypted" not in columns:
+        columns_to_add.append(("mfa_pending_secret_encrypted", "TEXT"))
+
+    if "mfa_recovery_codes_hashed" not in columns:
+        columns_to_add.append(("mfa_recovery_codes_hashed", "TEXT"))
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
 ensure_follow_up_column()
 ensure_message_status_columns()
 ensure_user_report_permission_column()
 ensure_user_profile_columns()
 ensure_user_security_columns()
+ensure_user_mfa_columns()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -1275,6 +1320,103 @@ COMMON_PASSWORDS = {
     "welcome123",
 }
 DUMMY_PASSWORD_HASH = pwd_context.hash("sendro-dummy-password-check")
+
+MFA_ISSUER = os.getenv("MFA_ISSUER", "Sendro")
+MFA_TOTP_DIGITS = 6
+MFA_TOTP_PERIOD_SECONDS = 30
+MFA_TOTP_WINDOW = 1
+MFA_RECOVERY_CODE_COUNT = 10
+MFA_RECOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def get_mfa_fernet() -> Fernet:
+    derived_key = hashlib.sha256(
+        f"sendro-mfa-encryption:{SECRET_KEY}".encode("utf-8")
+    ).digest()
+    return Fernet(base64.urlsafe_b64encode(derived_key))
+
+
+MFA_FERNET = get_mfa_fernet()
+
+
+def encrypt_mfa_value(value: str) -> str:
+    return MFA_FERNET.encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def decrypt_mfa_value(value: str | None) -> str:
+    if not value:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator setup is not available",
+        )
+
+    try:
+        return MFA_FERNET.decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError, ValueError):
+        raise HTTPException(
+            status_code=500,
+            detail="Authenticator data could not be decrypted. Ask an administrator to reset it.",
+        )
+
+
+def generate_totp_secret() -> str:
+    return pyotp.random_base32()
+
+
+def normalize_mfa_code(code: str) -> str:
+    return re.sub(r"[\s-]+", "", str(code or "")).upper()
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    normalized_code = normalize_mfa_code(code)
+
+    if not re.fullmatch(r"\d{6}", normalized_code):
+        return False
+
+    return bool(
+        pyotp.TOTP(
+            secret,
+            digits=MFA_TOTP_DIGITS,
+            interval=MFA_TOTP_PERIOD_SECONDS,
+        ).verify(normalized_code, valid_window=MFA_TOTP_WINDOW)
+    )
+
+
+def build_otpauth_uri(user: models.User, secret: str) -> str:
+    account_label = user.email or user.username
+    return pyotp.TOTP(
+        secret,
+        digits=MFA_TOTP_DIGITS,
+        interval=MFA_TOTP_PERIOD_SECONDS,
+    ).provisioning_uri(
+        name=account_label,
+        issuer_name=MFA_ISSUER,
+    )
+
+
+def hash_recovery_code(code: str) -> str:
+    normalized_code = normalize_mfa_code(code)
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        f"sendro-recovery:{normalized_code}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def generate_recovery_codes() -> tuple[list[str], list[str]]:
+    plain_codes = []
+
+    for _ in range(MFA_RECOVERY_CODE_COUNT):
+        raw_code = "".join(
+            secrets.choice(MFA_RECOVERY_CODE_ALPHABET) for _ in range(12)
+        )
+        plain_codes.append(
+            f"{raw_code[:4]}-{raw_code[4:8]}-{raw_code[8:]}"
+        )
+
+    hashed_codes = [hash_recovery_code(code) for code in plain_codes]
+    return plain_codes, hashed_codes
+
 
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
 ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -2949,6 +3091,136 @@ def reset_user_password(
     db.refresh(db_user)
 
     return db_user
+
+
+@app.post(
+    "/users/me/mfa/setup",
+    response_model=schemas.MfaSetupStartOut,
+)
+def start_current_user_mfa_setup(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail="Change your temporary password before setting up Authenticator",
+        )
+
+    if current_user.mfa_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator is already enabled",
+        )
+
+    secret = generate_totp_secret()
+    current_user.mfa_pending_secret_encrypted = encrypt_mfa_value(secret)
+
+    db.commit()
+
+    return schemas.MfaSetupStartOut(
+        secret=secret,
+        otpauth_uri=build_otpauth_uri(current_user, secret),
+    )
+
+
+@app.post(
+    "/users/me/mfa/confirm",
+    response_model=schemas.MfaSetupConfirmOut,
+)
+def confirm_current_user_mfa_setup(
+    confirmation: schemas.MfaCodeRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail="Change your temporary password before setting up Authenticator",
+        )
+
+    if current_user.mfa_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator is already enabled",
+        )
+
+    pending_secret = decrypt_mfa_value(
+        current_user.mfa_pending_secret_encrypted
+    )
+
+    if not verify_totp_code(pending_secret, confirmation.code):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid authenticator code",
+        )
+
+    recovery_codes, hashed_recovery_codes = generate_recovery_codes()
+    current_user.mfa_secret_encrypted = encrypt_mfa_value(pending_secret)
+    current_user.mfa_pending_secret_encrypted = None
+    current_user.mfa_recovery_codes_hashed = json.dumps(
+        hashed_recovery_codes
+    )
+    current_user.mfa_enabled = True
+    current_user.auth_version = (current_user.auth_version or 1) + 1
+
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == current_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    return schemas.MfaSetupConfirmOut(
+        enabled=True,
+        recovery_codes=recovery_codes,
+    )
+
+
+@app.post(
+    "/users/{user_id}/mfa/reset",
+    response_model=schemas.MfaResetOut,
+)
+def reset_user_mfa(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can reset Authenticator",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.mfa_enabled = False
+    db_user.mfa_secret_encrypted = None
+    db_user.mfa_pending_secret_encrypted = None
+    db_user.mfa_recovery_codes_hashed = None
+    db_user.auth_version = (db_user.auth_version or 1) + 1
+
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == db_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(db_user)
+
+    return schemas.MfaResetOut(
+        user_id=db_user.id,
+        mfa_enabled=db_user.mfa_enabled,
+        mfa_setup_required=db_user.mfa_setup_required,
+    )
+
 
 
 def normalize_quick_reply_category_name(value: str | None) -> str:
