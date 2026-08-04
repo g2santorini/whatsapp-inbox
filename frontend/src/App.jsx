@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import './App.css';
-import sendroLogo from './assets/sendro_logo_glossy.png';
+import sendroLogo from './assets/sendro_logo_reversed.png';
 import SettingsPanel from './components/SettingsPanel';
 import {
   getToken,

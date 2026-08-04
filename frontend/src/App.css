@@ -838,19 +838,24 @@ textarea {
 }
 
 .login-brand-logo-wrap {
-  position: relative;
-  width: 176px;
-  height: 48px;
+  width: 202px;
+  height: 64px;
+  padding: 9px 13px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background:
+    radial-gradient(circle at 20% 8%, rgba(19, 105, 188, 0.36), transparent 34%),
+    linear-gradient(160deg, #06284d 0%, #031c38 58%, #04172d 100%);
   overflow: hidden;
 }
 
 .login-brand-logo {
-  position: absolute;
-  width: 212px;
+  width: 100%;
   height: auto;
-  left: -18px;
-  top: -42px;
   display: block;
+  filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.22));
 }
 
 .glossy-login-brand p {
@@ -2268,25 +2273,18 @@ body {
 }
 
 .blue-brand-logo-wrap {
-  position: relative;
   width: 126px;
   height: 47px;
+  display: flex;
+  align-items: center;
   overflow: hidden;
 }
 
 .blue-brand-logo {
-  position: absolute;
-  width: 152px;
+  width: 126px;
   height: auto;
-  left: -13px;
-  top: -24px;
-  object-fit: unset;
-  filter:
-    brightness(1.18)
-    saturate(1.1)
-    drop-shadow(0 0 1px rgba(255, 255, 255, 0.92))
-    drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.72))
-    drop-shadow(0 5px 10px rgba(0, 0, 0, 0.28));
+  display: block;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.24));
 }
 
 .blue-section-title {
@@ -3410,25 +3408,18 @@ body {
   }
 
   .mobile-app-logo-wrap {
-    position: relative;
-    width: 124px;
+    width: 132px;
     height: 42px;
+    display: flex;
+    align-items: center;
     overflow: hidden;
   }
 
   .mobile-app-logo {
-    position: absolute;
-    width: 149px;
+    width: 132px;
     height: auto;
-    left: -13px;
-    top: -26px;
-    object-fit: unset;
-    filter:
-      brightness(1.22)
-      saturate(1.1)
-      drop-shadow(0 0 1.15px rgba(255, 255, 255, 0.98))
-      drop-shadow(0 0 0.7px rgba(255, 255, 255, 0.78))
-      drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+    display: block;
+    filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.22));
   }
 
   .mobile-app-actions {
@@ -3811,11 +3802,11 @@ body {
   }
 
   .mobile-app-logo-wrap {
-    width: 124px;
+    width: 132px;
   }
 
   .mobile-app-logo {
-    width: 149px;
+    width: 132px;
   }
 
   .chat-header {
