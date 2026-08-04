@@ -76,8 +76,37 @@ export async function login(username, password) {
     body: formData,
   });
 
+  if (data.access_token) {
+    saveToken(data.access_token);
+  }
+
+  return data;
+}
+
+export async function verifyMfaLogin(challengeToken, code) {
+  const data = await apiRequest('/token/mfa', {
+    method: 'POST',
+    body: JSON.stringify({
+      challenge_token: challengeToken,
+      code,
+    }),
+  });
+
   saveToken(data.access_token);
   return data;
+}
+
+export async function startMfaSetup() {
+  return apiRequest('/users/me/mfa/setup', {
+    method: 'POST',
+  });
+}
+
+export async function confirmMfaSetup(code) {
+  return apiRequest('/users/me/mfa/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
 }
 
 export async function getCurrentUser() {

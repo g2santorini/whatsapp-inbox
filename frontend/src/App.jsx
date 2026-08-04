@@ -5,6 +5,9 @@ import SettingsPanel from './components/SettingsPanel';
 import {
   getToken,
   login,
+  verifyMfaLogin,
+  startMfaSetup,
+  confirmMfaSetup,
   clearToken,
   changeMyPassword,
   getCurrentUser,
@@ -90,6 +93,12 @@ const EMPTY_REQUIRED_PASSWORD_CHANGE = {
   currentPassword: '',
   newPassword: '',
   confirmPassword: '',
+};
+
+const EMPTY_MFA_SETUP_STATE = {
+  secret: '',
+  otpauth_uri: '',
+  qr_code_data_url: '',
 };
 
 function getRelativeLuminance(hexColor) {
@@ -838,6 +847,15 @@ function App() {
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginNotice, setLoginNotice] = useState('');
+  const [mfaChallengeToken, setMfaChallengeToken] = useState('');
+  const [mfaLoginCode, setMfaLoginCode] = useState('');
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+  const [mfaSetupData, setMfaSetupData] = useState(EMPTY_MFA_SETUP_STATE);
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState([]);
+  const [isStartingMfaSetup, setIsStartingMfaSetup] = useState(false);
+  const [isConfirmingMfaSetup, setIsConfirmingMfaSetup] = useState(false);
+  const [didCopyRecoveryCodes, setDidCopyRecoveryCodes] = useState(false);
   const [requiredPasswordChange, setRequiredPasswordChange] = useState(
     EMPTY_REQUIRED_PASSWORD_CHANGE
   );
@@ -2447,6 +2465,13 @@ function App() {
       setIsLoggingIn(true);
       const data = await login(username, password);
       setPassword('');
+
+      if (data.mfa_required && data.challenge_token) {
+        setMfaChallengeToken(data.challenge_token);
+        setMfaLoginCode('');
+        return;
+      }
+
       setToken(data.access_token);
     } catch (err) {
       if (err.status === 429) {
@@ -2458,6 +2483,84 @@ function App() {
     } finally {
       setIsLoggingIn(false);
     }
+  }
+
+  async function handleMfaLogin(event) {
+    event.preventDefault();
+    setError('');
+
+    try {
+      setIsVerifyingMfa(true);
+      const data = await verifyMfaLogin(mfaChallengeToken, mfaLoginCode);
+      setMfaChallengeToken('');
+      setMfaLoginCode('');
+      setToken(data.access_token);
+    } catch (err) {
+      const message = getErrorMessage(err, 'Could not verify Authenticator code.');
+
+      if (/sign in again/i.test(message)) {
+        setMfaChallengeToken('');
+        setMfaLoginCode('');
+      }
+
+      setError(message);
+    } finally {
+      setIsVerifyingMfa(false);
+    }
+  }
+
+  function cancelMfaLogin() {
+    setMfaChallengeToken('');
+    setMfaLoginCode('');
+    setError('');
+  }
+
+  async function beginMfaSetup() {
+    setError('');
+
+    try {
+      setIsStartingMfaSetup(true);
+      const data = await startMfaSetup();
+      setMfaSetupData(data);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not start Authenticator setup.'));
+    } finally {
+      setIsStartingMfaSetup(false);
+    }
+  }
+
+  async function handleMfaSetupConfirmation(event) {
+    event.preventDefault();
+    setError('');
+
+    try {
+      setIsConfirmingMfaSetup(true);
+      const data = await confirmMfaSetup(mfaSetupCode);
+      setMfaSetupCode('');
+      setMfaSetupData(EMPTY_MFA_SETUP_STATE);
+      setMfaRecoveryCodes(data.recovery_codes || []);
+      setDidCopyRecoveryCodes(false);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not confirm Authenticator setup.'));
+    } finally {
+      setIsConfirmingMfaSetup(false);
+    }
+  }
+
+  async function copyRecoveryCodes() {
+    try {
+      await navigator.clipboard.writeText(mfaRecoveryCodes.join('\n'));
+      setDidCopyRecoveryCodes(true);
+    } catch {
+      setError('Could not copy recovery codes. Save them manually.');
+    }
+  }
+
+  function finishMfaSetup() {
+    const signedInUsername = user?.username || username;
+    handleLogout();
+    setUsername(signedInUsername);
+    setLoginNotice('Authenticator enabled. Sign in again and enter your 6-digit code.');
   }
 
   function updateRequiredPasswordChange(fieldName, value) {
@@ -2547,6 +2650,15 @@ function App() {
     setPassword('');
     setIsLoggingIn(false);
     setLoginNotice('');
+    setMfaChallengeToken('');
+    setMfaLoginCode('');
+    setIsVerifyingMfa(false);
+    setMfaSetupData(EMPTY_MFA_SETUP_STATE);
+    setMfaSetupCode('');
+    setMfaRecoveryCodes([]);
+    setIsStartingMfaSetup(false);
+    setIsConfirmingMfaSetup(false);
+    setDidCopyRecoveryCodes(false);
     setRequiredPasswordChange(EMPTY_REQUIRED_PASSWORD_CHANGE);
     setIsChangingRequiredPassword(false);
     setReportFilters({
@@ -2568,7 +2680,7 @@ function App() {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
 
-      if (currentUser.must_change_password) {
+      if (currentUser.must_change_password || currentUser.mfa_setup_required) {
         return;
       }
 
@@ -3362,7 +3474,6 @@ function App() {
       loadInitialData();
     }
   }, [token]);
-
   useEffect(() => {
     if (
       !token ||
@@ -3919,6 +4030,55 @@ function App() {
     );
   }
 
+  if (!token && mfaChallengeToken) {
+    return (
+      <div className="login-page">
+        <form className="login-card mfa-login-card" onSubmit={handleMfaLogin}>
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Two-step verification</p>
+            </div>
+          </div>
+
+          <div className="password-change-intro mfa-login-intro">
+            <strong>Enter your Authenticator code</strong>
+            <span>
+              Open Google Authenticator, Microsoft Authenticator, or another TOTP app.
+              You can also use one recovery code.
+            </span>
+          </div>
+
+          <label className="login-field">
+            <span>6-digit code or recovery code</span>
+            <input
+              value={mfaLoginCode}
+              onChange={(event) => setMfaLoginCode(event.target.value)}
+              placeholder="000000"
+              autoComplete="one-time-code"
+              autoCapitalize="characters"
+              maxLength="32"
+              autoFocus
+              required
+            />
+          </label>
+
+          <button type="submit" disabled={isVerifyingMfa}>
+            {isVerifyingMfa ? 'Verifying...' : 'Verify and continue'}
+          </button>
+
+          <button type="button" className="login-secondary-button" onClick={cancelMfaLogin}>
+            Back to login
+          </button>
+
+          {error && <p className="error-message">{error}</p>}
+        </form>
+      </div>
+    );
+  }
+
   if (!token) {
     return (
       <div className="login-page">
@@ -4058,6 +4218,104 @@ function App() {
 
           {error && <p className="error-message">{error}</p>}
         </form>
+      </div>
+    );
+  }
+
+  if (user.mfa_setup_required) {
+    return (
+      <div className="login-page mfa-setup-page">
+        <div className="login-card mfa-setup-card">
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Protect your administrator account</p>
+            </div>
+          </div>
+
+          {mfaRecoveryCodes.length > 0 ? (
+            <div className="mfa-recovery-step">
+              <div className="password-change-intro mfa-success-intro">
+                <strong>Authenticator is enabled</strong>
+                <span>
+                  Save these recovery codes now. Each code works once if you lose access
+                  to your Authenticator app.
+                </span>
+              </div>
+
+              <div className="mfa-recovery-codes" aria-label="Recovery codes">
+                {mfaRecoveryCodes.map((code) => (
+                  <code key={code}>{code}</code>
+                ))}
+              </div>
+
+              <button type="button" className="login-secondary-button" onClick={copyRecoveryCodes}>
+                {didCopyRecoveryCodes ? 'Recovery codes copied' : 'Copy recovery codes'}
+              </button>
+
+              <button type="button" onClick={finishMfaSetup}>
+                I saved them — sign in again
+              </button>
+            </div>
+          ) : mfaSetupData.qr_code_data_url ? (
+            <form className="mfa-setup-form" onSubmit={handleMfaSetupConfirmation}>
+              <div className="mfa-setup-layout">
+                <div className="mfa-qr-wrap">
+                  <img src={mfaSetupData.qr_code_data_url} alt="Authenticator QR code" />
+                </div>
+
+                <div className="mfa-setup-steps">
+                  <strong>Set up Authenticator</strong>
+                  <span>1. Open your Authenticator app.</span>
+                  <span>2. Scan this QR code.</span>
+                  <span>3. Enter the 6-digit code shown in the app.</span>
+                </div>
+              </div>
+
+              <details className="mfa-manual-key">
+                <summary>Cannot scan the QR code?</summary>
+                <div>
+                  <span>Enter this setup key manually:</span>
+                  <code>{mfaSetupData.secret}</code>
+                </div>
+              </details>
+
+              <label className="login-field">
+                <span>6-digit Authenticator code</span>
+                <input
+                  value={mfaSetupCode}
+                  onChange={(event) => setMfaSetupCode(event.target.value)}
+                  placeholder="000000"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength="6"
+                  autoFocus
+                  required
+                />
+              </label>
+
+              <button type="submit" disabled={isConfirmingMfaSetup}>
+                {isConfirmingMfaSetup ? 'Confirming...' : 'Enable Authenticator'}
+              </button>
+            </form>
+          ) : (
+            <div className="mfa-setup-loading">
+              <strong>Authenticator setup is required</strong>
+              <span>
+                Connect Google Authenticator, Microsoft Authenticator, or another TOTP app
+                before opening the inbox.
+              </span>
+              <button type="button" onClick={beginMfaSetup} disabled={isStartingMfaSetup}>
+                {isStartingMfaSetup ? 'Preparing...' : 'Start secure setup'}
+              </button>
+            </div>
+          )}
+
+          {error && <p className="error-message">{error}</p>}
+        </div>
       </div>
     );
   }

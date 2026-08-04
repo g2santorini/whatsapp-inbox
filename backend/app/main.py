@@ -1,12 +1,15 @@
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
 import secrets
 
 import pyotp
+import qrcode
+import qrcode.image.svg
 import requests
 from cryptography.fernet import Fernet, InvalidToken
 from datetime import datetime, timedelta
@@ -1281,6 +1284,13 @@ class Token(BaseModel):
     token_type: str
 
 
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: str | None = None
+    mfa_required: bool = False
+    challenge_token: str | None = None
+
+
 class TokenData(BaseModel):
     username: str | None = None
 
@@ -1327,6 +1337,8 @@ MFA_TOTP_PERIOD_SECONDS = 30
 MFA_TOTP_WINDOW = 1
 MFA_RECOVERY_CODE_COUNT = 10
 MFA_RECOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+MFA_CHALLENGE_MINUTES = int(os.getenv("MFA_CHALLENGE_MINUTES", "5"))
+MFA_CHALLENGE_MAX_ATTEMPTS = int(os.getenv("MFA_CHALLENGE_MAX_ATTEMPTS", "5"))
 
 
 def get_mfa_fernet() -> Fernet:
@@ -1394,6 +1406,19 @@ def build_otpauth_uri(user: models.User, secret: str) -> str:
     )
 
 
+def build_mfa_qr_code_data_url(otpauth_uri: str) -> str:
+    image = qrcode.make(
+        otpauth_uri,
+        image_factory=qrcode.image.svg.SvgPathImage,
+        box_size=8,
+        border=2,
+    )
+    buffer = io.BytesIO()
+    image.save(buffer)
+    encoded_svg = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded_svg}"
+
+
 def hash_recovery_code(code: str) -> str:
     normalized_code = normalize_mfa_code(code)
     return hmac.new(
@@ -1416,6 +1441,90 @@ def generate_recovery_codes() -> tuple[list[str], list[str]]:
 
     hashed_codes = [hash_recovery_code(code) for code in plain_codes]
     return plain_codes, hashed_codes
+
+
+def hash_mfa_challenge_token(challenge_token: str) -> str:
+    return hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+
+
+def cleanup_mfa_login_challenges(db: Session, now: datetime) -> None:
+    stale_cutoff = now - timedelta(days=1)
+    db.query(models.MfaLoginChallenge).filter(
+        or_(
+            models.MfaLoginChallenge.expires_at < now,
+            and_(
+                models.MfaLoginChallenge.consumed_at.isnot(None),
+                models.MfaLoginChallenge.consumed_at < stale_cutoff,
+            ),
+        )
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def create_mfa_login_challenge(
+    db: Session,
+    user: models.User,
+    now: datetime,
+) -> str:
+    cleanup_mfa_login_challenges(db, now)
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == user.id,
+        models.MfaLoginChallenge.consumed_at.is_(None),
+    ).delete(synchronize_session=False)
+
+    challenge_token = secrets.token_urlsafe(32)
+    db.add(
+        models.MfaLoginChallenge(
+            challenge_hash=hash_mfa_challenge_token(challenge_token),
+            user_id=user.id,
+            failed_attempts=0,
+            created_at=now,
+            expires_at=now + timedelta(minutes=MFA_CHALLENGE_MINUTES),
+        )
+    )
+    db.commit()
+    return challenge_token
+
+
+def load_recovery_code_hashes(user: models.User) -> list[str]:
+    if not user.mfa_recovery_codes_hashed:
+        return []
+
+    try:
+        values = json.loads(user.mfa_recovery_codes_hashed)
+    except (TypeError, ValueError):
+        return []
+
+    return [str(value) for value in values if value]
+
+
+def verify_and_consume_mfa_code(user: models.User, code: str) -> bool:
+    secret = decrypt_mfa_value(user.mfa_secret_encrypted)
+
+    if verify_totp_code(secret, code):
+        return True
+
+    submitted_hash = hash_recovery_code(code)
+    recovery_hashes = load_recovery_code_hashes(user)
+
+    for index, stored_hash in enumerate(recovery_hashes):
+        if hmac.compare_digest(submitted_hash, stored_hash):
+            del recovery_hashes[index]
+            user.mfa_recovery_codes_hashed = json.dumps(recovery_hashes)
+            return True
+
+    return False
+
+
+def issue_access_token_for_user(user: models.User) -> Token:
+    access_token = create_access_token(
+        data={
+            "sub": user.username,
+            "ver": user.auth_version or 1,
+        },
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return Token(access_token=access_token, token_type="bearer")
 
 
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
@@ -1851,6 +1960,12 @@ async def get_current_active_user(
         raise HTTPException(
             status_code=403,
             detail="Password change required",
+        )
+
+    if getattr(current_user, "mfa_setup_required", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticator setup required",
         )
 
     return current_user
@@ -3121,9 +3236,12 @@ def start_current_user_mfa_setup(
 
     db.commit()
 
+    otpauth_uri = build_otpauth_uri(current_user, secret)
+
     return schemas.MfaSetupStartOut(
         secret=secret,
-        otpauth_uri=build_otpauth_uri(current_user, secret),
+        otpauth_uri=otpauth_uri,
+        qr_code_data_url=build_mfa_qr_code_data_url(otpauth_uri),
     )
 
 
@@ -3947,7 +4065,7 @@ def delete_quick_reply(
     return {"status": "deleted", "quick_reply_id": quick_reply_id}
 
 
-@app.post("/token", response_model=Token)
+@app.post("/token", response_model=LoginResponse)
 async def login_for_access_token(
     request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -3982,17 +4100,84 @@ async def login_for_access_token(
 
     clear_login_failures(db, throttle_key)
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    if user.mfa_enabled:
+        challenge_token = create_mfa_login_challenge(db, user, now)
+        return LoginResponse(
+            mfa_required=True,
+            challenge_token=challenge_token,
+        )
 
-    access_token = create_access_token(
-        data={
-            "sub": user.username,
-            "ver": user.auth_version or 1,
-        },
-        expires_delta=access_token_expires,
+    token = issue_access_token_for_user(user)
+    return LoginResponse(
+        access_token=token.access_token,
+        token_type=token.token_type,
     )
 
-    return Token(access_token=access_token, token_type="bearer")
+
+@app.post("/token/mfa", response_model=Token)
+def complete_mfa_login(
+    verification: schemas.MfaLoginVerifyRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    now = datetime.utcnow()
+    challenge_hash = hash_mfa_challenge_token(verification.challenge_token)
+    challenge = (
+        db.query(models.MfaLoginChallenge)
+        .filter(models.MfaLoginChallenge.challenge_hash == challenge_hash)
+        .first()
+    )
+
+    if (
+        not challenge
+        or challenge.consumed_at is not None
+        or challenge.expires_at <= now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticator request expired. Sign in again.",
+        )
+
+    if challenge.failed_attempts >= MFA_CHALLENGE_MAX_ATTEMPTS:
+        challenge.consumed_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Too many authenticator attempts. Sign in again.",
+        )
+
+    user = db.query(models.User).filter(models.User.id == challenge.user_id).first()
+
+    if not user or user.disabled or not user.mfa_enabled:
+        challenge.consumed_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticator login is no longer available. Sign in again.",
+        )
+
+    if not verify_and_consume_mfa_code(user, verification.code):
+        challenge.failed_attempts += 1
+
+        if challenge.failed_attempts >= MFA_CHALLENGE_MAX_ATTEMPTS:
+            challenge.consumed_at = now
+
+        db.commit()
+
+        if challenge.consumed_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Too many authenticator attempts. Sign in again.",
+            )
+
+        attempts_left = MFA_CHALLENGE_MAX_ATTEMPTS - challenge.failed_attempts
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authenticator code. {attempts_left} attempts remaining.",
+        )
+
+    challenge.consumed_at = now
+    db.commit()
+    return issue_access_token_for_user(user)
 
 
 @app.get("/users/me/", response_model=schemas.UserOut)

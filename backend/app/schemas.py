@@ -59,9 +59,15 @@ class UserPasswordChange(BaseModel):
 class MfaSetupStartOut(BaseModel):
     secret: str
     otpauth_uri: str
+    qr_code_data_url: str
 
 
 class MfaCodeRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=32)
+
+
+class MfaLoginVerifyRequest(BaseModel):
+    challenge_token: str = Field(..., min_length=32, max_length=256)
     code: str = Field(..., min_length=6, max_length=32)
 
 
