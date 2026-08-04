@@ -3837,6 +3837,8 @@ function App() {
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             placeholder="Username"
+            autoComplete="username"
+            required
           />
 
           <input
@@ -3844,9 +3846,21 @@ function App() {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Password"
             type="password"
+            autoComplete="current-password"
+            required
           />
 
           <button type="submit">Login</button>
+
+          <details className="login-recovery">
+            <summary>Forgot password?</summary>
+            <div className="login-recovery-note">
+              <strong>Contact your Sendro administrator.</strong>
+              <span>
+                An administrator can reset your password from Settings → Users.
+              </span>
+            </div>
+          </details>
 
           {error && <p className="error-message">{error}</p>}
         </form>

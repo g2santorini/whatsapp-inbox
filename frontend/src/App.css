@@ -923,6 +923,55 @@ textarea {
   cursor: pointer;
 }
 
+.login-recovery {
+  margin-top: -3px;
+}
+
+.login-recovery summary {
+  width: fit-content;
+  margin: 0 auto;
+  color: #345579;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  list-style: none;
+}
+
+.login-recovery summary::-webkit-details-marker {
+  display: none;
+}
+
+.login-recovery summary:hover,
+.login-recovery summary:focus-visible {
+  color: #071f3d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.login-recovery summary:focus-visible {
+  outline: 2px solid rgba(7, 92, 240, 0.32);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.login-recovery-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 11px;
+  padding: 12px 13px;
+  border: 1px solid #d7e5f2;
+  border-radius: 12px;
+  background: #f3f8fd;
+  color: #415872;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.login-recovery-note strong {
+  color: #0b2949;
+}
+
 .error-message {
   margin: 0;
   color: #991b1b;
