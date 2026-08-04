@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import './App.css';
-import sendroLogo from './assets/sendro_logo_clean.svg';
+import sendroLogo from './assets/sendro_logo_glossy.png';
 import SettingsPanel from './components/SettingsPanel';
 import {
   getToken,
@@ -3825,14 +3825,11 @@ function App() {
       <div className="login-page">
         <form className="login-card" onSubmit={handleLogin}>
           <div className="login-brand">
-            <div className="brand">
-              <div className="brand-icon">
-                <img src={sendroLogo} alt="Sendro logo" className="brand-logo" />
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
               </div>
-              <div>
-                <h1>Sendro</h1>
-                <p>Team WhatsApp Inbox</p>
-              </div>
+              <p>Team WhatsApp Inbox</p>
             </div>
           </div>
 
@@ -3866,8 +3863,7 @@ function App() {
 
       <header className="mobile-app-bar">
         <div className="mobile-app-logo-wrap">
-          <img src={sendroLogo} alt="Sendro" className="mobile-app-logo mobile-app-logo-white" />
-          <img src={sendroLogo} alt="" className="mobile-app-logo mobile-app-logo-accent" aria-hidden="true" />
+          <img src={sendroLogo} alt="Sendro" className="mobile-app-logo" />
         </div>
         <button
           type="button"
@@ -3902,8 +3898,7 @@ function App() {
         <div className="blue-sidebar-top">
           <div className="blue-brand">
             <div className="blue-brand-logo-wrap">
-              <img src={sendroLogo} alt="Sendro" className="blue-brand-logo blue-brand-logo-white" />
-              <img src={sendroLogo} alt="" className="blue-brand-logo blue-brand-logo-accent" aria-hidden="true" />
+              <img src={sendroLogo} alt="Sendro" className="blue-brand-logo" />
             </div>
             <button
               type="button"

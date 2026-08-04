@@ -831,6 +831,32 @@ textarea {
   margin-bottom: 8px;
 }
 
+.glossy-login-brand {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.login-brand-logo-wrap {
+  position: relative;
+  width: 176px;
+  height: 48px;
+  overflow: hidden;
+}
+
+.login-brand-logo {
+  position: absolute;
+  width: 212px;
+  height: auto;
+  left: -18px;
+  top: -42px;
+  display: block;
+}
+
+.glossy-login-brand p {
+  margin: 0 0 0 2px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -2243,25 +2269,23 @@ body {
 
 .blue-brand-logo-wrap {
   position: relative;
-  width: 118px;
+  width: 126px;
   height: 47px;
   overflow: hidden;
 }
 
 .blue-brand-logo {
   position: absolute;
-  inset: 0;
-  width: 118px;
-  height: 47px;
-  object-fit: contain;
-}
-
-.blue-brand-logo-white {
-  filter: brightness(0) invert(1);
-}
-
-.blue-brand-logo-accent {
-  clip-path: inset(0 58% 0 22%);
+  width: 152px;
+  height: auto;
+  left: -13px;
+  top: -24px;
+  object-fit: unset;
+  filter:
+    brightness(1.18)
+    saturate(1.1)
+    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.18))
+    drop-shadow(0 5px 10px rgba(0, 0, 0, 0.28));
 }
 
 .blue-section-title {
@@ -3386,24 +3410,23 @@ body {
 
   .mobile-app-logo-wrap {
     position: relative;
-    width: 116px;
+    width: 124px;
     height: 42px;
+    overflow: hidden;
   }
 
   .mobile-app-logo {
     position: absolute;
-    inset: 0;
-    width: 116px;
-    height: 42px;
-    object-fit: contain;
-  }
-
-  .mobile-app-logo-white {
-    filter: brightness(0) invert(1);
-  }
-
-  .mobile-app-logo-accent {
-    clip-path: inset(0 58% 0 22%);
+    width: 149px;
+    height: auto;
+    left: -13px;
+    top: -26px;
+    object-fit: unset;
+    filter:
+      brightness(1.18)
+      saturate(1.1)
+      drop-shadow(0 1px 1px rgba(255, 255, 255, 0.18))
+      drop-shadow(0 5px 10px rgba(0, 0, 0, 0.28));
   }
 
   .mobile-app-actions {
