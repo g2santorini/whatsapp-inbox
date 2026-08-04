@@ -30,6 +30,7 @@ class User(Base):
     can_view_reports = Column(Boolean, default=False, nullable=False)
     auth_version = Column(Integer, default=1, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
+    mfa_required = Column(Boolean, default=False, nullable=False)
     mfa_enabled = Column(Boolean, default=False, nullable=False)
     mfa_secret_encrypted = Column(Text, nullable=True)
     mfa_pending_secret_encrypted = Column(Text, nullable=True)
@@ -37,7 +38,7 @@ class User(Base):
 
     @property
     def mfa_setup_required(self):
-        return self.role == "admin" and not self.mfa_enabled
+        return (self.role == "admin" or self.mfa_required) and not self.mfa_enabled
 
 
 class MfaLoginChallenge(Base):

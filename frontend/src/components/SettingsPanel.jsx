@@ -11,6 +11,8 @@ import {
   getQuickReplyCategories,
   getUsers,
   resetUserPassword,
+  resetUserMfa,
+  revokeUserSessions,
   updateQuickReply,
   updateQuickReplyCategory,
   updateUser,
@@ -88,6 +90,7 @@ const EMPTY_NEW_USER_FORM = {
   assignment_text_color: '',
   password: '',
   role: 'user',
+  mfa_required: false,
 };
 
 const EMPTY_EDIT_USER_FORM = {
@@ -100,6 +103,7 @@ const EMPTY_EDIT_USER_FORM = {
   role: 'user',
   disabled: false,
   can_view_reports: false,
+  mfa_required: false,
 };
 
 const EMPTY_PASSWORD_RESET_FORM = {
@@ -575,6 +579,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
         : 'user',
       disabled: Boolean(userToEdit.disabled),
       can_view_reports: Boolean(userToEdit.can_view_reports),
+      mfa_required: Boolean(userToEdit.mfa_required),
     });
   }
 
@@ -655,6 +660,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
         ),
         password,
         role,
+        mfa_required: Boolean(newUserForm.mfa_required),
       });
 
       publishUsers([...users, createdUser]);
@@ -716,13 +722,23 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
         can_view_reports: reportsIncludedByRole(editUserForm.role)
           ? Boolean(userToUpdate.can_view_reports)
           : Boolean(editUserForm.can_view_reports),
+        mfa_required: Boolean(editUserForm.mfa_required),
       });
+
+      const securityPolicyChanged =
+        userToUpdate.role !== editUserForm.role ||
+        Boolean(userToUpdate.disabled) !== Boolean(editUserForm.disabled) ||
+        Boolean(userToUpdate.mfa_required) !== Boolean(editUserForm.mfa_required);
 
       replaceUser(updatedUser);
       setEditingUserId(null);
       setEditUserForm(EMPTY_EDIT_USER_FORM);
       setResetPasswordUserId(null);
-      setSettingsSuccess('User settings updated successfully.');
+      setSettingsSuccess(
+        securityPolicyChanged
+          ? 'User settings updated. Existing sessions were signed out because the security policy changed.'
+          : 'User settings updated successfully.'
+      );
     } catch (err) {
       setSettingsError(getErrorMessage(err, 'Could not update user settings.'));
     } finally {
@@ -763,6 +779,59 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
       setSettingsSuccess('Temporary password set. Existing sessions were signed out.');
     } catch (err) {
       setSettingsError(getErrorMessage(err, 'Could not reset password.'));
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function handleResetAuthenticator(userToUpdate) {
+    const willRequireSetup =
+      userToUpdate.role === 'admin' || Boolean(userToUpdate.mfa_required);
+    const confirmed = window.confirm(
+      willRequireSetup
+        ? `Reset Authenticator for ${userToUpdate.full_name || userToUpdate.username}? Existing sessions will be signed out and setup will be required again.`
+        : `Remove Authenticator for ${userToUpdate.full_name || userToUpdate.username}? Existing sessions will be signed out.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setUpdatingUserId(userToUpdate.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      await resetUserMfa(userToUpdate.id);
+      const refreshedUsers = await getUsers();
+      publishUsers(refreshedUsers);
+      setSettingsSuccess(
+        willRequireSetup
+          ? 'Authenticator reset. The user must set it up again at next sign-in.'
+          : 'Authenticator removed and existing sessions were signed out.'
+      );
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not reset Authenticator.'));
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function handleRevokeSessions(userToUpdate) {
+    const confirmed = window.confirm(
+      `Sign out ${userToUpdate.full_name || userToUpdate.username} from every active Sendro session?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setUpdatingUserId(userToUpdate.id);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      const updatedUser = await revokeUserSessions(userToUpdate.id);
+      replaceUser(updatedUser);
+      setSettingsSuccess('All active sessions for this user were signed out.');
+    } catch (err) {
+      setSettingsError(getErrorMessage(err, 'Could not sign out user sessions.'));
     } finally {
       setUpdatingUserId(null);
     }
@@ -1268,6 +1337,23 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                         </select>
                       </label>
 
+                      <label className="settings-toggle-card settings-form-span settings-authenticator-toggle">
+                        <span>
+                          <strong>Require Authenticator</strong>
+                          <small>
+                            {newUserForm.role === 'admin'
+                              ? 'Required for every administrator account.'
+                              : 'The user will connect an Authenticator app after changing the temporary password.'}
+                          </small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={newUserForm.role === 'admin' || Boolean(newUserForm.mfa_required)}
+                          onChange={(event) => updateNewUserForm('mfa_required', event.target.checked)}
+                          disabled={isCreatingUser || newUserForm.role === 'admin'}
+                        />
+                      </label>
+
                       <div className="settings-color-field settings-form-span">
                         <span>Conversation color</span>
                         <div className="settings-color-row">
@@ -1425,6 +1511,10 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                 {getUserDisplayLabel(singleUser)}
                               </span>
                               <span className="settings-role-label">{formatRole(singleUser.role)}</span>
+                              <span className={`settings-mfa-status ${singleUser.mfa_enabled ? 'enabled' : singleUser.mfa_setup_required ? 'required' : 'optional'}`}>
+                                <SettingsIcon name="shield" size={13} />
+                                {singleUser.mfa_enabled ? 'Authenticator on' : singleUser.mfa_setup_required ? 'Setup required' : 'Authenticator optional'}
+                              </span>
                               <span className={`settings-account-status ${singleUser.disabled ? 'blocked' : singleUser.must_change_password ? 'pending' : 'active'}`}>
                                 <i /> {singleUser.disabled ? 'Blocked' : singleUser.must_change_password ? 'Reset required' : 'Active'}
                               </span>
@@ -1570,6 +1660,27 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     />
                                   </label>
 
+                                  <label className="settings-toggle-card secure">
+                                    <span>
+                                      <strong>Require Authenticator</strong>
+                                      <small>
+                                        {editUserForm.role === 'admin'
+                                          ? 'Mandatory for administrators'
+                                          : editUserForm.mfa_required
+                                            ? 'Setup required at next sign-in if not enabled'
+                                            : singleUser.mfa_enabled
+                                              ? 'Not mandatory; use Reset Authenticator below to remove it'
+                                              : 'Password-only login is allowed'}
+                                      </small>
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={editUserForm.role === 'admin' || Boolean(editUserForm.mfa_required)}
+                                      onChange={(event) => updateEditUserForm('mfa_required', event.target.checked)}
+                                      disabled={isUpdating || editUserForm.role === 'admin'}
+                                    />
+                                  </label>
+
                                   <label className="settings-toggle-card danger">
                                     <span>
                                       <strong>Account active</strong>
@@ -1603,6 +1714,49 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     </button>
                                   </div>
                                 )}
+
+                                <div className="settings-security-panel">
+                                  <div className="settings-security-summary">
+                                    <span className={`settings-security-icon ${singleUser.mfa_enabled ? 'enabled' : singleUser.mfa_setup_required ? 'required' : 'optional'}`}>
+                                      <SettingsIcon name="shield" size={18} />
+                                    </span>
+                                    <span>
+                                      <strong>Authenticator security</strong>
+                                      <small>
+                                        {singleUser.mfa_enabled
+                                          ? 'Connected. Password and a changing 6-digit code are required.'
+                                          : singleUser.mfa_setup_required
+                                            ? 'The user must connect an Authenticator app before opening the inbox.'
+                                            : 'Not required for this account.'}
+                                      </small>
+                                    </span>
+                                  </div>
+
+                                  {!isCurrentUser && (
+                                    <div className="settings-security-actions">
+                                      {(singleUser.mfa_enabled || singleUser.mfa_setup_required) && (
+                                        <button
+                                          type="button"
+                                          className="settings-secondary-button"
+                                          onClick={() => handleResetAuthenticator(singleUser)}
+                                          disabled={isUpdating}
+                                        >
+                                          <SettingsIcon name="refresh" size={15} />
+                                          Reset Authenticator
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="settings-secondary-button"
+                                        onClick={() => handleRevokeSessions(singleUser)}
+                                        disabled={isUpdating}
+                                      >
+                                        <SettingsIcon name="lock" size={15} />
+                                        Sign out all sessions
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
 
                                 <div className="settings-editor-actions">
                                   {!isCurrentUser ? (

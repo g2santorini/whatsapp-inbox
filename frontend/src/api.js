@@ -138,6 +138,18 @@ export async function resetUserPassword(userId, password) {
   });
 }
 
+export async function resetUserMfa(userId) {
+  return apiRequest(`/users/${userId}/mfa/reset`, {
+    method: 'POST',
+  });
+}
+
+export async function revokeUserSessions(userId) {
+  return apiRequest(`/users/${userId}/sessions/revoke`, {
+    method: 'POST',
+  });
+}
+
 export async function changeMyPassword(currentPassword, newPassword) {
   return apiRequest('/users/me/password', {
     method: 'PATCH',

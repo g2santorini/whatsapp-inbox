@@ -20,6 +20,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(..., max_length=128)
     role: Optional[str] = None
+    mfa_required: bool = False
 
 
 class UserOut(UserBase):
@@ -28,6 +29,7 @@ class UserOut(UserBase):
     disabled: bool
     can_view_reports: bool
     must_change_password: bool
+    mfa_required: bool
     mfa_enabled: bool
     mfa_setup_required: bool
 
@@ -45,6 +47,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     disabled: Optional[bool] = None
     can_view_reports: Optional[bool] = None
+    mfa_required: Optional[bool] = None
 
 
 class UserPasswordReset(BaseModel):

@@ -296,6 +296,11 @@ def ensure_user_mfa_columns():
     boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
     columns_to_add = []
 
+    if "mfa_required" not in columns:
+        columns_to_add.append(
+            ("mfa_required", f"BOOLEAN NOT NULL DEFAULT {boolean_default}")
+        )
+
     if "mfa_enabled" not in columns:
         columns_to_add.append(
             ("mfa_enabled", f"BOOLEAN NOT NULL DEFAULT {boolean_default}")
@@ -2917,6 +2922,7 @@ def create_user(
         role=requested_role,
         disabled=False,
         must_change_password=True,
+        mfa_required=bool(user.mfa_required),
     )
 
     db.add(db_user)
@@ -2960,6 +2966,7 @@ def update_user(
     new_assignment_color = None
     new_assignment_text_color = None
     new_role = None
+    new_mfa_required = None
 
     if user_update.username is not None:
         new_username = user_update.username.strip()
@@ -3065,6 +3072,13 @@ def update_user(
                 detail="You cannot disable your own account",
             )
 
+    if user_update.mfa_required is not None:
+        new_mfa_required = bool(user_update.mfa_required)
+
+    original_role = db_user.role
+    original_disabled = db_user.disabled
+    original_mfa_required = db_user.mfa_required
+
     is_admin_role_being_removed = (
         db_user.role == "admin" and new_role is not None and new_role != "admin"
     )
@@ -3113,6 +3127,21 @@ def update_user(
 
     if user_update.can_view_reports is not None:
         db_user.can_view_reports = user_update.can_view_reports
+
+    if new_mfa_required is not None:
+        db_user.mfa_required = new_mfa_required
+
+    security_policy_changed = (
+        db_user.role != original_role
+        or db_user.disabled != original_disabled
+        or db_user.mfa_required != original_mfa_required
+    )
+
+    if security_policy_changed:
+        db_user.auth_version = (db_user.auth_version or 1) + 1
+        db.query(models.MfaLoginChallenge).filter(
+            models.MfaLoginChallenge.user_id == db_user.id
+        ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(db_user)
@@ -3339,6 +3368,41 @@ def reset_user_mfa(
         mfa_setup_required=db_user.mfa_setup_required,
     )
 
+
+@app.post(
+    "/users/{user_id}/sessions/revoke",
+    response_model=schemas.UserOut,
+)
+def revoke_user_sessions(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can sign out user sessions",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if db_user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Use the normal logout button for your own account",
+        )
+
+    db_user.auth_version = (db_user.auth_version or 1) + 1
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == db_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 
 def normalize_quick_reply_category_name(value: str | None) -> str:

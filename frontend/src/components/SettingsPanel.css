@@ -2282,3 +2282,141 @@
     flex-direction: column;
   }
 }
+
+/* Authenticator management */
+
+.settings-user-summary-actions {
+  flex-wrap: wrap;
+}
+
+.settings-mfa-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid #d9e4ef;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #687a91;
+  font-size: 9.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.settings-mfa-status.enabled {
+  border-color: #b9e8d4;
+  background: #effbf6;
+  color: #087f5b;
+}
+
+.settings-mfa-status.required {
+  border-color: #f4d59d;
+  background: #fff8eb;
+  color: #a65a06;
+}
+
+.settings-toggle-card.secure {
+  border-color: #c9dff7;
+  background: rgba(244, 249, 255, 0.92);
+}
+
+.settings-authenticator-toggle {
+  margin-top: 2px;
+}
+
+.settings-security-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid #d7e3ef;
+  border-radius: 10px;
+  background: rgba(248, 251, 255, 0.92);
+}
+
+.settings-security-summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-security-summary > span:last-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-security-summary strong {
+  color: #173a61;
+  font-size: 11.5px;
+}
+
+.settings-security-summary small {
+  color: #71839a;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.settings-security-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #d5e0ec;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #6a7e95;
+}
+
+.settings-security-icon.enabled {
+  border-color: #b9e8d4;
+  background: #effbf6;
+  color: #087f5b;
+}
+
+.settings-security-icon.required {
+  border-color: #f4d59d;
+  background: #fff8eb;
+  color: #a65a06;
+}
+
+.settings-security-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-security-actions .settings-secondary-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .settings-mfa-status.optional {
+    display: none;
+  }
+
+  .settings-security-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-security-actions {
+    justify-content: stretch;
+  }
+
+  .settings-security-actions .settings-secondary-button {
+    flex: 1 1 190px;
+    justify-content: center;
+  }
+}
