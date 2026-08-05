@@ -246,6 +246,35 @@ def ensure_user_profile_columns():
             print(f"✅ Added {column_name} column to users table", flush=True)
 
 
+def ensure_user_notification_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    if "desktop_notifications_enabled" in columns:
+        return
+
+    boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE users "
+                "ADD COLUMN desktop_notifications_enabled "
+                f"BOOLEAN NOT NULL DEFAULT {boolean_default}"
+            )
+        )
+
+    print(
+        "✅ Added desktop_notifications_enabled column to users table",
+        flush=True,
+    )
+
+
 def ensure_user_security_columns():
     inspector = inspect(engine)
 
@@ -332,6 +361,7 @@ ensure_follow_up_column()
 ensure_message_status_columns()
 ensure_user_report_permission_column()
 ensure_user_profile_columns()
+ensure_user_notification_columns()
 ensure_user_security_columns()
 ensure_user_mfa_columns()
 
@@ -4497,6 +4527,22 @@ async def read_users_me(
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
 
+    return current_user
+
+
+@app.patch("/users/me/preferences", response_model=schemas.UserOut)
+def update_current_user_preferences(
+    preferences: schemas.UserPreferencesUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if preferences.desktop_notifications_enabled is not None:
+        current_user.desktop_notifications_enabled = bool(
+            preferences.desktop_notifications_enabled
+        )
+
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 

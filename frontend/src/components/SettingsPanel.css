@@ -2420,3 +2420,123 @@
     justify-content: center;
   }
 }
+
+/* Personal desktop notification preferences */
+.settings-notification-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-notification-icon {
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.settings-notification-toggle {
+  min-height: 82px;
+  padding: 14px;
+  border-color: #cfdff0;
+  background: linear-gradient(145deg, #f8fbff, #ffffff);
+}
+
+.settings-notification-toggle strong {
+  font-size: 12px;
+}
+
+.settings-notification-toggle small {
+  max-width: 620px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.settings-notification-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 12px;
+  border: 1px solid #dce6f0;
+  border-radius: 9px;
+  background: #f8fbff;
+}
+
+.settings-notification-status > small {
+  color: #75859b;
+  font-size: 10px;
+}
+
+.settings-permission-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #607089;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.settings-permission-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.settings-permission-pill.granted {
+  background: #e9f9f2;
+  color: #11855f;
+}
+
+.settings-permission-pill.denied {
+  background: #fff0ef;
+  color: #c33f36;
+}
+
+.settings-permission-pill.unsupported {
+  background: #fff4e7;
+  color: #b86418;
+}
+
+.settings-notification-rules {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-notification-rules article {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid #dbe5ef;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.settings-notification-rules strong {
+  color: #273b59;
+  font-size: 11px;
+}
+
+.settings-notification-rules small {
+  color: #7a899e;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .settings-notification-rules {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-notification-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

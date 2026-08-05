@@ -28,6 +28,7 @@ class User(Base):
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     can_view_reports = Column(Boolean, default=False, nullable=False)
+    desktop_notifications_enabled = Column(Boolean, default=False, nullable=False)
     auth_version = Column(Integer, default=1, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
     mfa_required = Column(Boolean, default=False, nullable=False)

@@ -13,6 +13,7 @@ import {
   resetUserPassword,
   resetUserMfa,
   revokeUserSessions,
+  updateMyPreferences,
   updateQuickReply,
   updateQuickReplyCategory,
   updateUser,
@@ -62,6 +63,12 @@ const SETTINGS_SECTIONS = [
     label: 'Quick Replies',
     description: 'Folders, answers and shortcuts',
     icon: 'reply',
+  },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    description: 'Desktop reply reminders',
+    icon: 'bell',
   },
   {
     id: 'automation',
@@ -167,6 +174,12 @@ const SETTINGS_ICONS = {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
+    </>
+  ),
+  bell: (
+    <>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+      <path d="M10 21h4" />
     </>
   ),
   search: (
@@ -377,6 +390,15 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
   const [updatingUserId, setUpdatingUserId] = useState(null);
   const [settingsError, setSettingsError] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
+  const [isSavingNotificationPreference, setIsSavingNotificationPreference] =
+    useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return 'unsupported';
+    }
+
+    return window.Notification.permission;
+  });
 
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUserForm, setNewUserForm] = useState(EMPTY_NEW_USER_FORM);
@@ -414,7 +436,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
   const canContributeQuickReplies = Boolean(currentUser);
   const availableSettingsSections = isAdmin
     ? SETTINGS_SECTIONS
-    : SETTINGS_SECTIONS.filter((section) => section.id === 'quick-replies');
+    : SETTINGS_SECTIONS.filter((section) =>
+        ['quick-replies', 'notifications'].includes(section.id)
+      );
   const visibleUsers = useMemo(
     () => users.filter((singleUser) => !isSystemUser(singleUser)),
     [users]
@@ -505,6 +529,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
       ]);
 
       setCurrentUser(currentUserData);
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        setNotificationPermission(window.Notification.permission);
+      }
       if (currentUserData?.role !== 'admin') {
         setActiveSection('quick-replies');
       }
@@ -513,6 +540,56 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
       setSettingsError(getErrorMessage(err, 'Could not load users.'));
     } finally {
       setIsLoadingUsers(false);
+    }
+  }
+
+  async function handleDesktopNotificationsToggle(nextEnabled) {
+    if (!currentUser || isSavingNotificationPreference) {
+      return;
+    }
+
+    try {
+      setIsSavingNotificationPreference(true);
+      setSettingsError('');
+      setSettingsSuccess('');
+
+      if (nextEnabled) {
+        if (typeof window === 'undefined' || !('Notification' in window)) {
+          setNotificationPermission('unsupported');
+          throw new Error('Desktop notifications are not supported in this browser.');
+        }
+
+        let permission = window.Notification.permission;
+
+        if (permission === 'default') {
+          permission = await window.Notification.requestPermission();
+        }
+
+        setNotificationPermission(permission);
+
+        if (permission !== 'granted') {
+          throw new Error(
+            'Notification permission was not granted. Enable it in your browser settings and try again.'
+          );
+        }
+      }
+
+      const updatedUser = await updateMyPreferences({
+        desktop_notifications_enabled: Boolean(nextEnabled),
+      });
+
+      replaceUser(updatedUser);
+      setSettingsSuccess(
+        nextEnabled
+          ? 'Desktop reply reminders are enabled for your account.'
+          : 'Desktop reply reminders are disabled for your account.'
+      );
+    } catch (err) {
+      setSettingsError(
+        getErrorMessage(err, 'Could not update desktop notifications.')
+      );
+    } finally {
+      setIsSavingNotificationPreference(false);
     }
   }
 
@@ -1140,7 +1217,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
             <p>
               {isAdmin
                 ? 'Manage the people, permissions and tools behind your Sendro inbox.'
-                : 'Create and maintain your private answers and personal Favorites.'}
+                : 'Manage your private answers, Favorites and desktop reminders.'}
             </p>
           </div>
 
@@ -1190,7 +1267,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                 <small>
                   {isAdmin
                     ? 'Manage the complete workspace.'
-                    : 'Only you can see your personal replies.'}
+                    : 'Your replies and notification preference are personal.'}
                 </small>
               </span>
             </div>
@@ -2095,6 +2172,86 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                     )}
                   </section>
                 </div>
+              </div>
+            )}
+
+            {activeSection === 'notifications' && (
+              <div className="settings-view">
+                <div className="settings-view-heading">
+                  <div>
+                    <span className="settings-section-eyebrow">Personal alerts</span>
+                    <h2>Desktop notifications</h2>
+                    <p>
+                      Receive reply reminders when Sendro is open but the tab is in the
+                      background or the browser is minimized.
+                    </p>
+                  </div>
+                </div>
+
+                <section className="settings-automation-card settings-notification-card">
+                  <div className="settings-automation-heading">
+                    <span className="settings-automation-icon settings-notification-icon">
+                      <SettingsIcon name="bell" size={22} />
+                    </span>
+                    <div>
+                      <h3>Conversations needing attention</h3>
+                      <p>
+                        Sendro will remind you about unread conversations without showing
+                        popups while you are actively using the tab.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="settings-toggle-card settings-notification-toggle">
+                    <span>
+                      <strong>Desktop reply reminders</strong>
+                      <small>
+                        This preference belongs to your Sendro account. Browser permission
+                        is still required on each computer.
+                      </small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(currentUser?.desktop_notifications_enabled)}
+                      onChange={(event) =>
+                        handleDesktopNotificationsToggle(event.target.checked)
+                      }
+                      disabled={!currentUser || isSavingNotificationPreference}
+                      aria-label="Enable desktop reply reminders"
+                    />
+                  </label>
+
+                  <div className="settings-notification-status">
+                    <span className={`settings-permission-pill ${notificationPermission}`}>
+                      Browser permission:{' '}
+                      {notificationPermission === 'granted'
+                        ? 'Allowed'
+                        : notificationPermission === 'denied'
+                          ? 'Blocked'
+                          : notificationPermission === 'unsupported'
+                            ? 'Not supported'
+                            : 'Not requested'}
+                    </span>
+                    <small>
+                      Notifications work only while Sendro remains open in a browser tab.
+                    </small>
+                  </div>
+
+                  <div className="settings-notification-rules">
+                    <article>
+                      <strong>Background only</strong>
+                      <small>No popup while the Sendro tab is visible and active.</small>
+                    </article>
+                    <article>
+                      <strong>Every 5 minutes</strong>
+                      <small>Persistent pending conversations trigger a calm reminder.</small>
+                    </article>
+                    <article>
+                      <strong>High activity alert</strong>
+                      <small>More than 10 pending conversations trigger an immediate alert.</small>
+                    </article>
+                  </div>
+                </section>
               </div>
             )}
 

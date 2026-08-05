@@ -115,6 +115,13 @@ export async function getCurrentUser() {
   return apiRequest('/users/me/');
 }
 
+export async function updateMyPreferences(preferences) {
+  return apiRequest('/users/me/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify(preferences),
+  });
+}
+
 export async function getUsers() {
   return apiRequest('/users/');
 }

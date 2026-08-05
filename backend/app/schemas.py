@@ -28,6 +28,7 @@ class UserOut(UserBase):
     role: str
     disabled: bool
     can_view_reports: bool
+    desktop_notifications_enabled: bool
     must_change_password: bool
     mfa_required: bool
     mfa_enabled: bool
@@ -48,6 +49,10 @@ class UserUpdate(BaseModel):
     disabled: Optional[bool] = None
     can_view_reports: Optional[bool] = None
     mfa_required: Optional[bool] = None
+
+
+class UserPreferencesUpdate(BaseModel):
+    desktop_notifications_enabled: Optional[bool] = None
 
 
 class UserPasswordReset(BaseModel):

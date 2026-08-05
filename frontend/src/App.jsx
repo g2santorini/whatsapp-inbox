@@ -36,6 +36,9 @@ import {
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const SUMMARY_REFRESH_INTERVAL_MS = 15000;
 const ACTIVE_CHAT_REFRESH_INTERVAL_MS = 5000;
+const DESKTOP_NOTIFICATION_REMINDER_MS = 5 * 60 * 1000;
+const DESKTOP_NOTIFICATION_BACKGROUND_POLL_MS = 30 * 1000;
+const DESKTOP_NOTIFICATION_URGENT_THRESHOLD = 10;
 const FULL_MESSAGE_SYNC_EVERY_POLLS = 12;
 const MAX_POLL_BACKOFF_MS = 60000;
 const CONVERSATION_PAGE_SIZE = 60;
@@ -986,6 +989,9 @@ function App() {
   const apiFailureCountRef = useRef(0);
   const previousBrowserUnreadCountRef = useRef(0);
   const hasInitializedUnreadSoundRef = useRef(false);
+  const desktopNotificationUnreadCountRef = useRef(0);
+  const desktopNotificationLastShownAtRef = useRef(0);
+  const desktopNotificationUrgentActiveRef = useRef(false);
 
   const [messageDrafts, setMessageDrafts] = useState({});
 
@@ -3641,12 +3647,164 @@ function App() {
       return;
     }
 
-    if (browserUnreadCount > previousBrowserUnreadCountRef.current) {
+    if (
+      isPageVisible &&
+      browserUnreadCount > previousBrowserUnreadCountRef.current
+    ) {
       playNotificationSound();
     }
 
     previousBrowserUnreadCountRef.current = browserUnreadCount;
-  }, [token, browserUnreadCount]);
+  }, [token, browserUnreadCount, isPageVisible]);
+
+  useEffect(() => {
+    desktopNotificationUnreadCountRef.current = inboxUnreadCount;
+
+    if (inboxUnreadCount <= DESKTOP_NOTIFICATION_URGENT_THRESHOLD) {
+      desktopNotificationUrgentActiveRef.current = false;
+    }
+  }, [inboxUnreadCount]);
+
+  useEffect(() => {
+    const notificationsEnabled = Boolean(
+      token &&
+      user &&
+      !user.must_change_password &&
+      user.desktop_notifications_enabled
+    );
+
+    if (!notificationsEnabled) {
+      desktopNotificationLastShownAtRef.current = 0;
+      desktopNotificationUrgentActiveRef.current = false;
+      return undefined;
+    }
+
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      window.Notification.permission !== 'granted'
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId = null;
+
+    const isAppInBackground = () =>
+      document.visibilityState === 'hidden' || !document.hasFocus();
+
+    const showAttentionNotification = (pendingConversationCount) => {
+      const count = Number(pendingConversationCount || 0);
+
+      if (!isAppInBackground() || count <= 0) {
+        return;
+      }
+
+      const now = Date.now();
+      const isUrgent = count > DESKTOP_NOTIFICATION_URGENT_THRESHOLD;
+      const isFirstUrgentAlert =
+        isUrgent && !desktopNotificationUrgentActiveRef.current;
+      const reminderIsDue =
+        desktopNotificationLastShownAtRef.current === 0 ||
+        now - desktopNotificationLastShownAtRef.current >=
+          DESKTOP_NOTIFICATION_REMINDER_MS;
+
+      if (!isFirstUrgentAlert && !reminderIsDue) {
+        return;
+      }
+
+      const title = isUrgent
+        ? 'Sendro — High inbox activity'
+        : 'Sendro — Replies needed';
+      const body =
+        count === 1
+          ? '1 conversation needs your reply or attention.'
+          : `${count} conversations need your reply or attention.`;
+
+      try {
+        const notification = new window.Notification(title, {
+          body,
+          tag: 'sendro-reply-attention',
+          renotify: true,
+        });
+
+        notification.onclick = () => {
+          window.focus();
+          setActivePage(APP_PAGES.INBOX);
+          setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+          notification.close();
+        };
+
+        desktopNotificationLastShownAtRef.current = now;
+        desktopNotificationUrgentActiveRef.current = isUrgent;
+      } catch {
+        // Browsers can reject a notification even after permission was granted.
+      }
+    };
+
+    const refreshBackgroundSummary = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (isAppInBackground()) {
+        try {
+          const summaryData = await getConversationSummary();
+
+          if (!cancelled) {
+            setConversationSummary(summaryData);
+            markApiSuccess();
+            showAttentionNotification(
+              summaryData?.inbox_unread_conversations || 0
+            );
+          }
+        } catch {
+          if (!cancelled) {
+            markApiFailure();
+          }
+        }
+      }
+
+      if (!cancelled) {
+        timeoutId = window.setTimeout(
+          refreshBackgroundSummary,
+          DESKTOP_NOTIFICATION_BACKGROUND_POLL_MS
+        );
+      }
+    };
+
+    const handleAppActivityChange = () => {
+      if (isAppInBackground()) {
+        showAttentionNotification(desktopNotificationUnreadCountRef.current);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleAppActivityChange);
+    window.addEventListener('blur', handleAppActivityChange);
+    window.addEventListener('focus', handleAppActivityChange);
+
+    handleAppActivityChange();
+    timeoutId = window.setTimeout(
+      refreshBackgroundSummary,
+      DESKTOP_NOTIFICATION_BACKGROUND_POLL_MS
+    );
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleAppActivityChange);
+      window.removeEventListener('blur', handleAppActivityChange);
+      window.removeEventListener('focus', handleAppActivityChange);
+
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    token,
+    user?.id,
+    user?.must_change_password,
+    user?.desktop_notifications_enabled,
+  ]);
 
   useEffect(() => {
     if (!selectedConversation?.id || !lastMessageId) {
