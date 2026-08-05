@@ -48,6 +48,7 @@ async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -83,12 +84,13 @@ export async function login(username, password) {
   return data;
 }
 
-export async function verifyMfaLogin(challengeToken, code) {
+export async function verifyMfaLogin(challengeToken, code, trustDevice = false) {
   const data = await apiRequest('/token/mfa', {
     method: 'POST',
     body: JSON.stringify({
       challenge_token: challengeToken,
       code,
+      trust_device: Boolean(trustDevice),
     }),
   });
 

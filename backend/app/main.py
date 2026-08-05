@@ -57,7 +57,7 @@ app.add_middleware(
     allow_origins=[
         origin.strip() for origin in CORS_ALLOWED_ORIGINS.split(",") if origin.strip()
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1294,6 +1294,7 @@ class LoginResponse(BaseModel):
     token_type: str | None = None
     mfa_required: bool = False
     challenge_token: str | None = None
+    trusted_device_available: bool = False
 
 
 class TokenData(BaseModel):
@@ -1344,6 +1345,25 @@ MFA_RECOVERY_CODE_COUNT = 10
 MFA_RECOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 MFA_CHALLENGE_MINUTES = int(os.getenv("MFA_CHALLENGE_MINUTES", "5"))
 MFA_CHALLENGE_MAX_ATTEMPTS = int(os.getenv("MFA_CHALLENGE_MAX_ATTEMPTS", "5"))
+TRUSTED_DEVICE_DAYS = int(os.getenv("TRUSTED_DEVICE_DAYS", "15"))
+TRUSTED_DEVICE_MAX_PER_USER = int(
+    os.getenv("TRUSTED_DEVICE_MAX_PER_USER", "10")
+)
+TRUSTED_DEVICE_COOKIE_NAME = os.getenv(
+    "TRUSTED_DEVICE_COOKIE_NAME",
+    "sendro_trusted_device",
+)
+TRUSTED_DEVICE_COOKIE_SECURE = (
+    os.getenv("TRUSTED_DEVICE_COOKIE_SECURE", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+TRUSTED_DEVICE_COOKIE_SAMESITE = os.getenv(
+    "TRUSTED_DEVICE_COOKIE_SAMESITE",
+    "none",
+).strip().lower()
+
+if TRUSTED_DEVICE_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    TRUSTED_DEVICE_COOKIE_SAMESITE = "none"
 
 
 def get_mfa_fernet() -> Fernet:
@@ -1450,6 +1470,138 @@ def generate_recovery_codes() -> tuple[list[str], list[str]]:
 
 def hash_mfa_challenge_token(challenge_token: str) -> str:
     return hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+
+
+def hash_trusted_device_token(device_token: str) -> str:
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        f"sendro-trusted-device:{device_token}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def clear_trusted_device_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=TRUSTED_DEVICE_COOKIE_NAME,
+        path="/",
+        secure=TRUSTED_DEVICE_COOKIE_SECURE,
+        httponly=True,
+        samesite=TRUSTED_DEVICE_COOKIE_SAMESITE,
+    )
+
+
+def set_trusted_device_cookie(
+    response: Response,
+    device_token: str,
+    max_age_seconds: int,
+) -> None:
+    response.set_cookie(
+        key=TRUSTED_DEVICE_COOKIE_NAME,
+        value=device_token,
+        max_age=max(1, max_age_seconds),
+        path="/",
+        secure=TRUSTED_DEVICE_COOKIE_SECURE,
+        httponly=True,
+        samesite=TRUSTED_DEVICE_COOKIE_SAMESITE,
+    )
+
+
+def cleanup_trusted_devices(db: Session, now: datetime) -> None:
+    deleted_count = db.query(models.TrustedDevice).filter(
+        models.TrustedDevice.expires_at <= now
+    ).delete(synchronize_session=False)
+
+    if deleted_count:
+        db.commit()
+
+
+def create_trusted_device(
+    db: Session,
+    user: models.User,
+    response: Response,
+    now: datetime,
+) -> None:
+    cleanup_trusted_devices(db, now)
+
+    existing_devices = (
+        db.query(models.TrustedDevice)
+        .filter(models.TrustedDevice.user_id == user.id)
+        .order_by(models.TrustedDevice.created_at.desc())
+        .all()
+    )
+
+    keep_existing_count = max(0, TRUSTED_DEVICE_MAX_PER_USER - 1)
+    for stale_device in existing_devices[keep_existing_count:]:
+        db.delete(stale_device)
+
+    device_token = secrets.token_urlsafe(48)
+    expires_at = now + timedelta(days=TRUSTED_DEVICE_DAYS)
+    db.add(
+        models.TrustedDevice(
+            token_hash=hash_trusted_device_token(device_token),
+            user_id=user.id,
+            auth_version=user.auth_version or 1,
+            created_at=now,
+            last_used_at=now,
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+
+    set_trusted_device_cookie(
+        response,
+        device_token,
+        int((expires_at - now).total_seconds()),
+    )
+
+
+def trusted_device_is_valid(
+    db: Session,
+    user: models.User,
+    request: Request,
+    response: Response,
+    now: datetime,
+) -> bool:
+    if user.role == "admin":
+        return False
+
+    device_token = request.cookies.get(TRUSTED_DEVICE_COOKIE_NAME)
+    if not device_token:
+        return False
+
+    token_hash = hash_trusted_device_token(device_token)
+    trusted_device = (
+        db.query(models.TrustedDevice)
+        .filter(models.TrustedDevice.token_hash == token_hash)
+        .first()
+    )
+
+    if trusted_device is None:
+        clear_trusted_device_cookie(response)
+        return False
+
+    if trusted_device.user_id != user.id:
+        return False
+
+    current_auth_version = user.auth_version or 1
+    if (
+        trusted_device.expires_at <= now
+        or trusted_device.auth_version != current_auth_version
+        or user.disabled
+        or not user.mfa_enabled
+    ):
+        db.delete(trusted_device)
+        db.commit()
+        clear_trusted_device_cookie(response)
+        return False
+
+    remaining_seconds = int((trusted_device.expires_at - now).total_seconds())
+    rotated_token = secrets.token_urlsafe(48)
+    trusted_device.token_hash = hash_trusted_device_token(rotated_token)
+    trusted_device.last_used_at = now
+    db.commit()
+    set_trusted_device_cookie(response, rotated_token, remaining_seconds)
+    return True
 
 
 def cleanup_mfa_login_challenges(db: Session, now: datetime) -> None:
@@ -4132,6 +4284,7 @@ def delete_quick_reply(
 @app.post("/token", response_model=LoginResponse)
 async def login_for_access_token(
     request: Request,
+    response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -4165,10 +4318,18 @@ async def login_for_access_token(
     clear_login_failures(db, throttle_key)
 
     if user.mfa_enabled:
+        if trusted_device_is_valid(db, user, request, response, now):
+            token = issue_access_token_for_user(user)
+            return LoginResponse(
+                access_token=token.access_token,
+                token_type=token.token_type,
+            )
+
         challenge_token = create_mfa_login_challenge(db, user, now)
         return LoginResponse(
             mfa_required=True,
             challenge_token=challenge_token,
+            trusted_device_available=user.role != "admin",
         )
 
     token = issue_access_token_for_user(user)
@@ -4181,6 +4342,7 @@ async def login_for_access_token(
 @app.post("/token/mfa", response_model=Token)
 def complete_mfa_login(
     verification: schemas.MfaLoginVerifyRequest,
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
 ):
     now = datetime.utcnow()
@@ -4240,7 +4402,12 @@ def complete_mfa_login(
         )
 
     challenge.consumed_at = now
-    db.commit()
+
+    if verification.trust_device and user.role != "admin":
+        create_trusted_device(db, user, response, now)
+    else:
+        db.commit()
+
     return issue_access_token_for_user(user)
 
 

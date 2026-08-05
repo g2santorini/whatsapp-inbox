@@ -849,6 +849,8 @@ function App() {
   const [loginNotice, setLoginNotice] = useState('');
   const [mfaChallengeToken, setMfaChallengeToken] = useState('');
   const [mfaLoginCode, setMfaLoginCode] = useState('');
+  const [canTrustMfaDevice, setCanTrustMfaDevice] = useState(false);
+  const [trustMfaDevice, setTrustMfaDevice] = useState(false);
   const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
   const [mfaSetupData, setMfaSetupData] = useState(EMPTY_MFA_SETUP_STATE);
   const [mfaSetupCode, setMfaSetupCode] = useState('');
@@ -2469,9 +2471,13 @@ function App() {
       if (data.mfa_required && data.challenge_token) {
         setMfaChallengeToken(data.challenge_token);
         setMfaLoginCode('');
+        setCanTrustMfaDevice(Boolean(data.trusted_device_available));
+        setTrustMfaDevice(false);
         return;
       }
 
+      setCanTrustMfaDevice(false);
+      setTrustMfaDevice(false);
       setToken(data.access_token);
     } catch (err) {
       if (err.status === 429) {
@@ -2491,9 +2497,15 @@ function App() {
 
     try {
       setIsVerifyingMfa(true);
-      const data = await verifyMfaLogin(mfaChallengeToken, mfaLoginCode);
+      const data = await verifyMfaLogin(
+        mfaChallengeToken,
+        mfaLoginCode,
+        canTrustMfaDevice && trustMfaDevice
+      );
       setMfaChallengeToken('');
       setMfaLoginCode('');
+      setCanTrustMfaDevice(false);
+      setTrustMfaDevice(false);
       setToken(data.access_token);
     } catch (err) {
       const message = getErrorMessage(err, 'Could not verify Authenticator code.');
@@ -2501,6 +2513,8 @@ function App() {
       if (/sign in again/i.test(message)) {
         setMfaChallengeToken('');
         setMfaLoginCode('');
+        setCanTrustMfaDevice(false);
+        setTrustMfaDevice(false);
       }
 
       setError(message);
@@ -2512,6 +2526,8 @@ function App() {
   function cancelMfaLogin() {
     setMfaChallengeToken('');
     setMfaLoginCode('');
+    setCanTrustMfaDevice(false);
+    setTrustMfaDevice(false);
     setError('');
   }
 
@@ -4064,6 +4080,20 @@ function App() {
               required
             />
           </label>
+
+          {canTrustMfaDevice && (
+            <label className="mfa-trust-device-option">
+              <input
+                type="checkbox"
+                checked={trustMfaDevice}
+                onChange={(event) => setTrustMfaDevice(event.target.checked)}
+              />
+              <span>
+                <strong>Trust this device for 15 days</strong>
+                <small>Use this only on your private work device, not on a shared computer.</small>
+              </span>
+            </label>
+          )}
 
           <button type="submit" disabled={isVerifyingMfa}>
             {isVerifyingMfa ? 'Verifying...' : 'Verify and continue'}

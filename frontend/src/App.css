@@ -1066,6 +1066,45 @@ textarea {
   background: #f4f8fe;
 }
 
+.mfa-trust-device-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 13px;
+  border: 1px solid #c9dcf4;
+  border-radius: 13px;
+  background: #f8fbff;
+  color: #29445f;
+  cursor: pointer;
+}
+
+.mfa-trust-device-option input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: #0b7a75;
+  flex: 0 0 auto;
+}
+
+.mfa-trust-device-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mfa-trust-device-option strong {
+  color: #0b2949;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.mfa-trust-device-option small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .mfa-setup-page {
   align-items: flex-start;
   padding-top: max(24px, 6vh);

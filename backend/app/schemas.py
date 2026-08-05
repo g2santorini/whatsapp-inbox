@@ -72,6 +72,7 @@ class MfaCodeRequest(BaseModel):
 class MfaLoginVerifyRequest(BaseModel):
     challenge_token: str = Field(..., min_length=32, max_length=256)
     code: str = Field(..., min_length=6, max_length=32)
+    trust_device: bool = False
 
 
 class MfaSetupConfirmOut(BaseModel):
