@@ -5710,3 +5710,157 @@ body {
     font-size: 10px;
   }
 }
+
+/* UI polish: split Quick Replies space and keep tablet composer controls visible */
+
+.quick-reply-panel-folders {
+  flex: 0 1 42%;
+  min-height: 132px;
+  max-height: 42%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.quick-reply-panel-folders > div:first-child {
+  flex: 0 0 auto;
+}
+
+.quick-reply-panel-folders > div:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #b9c5d4 transparent;
+}
+
+.quick-reply-panel-folders > div:last-child::-webkit-scrollbar {
+  width: 6px;
+}
+
+.quick-reply-panel-folders > div:last-child::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b9c5d4;
+}
+
+.quick-reply-section-title {
+  flex: 0 0 auto;
+}
+
+.quick-reply-list {
+  flex: 1 1 0;
+  min-height: 130px;
+  overscroll-behavior: contain;
+}
+
+/* Use the visible browser viewport, especially on Android tablets in landscape. */
+.app.sendro-shell {
+  height: 100svh;
+  height: 100dvh;
+  max-height: 100svh;
+  max-height: 100dvh;
+}
+
+.blue-sidebar,
+.sendro-workspace {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+
+.sendro-workspace-columns,
+.conversation-column,
+.chat-panel,
+.future-panel {
+  min-height: 0;
+  max-height: 100%;
+}
+
+.chat-panel {
+  overflow: hidden;
+}
+
+.chat-panel > .messages {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.chat-panel > .composer,
+.chat-panel > .conversation-action-bar {
+  flex: 0 0 auto;
+}
+
+.conversation-action-bar {
+  margin-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+/* Compact only the vertical rhythm on short landscape screens; keep desktop layout. */
+@media (min-width: 1001px) and (max-height: 820px) {
+  .workspace-topbar {
+    height: 54px;
+    flex-basis: 54px;
+  }
+
+  .chat-header {
+    min-height: 68px;
+    padding: 7px 13px;
+  }
+
+  .chat-contact-avatar {
+    width: 39px;
+    height: 39px;
+  }
+
+  .messages {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .composer {
+    margin-inline: 6px;
+  }
+
+  .composer-body {
+    padding: 7px 9px 7px;
+  }
+
+  .composer textarea {
+    min-height: 52px;
+    max-height: 92px;
+    padding-bottom: 5px;
+  }
+
+  .composer-helper {
+    min-height: 25px;
+  }
+
+  .composer button[type='submit'] {
+    min-height: 33px;
+  }
+
+  .conversation-action-bar {
+    min-height: 42px;
+    margin: 0 6px max(4px, env(safe-area-inset-bottom));
+  }
+
+  .conversation-action-bar button {
+    padding-block: 5px;
+  }
+
+  .quick-replies-panel-body {
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .quick-reply-panel-folders {
+    flex-basis: 36%;
+    max-height: 36%;
+    min-height: 112px;
+  }
+
+  .quick-reply-list {
+    min-height: 112px;
+  }
+}
