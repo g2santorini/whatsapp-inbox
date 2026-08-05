@@ -641,6 +641,7 @@ function getLocationGoogleMapsUrl(content) {
 function MessageMediaPreview({ message }) {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaError, setMediaError] = useState('');
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
 
   const messageType = String(message?.message_type || 'text').toLowerCase();
   const caption = getMediaCaption(message?.content);
@@ -689,6 +690,26 @@ function MessageMediaPreview({ message }) {
     };
   }, [hasMedia, message?.id]);
 
+  useEffect(() => {
+    if (!isImagePreviewOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsImagePreviewOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isImagePreviewOpen]);
+
   if (messageType === 'location') {
     return (
       <div className="message-location-card">
@@ -723,26 +744,70 @@ function MessageMediaPreview({ message }) {
   }
 
   if (messageType === 'image' && hasMedia) {
+    const imageAlt = caption || 'WhatsApp photo';
+
     return (
-      <div className="message-media-card message-image-card">
-        {mediaUrl ? (
-          <a href={mediaUrl} target="_blank" rel="noreferrer">
-            <img
-              className="message-image-preview"
-              src={mediaUrl}
-              alt={caption || 'WhatsApp photo'}
-            />
-          </a>
-        ) : (
-          <div className="message-media-loading">Loading photo...</div>
-        )}
+      <>
+        <div className="message-media-card message-image-card">
+          {mediaUrl ? (
+            <button
+              type="button"
+              className="message-image-preview-button"
+              onClick={() => setIsImagePreviewOpen(true)}
+              aria-label="Open photo preview"
+              title="Open photo"
+            >
+              <img
+                className="message-image-preview"
+                src={mediaUrl}
+                alt={imageAlt}
+              />
+              <span className="message-image-preview-hint" aria-hidden="true">
+                View
+              </span>
+            </button>
+          ) : (
+            <div className="message-media-loading">Loading photo...</div>
+          )}
 
-        {caption && <div className="message-media-caption">{caption}</div>}
+          {caption && <div className="message-media-caption">{caption}</div>}
 
-        {mediaError && (
-          <div className="message-media-error">{mediaError}</div>
+          {mediaError && (
+            <div className="message-media-error">{mediaError}</div>
+          )}
+        </div>
+
+        {isImagePreviewOpen && mediaUrl && (
+          <div
+            className="message-image-lightbox"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Photo preview"
+            onMouseDown={() => setIsImagePreviewOpen(false)}
+          >
+            <div
+              className="message-image-lightbox-panel"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="message-image-lightbox-close"
+                onClick={() => setIsImagePreviewOpen(false)}
+                aria-label="Close photo preview"
+                title="Close"
+              >
+                ×
+              </button>
+
+              <img src={mediaUrl} alt={imageAlt} />
+
+              {caption && (
+                <div className="message-image-lightbox-caption">{caption}</div>
+              )}
+            </div>
+          </div>
         )}
-      </div>
+      </>
     );
   }
 
