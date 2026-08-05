@@ -12,11 +12,15 @@ class UserBase(BaseModel):
     username: str
     email: str
     full_name: Optional[str] = None
+    display_name: Optional[str] = None
+    assignment_color: Optional[str] = None
+    assignment_text_color: Optional[str] = None
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., max_length=128)
     role: Optional[str] = None
+    mfa_required: bool = False
 
 
 class UserOut(UserBase):
@@ -24,6 +28,10 @@ class UserOut(UserBase):
     role: str
     disabled: bool
     can_view_reports: bool
+    must_change_password: bool
+    mfa_required: bool
+    mfa_enabled: bool
+    mfa_setup_required: bool
 
     class Config:
         orm_mode = True
@@ -33,13 +41,119 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     full_name: Optional[str] = None
+    display_name: Optional[str] = None
+    assignment_color: Optional[str] = None
+    assignment_text_color: Optional[str] = None
     role: Optional[str] = None
     disabled: Optional[bool] = None
     can_view_reports: Optional[bool] = None
+    mfa_required: Optional[bool] = None
 
 
 class UserPasswordReset(BaseModel):
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., max_length=128)
+
+
+class UserPasswordChange(BaseModel):
+    current_password: str = Field(..., max_length=128)
+    new_password: str = Field(..., max_length=128)
+
+
+class MfaSetupStartOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+    qr_code_data_url: str
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=32)
+
+
+class MfaLoginVerifyRequest(BaseModel):
+    challenge_token: str = Field(..., min_length=32, max_length=256)
+    code: str = Field(..., min_length=6, max_length=32)
+    trust_device: bool = False
+
+
+class MfaSetupConfirmOut(BaseModel):
+    enabled: bool
+    recovery_codes: list[str]
+
+
+class MfaResetOut(BaseModel):
+    user_id: int
+    mfa_enabled: bool
+    mfa_setup_required: bool
+
+
+# =====================
+# QUICK REPLIES
+# =====================
+
+
+class QuickReplyCategoryCreate(BaseModel):
+    name: str
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyCategoryOut(BaseModel):
+    id: int
+    name: str
+    parent_id: Optional[int] = None
+    sort_order: int
+    reply_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class QuickReplyCreate(BaseModel):
+    title: str
+    content: str
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    scope: str = "personal"
+    is_favorite: bool = False
+    sort_order: Optional[int] = None
+
+
+class QuickReplyUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    scope: Optional[str] = None
+    is_favorite: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class QuickReplyOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    shortcut: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    parent_category_id: Optional[int] = None
+    parent_category_name: Optional[str] = None
+    scope: str
+    is_favorite: bool
+    sort_order: int
+    created_by_user_id: int
+    created_by_name: Optional[str] = None
+    can_edit: bool = False
+    can_delete: bool = False
+    created_at: datetime
+    updated_at: datetime
 
 
 # =====================

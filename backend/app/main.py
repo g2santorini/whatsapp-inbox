@@ -1,9 +1,17 @@
+import base64
 import hashlib
+import hmac
+import io
 import json
 import os
 import re
+import secrets
 
+import pyotp
+import qrcode
+import qrcode.image.svg
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -17,6 +25,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import and_, case, func, inspect, or_, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -48,7 +57,7 @@ app.add_middleware(
     allow_origins=[
         origin.strip() for origin in CORS_ALLOWED_ORIGINS.split(",") if origin.strip()
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -204,9 +213,127 @@ def ensure_user_report_permission_column():
     print("✅ Added can_view_reports column to users table", flush=True)
 
 
+def ensure_user_profile_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    columns_to_add = []
+
+    if "display_name" not in columns:
+        columns_to_add.append(("display_name", "VARCHAR"))
+
+    if "assignment_color" not in columns:
+        columns_to_add.append(("assignment_color", "VARCHAR(7)"))
+
+    if "assignment_text_color" not in columns:
+        columns_to_add.append(("assignment_text_color", "VARCHAR(7)"))
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
+def ensure_user_security_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    columns_to_add = []
+
+    if "auth_version" not in columns:
+        columns_to_add.append(
+            ("auth_version", "INTEGER NOT NULL DEFAULT 1")
+        )
+
+    if "must_change_password" not in columns:
+        boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
+        columns_to_add.append(
+            (
+                "must_change_password",
+                f"BOOLEAN NOT NULL DEFAULT {boolean_default}",
+            )
+        )
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
+def ensure_user_mfa_columns():
+    inspector = inspect(engine)
+
+    try:
+        columns = {column["name"] for column in inspector.get_columns("users")}
+    except Exception as exc:
+        print("⚠️ Could not inspect users table:", exc, flush=True)
+        return
+
+    boolean_default = "false" if engine.dialect.name == "postgresql" else "0"
+    columns_to_add = []
+
+    if "mfa_required" not in columns:
+        columns_to_add.append(
+            ("mfa_required", f"BOOLEAN NOT NULL DEFAULT {boolean_default}")
+        )
+
+    if "mfa_enabled" not in columns:
+        columns_to_add.append(
+            ("mfa_enabled", f"BOOLEAN NOT NULL DEFAULT {boolean_default}")
+        )
+
+    if "mfa_secret_encrypted" not in columns:
+        columns_to_add.append(("mfa_secret_encrypted", "TEXT"))
+
+    if "mfa_pending_secret_encrypted" not in columns:
+        columns_to_add.append(("mfa_pending_secret_encrypted", "TEXT"))
+
+    if "mfa_recovery_codes_hashed" not in columns:
+        columns_to_add.append(("mfa_recovery_codes_hashed", "TEXT"))
+
+    if not columns_to_add:
+        return
+
+    with engine.begin() as connection:
+        for column_name, column_type in columns_to_add:
+            connection.execute(
+                text(
+                    f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+                )
+            )
+            print(f"✅ Added {column_name} column to users table", flush=True)
+
+
 ensure_follow_up_column()
 ensure_message_status_columns()
 ensure_user_report_permission_column()
+ensure_user_profile_columns()
+ensure_user_security_columns()
+ensure_user_mfa_columns()
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -305,7 +432,10 @@ def attach_customer_service_window_data(
             models.Message.conversation_id,
             func.max(models.Message.id).label("last_message_id"),
         )
-        .filter(models.Message.conversation_id.in_(conversation_ids))
+        .filter(
+            models.Message.conversation_id.in_(conversation_ids),
+            models.Message.direction.in_(("inbound", "outbound")),
+        )
         .group_by(models.Message.conversation_id)
         .subquery()
     )
@@ -1206,6 +1336,14 @@ class Token(BaseModel):
     token_type: str
 
 
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: str | None = None
+    mfa_required: bool = False
+    challenge_token: str | None = None
+    trusted_device_available: bool = False
+
+
 class TokenData(BaseModel):
     username: str | None = None
 
@@ -1226,7 +1364,413 @@ class TemplateMessageRequest(BaseModel):
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+PASSWORD_MIN_LENGTH = 10
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_FAILURE_WINDOW_MINUTES = int(
+    os.getenv("LOGIN_FAILURE_WINDOW_MINUTES", "15")
+)
+LOGIN_LOCKOUT_MINUTES = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
+COMMON_PASSWORDS = {
+    "1234567890",
+    "123456789a",
+    "administrator",
+    "changeme123",
+    "letmein123",
+    "password123",
+    "qwerty1234",
+    "sendro1234",
+    "sunsetoia",
+    "welcome123",
+}
+DUMMY_PASSWORD_HASH = pwd_context.hash("sendro-dummy-password-check")
+
+MFA_ISSUER = os.getenv("MFA_ISSUER", "Sendro")
+MFA_TOTP_DIGITS = 6
+MFA_TOTP_PERIOD_SECONDS = 30
+MFA_TOTP_WINDOW = 1
+MFA_RECOVERY_CODE_COUNT = 10
+MFA_RECOVERY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+MFA_CHALLENGE_MINUTES = int(os.getenv("MFA_CHALLENGE_MINUTES", "5"))
+MFA_CHALLENGE_MAX_ATTEMPTS = int(os.getenv("MFA_CHALLENGE_MAX_ATTEMPTS", "5"))
+TRUSTED_DEVICE_DAYS = int(os.getenv("TRUSTED_DEVICE_DAYS", "15"))
+TRUSTED_DEVICE_MAX_PER_USER = int(
+    os.getenv("TRUSTED_DEVICE_MAX_PER_USER", "10")
+)
+TRUSTED_DEVICE_COOKIE_NAME = os.getenv(
+    "TRUSTED_DEVICE_COOKIE_NAME",
+    "sendro_trusted_device",
+)
+TRUSTED_DEVICE_COOKIE_SECURE = (
+    os.getenv("TRUSTED_DEVICE_COOKIE_SECURE", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+TRUSTED_DEVICE_COOKIE_SAMESITE = os.getenv(
+    "TRUSTED_DEVICE_COOKIE_SAMESITE",
+    "none",
+).strip().lower()
+
+if TRUSTED_DEVICE_COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    TRUSTED_DEVICE_COOKIE_SAMESITE = "none"
+
+
+def get_mfa_fernet() -> Fernet:
+    derived_key = hashlib.sha256(
+        f"sendro-mfa-encryption:{SECRET_KEY}".encode("utf-8")
+    ).digest()
+    return Fernet(base64.urlsafe_b64encode(derived_key))
+
+
+MFA_FERNET = get_mfa_fernet()
+
+
+def encrypt_mfa_value(value: str) -> str:
+    return MFA_FERNET.encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def decrypt_mfa_value(value: str | None) -> str:
+    if not value:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator setup is not available",
+        )
+
+    try:
+        return MFA_FERNET.decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError, ValueError):
+        raise HTTPException(
+            status_code=500,
+            detail="Authenticator data could not be decrypted. Ask an administrator to reset it.",
+        )
+
+
+def generate_totp_secret() -> str:
+    return pyotp.random_base32()
+
+
+def normalize_mfa_code(code: str) -> str:
+    return re.sub(r"[\s-]+", "", str(code or "")).upper()
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    normalized_code = normalize_mfa_code(code)
+
+    if not re.fullmatch(r"\d{6}", normalized_code):
+        return False
+
+    return bool(
+        pyotp.TOTP(
+            secret,
+            digits=MFA_TOTP_DIGITS,
+            interval=MFA_TOTP_PERIOD_SECONDS,
+        ).verify(normalized_code, valid_window=MFA_TOTP_WINDOW)
+    )
+
+
+def build_otpauth_uri(user: models.User, secret: str) -> str:
+    account_label = user.email or user.username
+    return pyotp.TOTP(
+        secret,
+        digits=MFA_TOTP_DIGITS,
+        interval=MFA_TOTP_PERIOD_SECONDS,
+    ).provisioning_uri(
+        name=account_label,
+        issuer_name=MFA_ISSUER,
+    )
+
+
+def build_mfa_qr_code_data_url(otpauth_uri: str) -> str:
+    image = qrcode.make(
+        otpauth_uri,
+        image_factory=qrcode.image.svg.SvgPathImage,
+        box_size=8,
+        border=2,
+    )
+    buffer = io.BytesIO()
+    image.save(buffer)
+    encoded_svg = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded_svg}"
+
+
+def hash_recovery_code(code: str) -> str:
+    normalized_code = normalize_mfa_code(code)
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        f"sendro-recovery:{normalized_code}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def generate_recovery_codes() -> tuple[list[str], list[str]]:
+    plain_codes = []
+
+    for _ in range(MFA_RECOVERY_CODE_COUNT):
+        raw_code = "".join(
+            secrets.choice(MFA_RECOVERY_CODE_ALPHABET) for _ in range(12)
+        )
+        plain_codes.append(
+            f"{raw_code[:4]}-{raw_code[4:8]}-{raw_code[8:]}"
+        )
+
+    hashed_codes = [hash_recovery_code(code) for code in plain_codes]
+    return plain_codes, hashed_codes
+
+
+def hash_mfa_challenge_token(challenge_token: str) -> str:
+    return hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+
+
+def hash_trusted_device_token(device_token: str) -> str:
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        f"sendro-trusted-device:{device_token}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def clear_trusted_device_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=TRUSTED_DEVICE_COOKIE_NAME,
+        path="/",
+        secure=TRUSTED_DEVICE_COOKIE_SECURE,
+        httponly=True,
+        samesite=TRUSTED_DEVICE_COOKIE_SAMESITE,
+    )
+
+
+def set_trusted_device_cookie(
+    response: Response,
+    device_token: str,
+    max_age_seconds: int,
+) -> None:
+    response.set_cookie(
+        key=TRUSTED_DEVICE_COOKIE_NAME,
+        value=device_token,
+        max_age=max(1, max_age_seconds),
+        path="/",
+        secure=TRUSTED_DEVICE_COOKIE_SECURE,
+        httponly=True,
+        samesite=TRUSTED_DEVICE_COOKIE_SAMESITE,
+    )
+
+
+def cleanup_trusted_devices(db: Session, now: datetime) -> None:
+    deleted_count = db.query(models.TrustedDevice).filter(
+        models.TrustedDevice.expires_at <= now
+    ).delete(synchronize_session=False)
+
+    if deleted_count:
+        db.commit()
+
+
+def create_trusted_device(
+    db: Session,
+    user: models.User,
+    response: Response,
+    now: datetime,
+) -> None:
+    cleanup_trusted_devices(db, now)
+
+    existing_devices = (
+        db.query(models.TrustedDevice)
+        .filter(models.TrustedDevice.user_id == user.id)
+        .order_by(models.TrustedDevice.created_at.desc())
+        .all()
+    )
+
+    keep_existing_count = max(0, TRUSTED_DEVICE_MAX_PER_USER - 1)
+    for stale_device in existing_devices[keep_existing_count:]:
+        db.delete(stale_device)
+
+    device_token = secrets.token_urlsafe(48)
+    expires_at = now + timedelta(days=TRUSTED_DEVICE_DAYS)
+    db.add(
+        models.TrustedDevice(
+            token_hash=hash_trusted_device_token(device_token),
+            user_id=user.id,
+            auth_version=user.auth_version or 1,
+            created_at=now,
+            last_used_at=now,
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+
+    set_trusted_device_cookie(
+        response,
+        device_token,
+        int((expires_at - now).total_seconds()),
+    )
+
+
+def trusted_device_is_valid(
+    db: Session,
+    user: models.User,
+    request: Request,
+    response: Response,
+    now: datetime,
+) -> bool:
+    if user.role == "admin":
+        return False
+
+    device_token = request.cookies.get(TRUSTED_DEVICE_COOKIE_NAME)
+    if not device_token:
+        return False
+
+    token_hash = hash_trusted_device_token(device_token)
+    trusted_device = (
+        db.query(models.TrustedDevice)
+        .filter(models.TrustedDevice.token_hash == token_hash)
+        .first()
+    )
+
+    if trusted_device is None:
+        clear_trusted_device_cookie(response)
+        return False
+
+    if trusted_device.user_id != user.id:
+        return False
+
+    current_auth_version = user.auth_version or 1
+    if (
+        trusted_device.expires_at <= now
+        or trusted_device.auth_version != current_auth_version
+        or user.disabled
+        or not user.mfa_enabled
+    ):
+        db.delete(trusted_device)
+        db.commit()
+        clear_trusted_device_cookie(response)
+        return False
+
+    remaining_seconds = int((trusted_device.expires_at - now).total_seconds())
+    rotated_token = secrets.token_urlsafe(48)
+    trusted_device.token_hash = hash_trusted_device_token(rotated_token)
+    trusted_device.last_used_at = now
+    db.commit()
+    set_trusted_device_cookie(response, rotated_token, remaining_seconds)
+    return True
+
+
+def cleanup_mfa_login_challenges(db: Session, now: datetime) -> None:
+    stale_cutoff = now - timedelta(days=1)
+    db.query(models.MfaLoginChallenge).filter(
+        or_(
+            models.MfaLoginChallenge.expires_at < now,
+            and_(
+                models.MfaLoginChallenge.consumed_at.isnot(None),
+                models.MfaLoginChallenge.consumed_at < stale_cutoff,
+            ),
+        )
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def create_mfa_login_challenge(
+    db: Session,
+    user: models.User,
+    now: datetime,
+) -> str:
+    cleanup_mfa_login_challenges(db, now)
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == user.id,
+        models.MfaLoginChallenge.consumed_at.is_(None),
+    ).delete(synchronize_session=False)
+
+    challenge_token = secrets.token_urlsafe(32)
+    db.add(
+        models.MfaLoginChallenge(
+            challenge_hash=hash_mfa_challenge_token(challenge_token),
+            user_id=user.id,
+            failed_attempts=0,
+            created_at=now,
+            expires_at=now + timedelta(minutes=MFA_CHALLENGE_MINUTES),
+        )
+    )
+    db.commit()
+    return challenge_token
+
+
+def load_recovery_code_hashes(user: models.User) -> list[str]:
+    if not user.mfa_recovery_codes_hashed:
+        return []
+
+    try:
+        values = json.loads(user.mfa_recovery_codes_hashed)
+    except (TypeError, ValueError):
+        return []
+
+    return [str(value) for value in values if value]
+
+
+def verify_and_consume_mfa_code(user: models.User, code: str) -> bool:
+    secret = decrypt_mfa_value(user.mfa_secret_encrypted)
+
+    if verify_totp_code(secret, code):
+        return True
+
+    submitted_hash = hash_recovery_code(code)
+    recovery_hashes = load_recovery_code_hashes(user)
+
+    for index, stored_hash in enumerate(recovery_hashes):
+        if hmac.compare_digest(submitted_hash, stored_hash):
+            del recovery_hashes[index]
+            user.mfa_recovery_codes_hashed = json.dumps(recovery_hashes)
+            return True
+
+    return False
+
+
+def issue_access_token_for_user(user: models.User) -> Token:
+    access_token = create_access_token(
+        data={
+            "sub": user.username,
+            "ver": user.auth_version or 1,
+        },
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return Token(access_token=access_token, token_type="bearer")
+
+
 ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
+ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+QUICK_REPLY_SHORTCUT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+QUICK_REPLY_SCOPES = {"team", "personal"}
+
+
+def normalize_assignment_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip().lower()
+
+    if not normalized_value:
+        return None
+
+    if not ASSIGNMENT_COLOR_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=400,
+            detail="Assignment color must be a valid hex color such as #1d4ed8",
+        )
+
+    return normalized_value
+
+
+def normalize_assignment_text_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip().lower()
+
+    if not normalized_value:
+        return None
+
+    if not ASSIGNMENT_COLOR_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=400,
+            detail="Assignment text color must be a valid hex color such as #ffffff",
+        )
+
+    return normalized_value
 
 
 def is_admin(user: models.User) -> bool:
@@ -1235,6 +1779,30 @@ def is_admin(user: models.User) -> bool:
 
 def is_power_user(user: models.User) -> bool:
     return user.role == "power_user"
+
+
+def can_create_quick_replies(user: models.User) -> bool:
+    return bool(user and not user.disabled)
+
+
+def can_create_quick_reply_scope(user: models.User, scope: str) -> bool:
+    return scope == "personal" or (scope == "team" and is_admin(user))
+
+
+def can_view_quick_reply(user: models.User, quick_reply: models.QuickReply) -> bool:
+    return quick_reply.scope == "team" or (
+        quick_reply.scope == "personal"
+        and quick_reply.created_by_user_id == user.id
+    )
+
+
+def can_edit_quick_reply(user: models.User, quick_reply: models.QuickReply) -> bool:
+    return (
+        quick_reply.scope == "team" and is_admin(user)
+    ) or (
+        quick_reply.scope == "personal"
+        and quick_reply.created_by_user_id == user.id
+    )
 
 
 def can_view_all_conversations(user: models.User) -> bool:
@@ -1277,6 +1845,151 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def validate_new_password(
+    password: str,
+    username: str,
+    email: str,
+):
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+            ),
+        )
+
+    normalized_password = password.casefold()
+    email_name = email.split("@", 1)[0].casefold()
+    blocked_values = {
+        username.casefold(),
+        email.casefold(),
+        email_name,
+        *COMMON_PASSWORDS,
+    }
+
+    if (
+        not password.strip()
+        or len(set(normalized_password)) < 4
+        or normalized_password in blocked_values
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a password that is not your username, email, or a common password",
+        )
+
+
+def get_login_throttle_key(request: Request, username: str) -> str:
+    client_host = request.client.host if request.client else "unknown"
+    normalized_username = username.strip().casefold()
+    raw_key = f"{SECRET_KEY}:{client_host}:{normalized_username}"
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def get_retry_after_seconds(locked_until: datetime, now: datetime) -> int:
+    return max(1, int((locked_until - now).total_seconds()) + 1)
+
+
+def raise_login_throttled(retry_after_seconds: int):
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many login attempts. Please wait before trying again.",
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+
+
+def check_login_throttle(
+    db: Session,
+    throttle_key: str,
+    now: datetime,
+):
+    throttle = (
+        db.query(models.LoginThrottle)
+        .filter(models.LoginThrottle.throttle_key == throttle_key)
+        .with_for_update()
+        .first()
+    )
+
+    if throttle and throttle.locked_until and throttle.locked_until > now:
+        raise_login_throttled(
+            get_retry_after_seconds(throttle.locked_until, now)
+        )
+
+    return throttle
+
+
+def record_login_failure(
+    db: Session,
+    throttle_key: str,
+    throttle: models.LoginThrottle | None,
+    now: datetime,
+) -> int | None:
+    window_start_cutoff = now - timedelta(
+        minutes=LOGIN_FAILURE_WINDOW_MINUTES
+    )
+
+    if throttle is None:
+        throttle = models.LoginThrottle(
+            throttle_key=throttle_key,
+            failed_attempts=0,
+            window_started_at=now,
+            last_failed_at=now,
+        )
+        db.add(throttle)
+    elif throttle.window_started_at < window_start_cutoff:
+        throttle.failed_attempts = 0
+        throttle.window_started_at = now
+        throttle.locked_until = None
+
+    throttle.failed_attempts += 1
+    throttle.last_failed_at = now
+
+    retry_after_seconds = None
+
+    if throttle.failed_attempts >= LOGIN_MAX_FAILURES:
+        throttle.locked_until = now + timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+        retry_after_seconds = get_retry_after_seconds(throttle.locked_until, now)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing_throttle = (
+            db.query(models.LoginThrottle)
+            .filter(models.LoginThrottle.throttle_key == throttle_key)
+            .with_for_update()
+            .first()
+        )
+
+        if existing_throttle is None:
+            raise
+
+        return record_login_failure(
+            db,
+            throttle_key,
+            existing_throttle,
+            now,
+        )
+
+    return retry_after_seconds
+
+
+def clear_login_failures(db: Session, throttle_key: str):
+    db.query(models.LoginThrottle).filter(
+        models.LoginThrottle.throttle_key == throttle_key
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def cleanup_stale_login_throttles(db: Session, now: datetime):
+    stale_cutoff = now - timedelta(days=1)
+    deleted_count = db.query(models.LoginThrottle).filter(
+        models.LoginThrottle.last_failed_at < stale_cutoff
+    ).delete(synchronize_session=False)
+
+    if deleted_count:
+        db.commit()
 
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -1340,6 +2053,38 @@ def get_conversation(db: Session, conversation_id: int):
     )
 
 
+def get_user_display_label(user: models.User | None) -> str:
+    if user is None:
+        return "Unknown user"
+
+    for value in (user.display_name, user.full_name, user.username):
+        normalized_value = str(value or "").strip()
+
+        if normalized_value:
+            return normalized_value
+
+    return f"User #{user.id}"
+
+
+def create_internal_conversation_event(
+    db: Session,
+    conversation: models.Conversation,
+    actor: models.User,
+    content: str,
+):
+    event = models.Message(
+        content=content,
+        direction="internal",
+        is_read=True,
+        message_type="system",
+        created_at=datetime.utcnow(),
+        user_id=actor.id,
+        conversation_id=conversation.id,
+    )
+    db.add(event)
+    return event
+
+
 def attach_message_author_data(
     db: Session,
     messages: list[models.Message],
@@ -1366,9 +2111,13 @@ def attach_message_author_data(
             continue
 
         display_name = (
-            author.full_name.strip()
-            if author.full_name and author.full_name.strip()
-            else author.username
+            author.display_name.strip()
+            if author.display_name and author.display_name.strip()
+            else (
+                author.full_name.strip()
+                if author.full_name and author.full_name.strip()
+                else author.username
+            )
         )
 
         message.author_name = display_name
@@ -1382,17 +2131,6 @@ def touch_conversation(conversation: models.Conversation):
     now = datetime.utcnow()
     conversation.updated_at = now
     conversation.last_message_at = now
-
-
-def authenticate_user(db: Session, username: str, password: str):
-    user = get_user(db, username)
-    if not user:
-        return False
-
-    if not verify_password(password, user.hashed_password):
-        return False
-
-    return user
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
@@ -1422,6 +2160,7 @@ async def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str | None = payload.get("sub")
+        token_auth_version = payload.get("ver")
 
         if username is None:
             raise credentials_exception
@@ -1436,6 +2175,14 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    current_auth_version = getattr(user, "auth_version", 1) or 1
+
+    if token_auth_version is None:
+        if current_auth_version != 1:
+            raise credentials_exception
+    elif token_auth_version != current_auth_version:
+        raise credentials_exception
+
     return user
 
 
@@ -1444,6 +2191,18 @@ async def get_current_active_user(
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
+
+    if getattr(current_user, "must_change_password", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Password change required",
+        )
+
+    if getattr(current_user, "mfa_setup_required", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Authenticator setup required",
+        )
 
     return current_user
 
@@ -2341,6 +3100,11 @@ def create_user(
     username = user.username.strip()
     email = user.email.strip().lower()
     full_name = user.full_name.strip() if user.full_name else None
+    display_name = user.display_name.strip() if user.display_name else None
+    assignment_color = normalize_assignment_color(user.assignment_color)
+    assignment_text_color = normalize_assignment_text_color(
+        user.assignment_text_color
+    )
     requested_role = (user.role or "user").strip().lower()
 
     if not username:
@@ -2361,6 +3125,12 @@ def create_user(
             detail="Invalid role. Allowed roles: admin, power_user, user",
         )
 
+    if display_name and len(display_name) > 24:
+        raise HTTPException(
+            status_code=400,
+            detail="Display name must be 24 characters or fewer",
+        )
+
     existing_user = get_user(db, username)
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -2369,15 +3139,21 @@ def create_user(
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    validate_new_password(user.password, username, email)
     hashed_password = get_password_hash(user.password)
 
     db_user = models.User(
         username=username,
         email=email,
         full_name=full_name,
+        display_name=display_name,
+        assignment_color=assignment_color,
+        assignment_text_color=assignment_text_color,
         hashed_password=hashed_password,
         role=requested_role,
         disabled=False,
+        must_change_password=True,
+        mfa_required=bool(user.mfa_required),
     )
 
     db.add(db_user)
@@ -2417,7 +3193,11 @@ def update_user(
     new_username = None
     new_email = None
     new_full_name = None
+    new_display_name = None
+    new_assignment_color = None
+    new_assignment_text_color = None
     new_role = None
+    new_mfa_required = None
 
     if user_update.username is not None:
         new_username = user_update.username.strip()
@@ -2473,8 +3253,33 @@ def update_user(
             .first()
         )
 
+        if existing_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered",
+            )
+
     if user_update.full_name is not None:
         new_full_name = user_update.full_name.strip() or None
+
+    if user_update.display_name is not None:
+        new_display_name = user_update.display_name.strip() or None
+
+        if new_display_name and len(new_display_name) > 24:
+            raise HTTPException(
+                status_code=400,
+                detail="Display name must be 24 characters or fewer",
+            )
+
+    if user_update.assignment_color is not None:
+        new_assignment_color = normalize_assignment_color(
+            user_update.assignment_color
+        )
+
+    if user_update.assignment_text_color is not None:
+        new_assignment_text_color = normalize_assignment_text_color(
+            user_update.assignment_text_color
+        )
 
     if user_update.role is not None:
         new_role = user_update.role.strip().lower()
@@ -2497,6 +3302,13 @@ def update_user(
                 status_code=400,
                 detail="You cannot disable your own account",
             )
+
+    if user_update.mfa_required is not None:
+        new_mfa_required = bool(user_update.mfa_required)
+
+    original_role = db_user.role
+    original_disabled = db_user.disabled
+    original_mfa_required = db_user.mfa_required
 
     is_admin_role_being_removed = (
         db_user.role == "admin" and new_role is not None and new_role != "admin"
@@ -2529,6 +3341,15 @@ def update_user(
     if user_update.full_name is not None:
         db_user.full_name = new_full_name
 
+    if user_update.display_name is not None:
+        db_user.display_name = new_display_name
+
+    if user_update.assignment_color is not None:
+        db_user.assignment_color = new_assignment_color
+
+    if user_update.assignment_text_color is not None:
+        db_user.assignment_text_color = new_assignment_text_color
+
     if new_role is not None:
         db_user.role = new_role
 
@@ -2538,10 +3359,70 @@ def update_user(
     if user_update.can_view_reports is not None:
         db_user.can_view_reports = user_update.can_view_reports
 
+    if new_mfa_required is not None:
+        db_user.mfa_required = new_mfa_required
+
+    security_policy_changed = (
+        db_user.role != original_role
+        or db_user.disabled != original_disabled
+        or db_user.mfa_required != original_mfa_required
+    )
+
+    if security_policy_changed:
+        db_user.auth_version = (db_user.auth_version or 1) + 1
+        db.query(models.MfaLoginChallenge).filter(
+            models.MfaLoginChallenge.user_id == db_user.id
+        ).delete(synchronize_session=False)
+
     db.commit()
     db.refresh(db_user)
 
     return db_user
+
+
+@app.patch("/users/me/password", response_model=schemas.UserOut)
+def change_current_user_password(
+    password_change: schemas.UserPasswordChange,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if not verify_password(
+        password_change.current_password,
+        current_user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Current password is incorrect",
+        )
+
+    validate_new_password(
+        password_change.new_password,
+        current_user.username,
+        current_user.email,
+    )
+
+    if verify_password(
+        password_change.new_password,
+        current_user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from the current password",
+        )
+
+    current_user.hashed_password = get_password_hash(
+        password_change.new_password
+    )
+    current_user.must_change_password = False
+    current_user.auth_version = (current_user.auth_version or 1) + 1
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
 
 
 @app.patch("/users/{user_id}/password", response_model=schemas.UserOut)
@@ -2562,15 +3443,24 @@ def reset_user_password(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    new_password = password_reset.password.strip()
-
-    if len(new_password) < 6:
+    if db_user.id == current_user.id:
         raise HTTPException(
             status_code=400,
-            detail="Password must be at least 6 characters long",
+            detail="Use the personal password change flow for your own account",
+        )
+
+    new_password = password_reset.password
+    validate_new_password(new_password, db_user.username, db_user.email)
+
+    if verify_password(new_password, db_user.hashed_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from the current password",
         )
 
     db_user.hashed_password = get_password_hash(new_password)
+    db_user.must_change_password = True
+    db_user.auth_version = (db_user.auth_version or 1) + 1
 
     db.commit()
     db.refresh(db_user)
@@ -2578,34 +3468,1035 @@ def reset_user_password(
     return db_user
 
 
-@app.post("/token", response_model=Token)
+@app.post(
+    "/users/me/mfa/setup",
+    response_model=schemas.MfaSetupStartOut,
+)
+def start_current_user_mfa_setup(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail="Change your temporary password before setting up Authenticator",
+        )
+
+    if current_user.mfa_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator is already enabled",
+        )
+
+    secret = generate_totp_secret()
+    current_user.mfa_pending_secret_encrypted = encrypt_mfa_value(secret)
+
+    db.commit()
+
+    otpauth_uri = build_otpauth_uri(current_user, secret)
+
+    return schemas.MfaSetupStartOut(
+        secret=secret,
+        otpauth_uri=otpauth_uri,
+        qr_code_data_url=build_mfa_qr_code_data_url(otpauth_uri),
+    )
+
+
+@app.post(
+    "/users/me/mfa/confirm",
+    response_model=schemas.MfaSetupConfirmOut,
+)
+def confirm_current_user_mfa_setup(
+    confirmation: schemas.MfaCodeRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
+):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail="Change your temporary password before setting up Authenticator",
+        )
+
+    if current_user.mfa_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Authenticator is already enabled",
+        )
+
+    pending_secret = decrypt_mfa_value(
+        current_user.mfa_pending_secret_encrypted
+    )
+
+    if not verify_totp_code(pending_secret, confirmation.code):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid authenticator code",
+        )
+
+    recovery_codes, hashed_recovery_codes = generate_recovery_codes()
+    current_user.mfa_secret_encrypted = encrypt_mfa_value(pending_secret)
+    current_user.mfa_pending_secret_encrypted = None
+    current_user.mfa_recovery_codes_hashed = json.dumps(
+        hashed_recovery_codes
+    )
+    current_user.mfa_enabled = True
+    current_user.auth_version = (current_user.auth_version or 1) + 1
+
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == current_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    return schemas.MfaSetupConfirmOut(
+        enabled=True,
+        recovery_codes=recovery_codes,
+    )
+
+
+@app.post(
+    "/users/{user_id}/mfa/reset",
+    response_model=schemas.MfaResetOut,
+)
+def reset_user_mfa(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can reset Authenticator",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.mfa_enabled = False
+    db_user.mfa_secret_encrypted = None
+    db_user.mfa_pending_secret_encrypted = None
+    db_user.mfa_recovery_codes_hashed = None
+    db_user.auth_version = (db_user.auth_version or 1) + 1
+
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == db_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(db_user)
+
+    return schemas.MfaResetOut(
+        user_id=db_user.id,
+        mfa_enabled=db_user.mfa_enabled,
+        mfa_setup_required=db_user.mfa_setup_required,
+    )
+
+
+@app.post(
+    "/users/{user_id}/sessions/revoke",
+    response_model=schemas.UserOut,
+)
+def revoke_user_sessions(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can sign out user sessions",
+        )
+
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if db_user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Use the normal logout button for your own account",
+        )
+
+    db_user.auth_version = (db_user.auth_version or 1) + 1
+    db.query(models.MfaLoginChallenge).filter(
+        models.MfaLoginChallenge.user_id == db_user.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+def normalize_quick_reply_category_name(value: str | None) -> str:
+    normalized_value = " ".join(str(value or "").strip().split())
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Category name cannot be empty")
+
+    if len(normalized_value) > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="Category name must be 60 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_title(value: str | None) -> str:
+    normalized_value = " ".join(str(value or "").strip().split())
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Quick reply title cannot be empty")
+
+    if len(normalized_value) > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply title must be 100 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_content(value: str | None) -> str:
+    normalized_value = str(value or "").strip()
+
+    if not normalized_value:
+        raise HTTPException(status_code=400, detail="Quick reply content cannot be empty")
+
+    if len(normalized_value) > 4000:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply content must be 4,000 characters or fewer",
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_shortcut(value: str | None) -> str | None:
+    normalized_value = str(value or "").strip().lower().lstrip("/")
+
+    if not normalized_value:
+        return None
+
+    if not QUICK_REPLY_SHORTCUT_PATTERN.fullmatch(normalized_value):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Shortcut can contain lowercase letters, numbers, hyphens and "
+                "underscores only"
+            ),
+        )
+
+    return normalized_value
+
+
+def normalize_quick_reply_scope(value: str | None) -> str:
+    normalized_value = str(value or "personal").strip().lower()
+
+    if normalized_value not in QUICK_REPLY_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply scope must be team or personal",
+        )
+
+    return normalized_value
+
+
+def visible_quick_reply_filter(current_user: models.User):
+    return or_(
+        models.QuickReply.scope == "team",
+        and_(
+            models.QuickReply.scope == "personal",
+            models.QuickReply.created_by_user_id == current_user.id,
+        ),
+    )
+
+
+def get_favorite_quick_reply_ids(
+    db: Session,
+    user_id: int,
+    quick_reply_ids: set[int] | None = None,
+) -> set[int]:
+    query = db.query(models.QuickReplyFavorite.quick_reply_id).filter(
+        models.QuickReplyFavorite.user_id == user_id
+    )
+
+    if quick_reply_ids is not None:
+        if not quick_reply_ids:
+            return set()
+        query = query.filter(
+            models.QuickReplyFavorite.quick_reply_id.in_(quick_reply_ids)
+        )
+
+    return {quick_reply_id for (quick_reply_id,) in query.all()}
+
+
+def set_quick_reply_favorite(
+    db: Session,
+    user_id: int,
+    quick_reply_id: int,
+    is_favorite: bool,
+) -> None:
+    existing_favorite = (
+        db.query(models.QuickReplyFavorite)
+        .filter(
+            models.QuickReplyFavorite.user_id == user_id,
+            models.QuickReplyFavorite.quick_reply_id == quick_reply_id,
+        )
+        .first()
+    )
+
+    if is_favorite and not existing_favorite:
+        db.add(
+            models.QuickReplyFavorite(
+                user_id=user_id,
+                quick_reply_id=quick_reply_id,
+                created_at=datetime.utcnow(),
+            )
+        )
+    elif not is_favorite and existing_favorite:
+        db.delete(existing_favorite)
+
+
+def get_quick_reply_category_or_404(
+    db: Session,
+    category_id: int,
+) -> models.QuickReplyCategory:
+    category = (
+        db.query(models.QuickReplyCategory)
+        .filter(models.QuickReplyCategory.id == category_id)
+        .first()
+    )
+
+    if not category:
+        raise HTTPException(status_code=404, detail="Quick reply category not found")
+
+    return category
+
+
+def validate_quick_reply_parent_category(
+    db: Session,
+    parent_id: int | None,
+    category_id: int | None = None,
+) -> models.QuickReplyCategory | None:
+    if parent_id is None:
+        return None
+
+    if category_id is not None and parent_id == category_id:
+        raise HTTPException(status_code=400, detail="A category cannot contain itself")
+
+    parent = get_quick_reply_category_or_404(db, parent_id)
+
+    if parent.parent_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Quick reply categories support one subcategory level",
+        )
+
+    if category_id is not None:
+        child_exists = (
+            db.query(models.QuickReplyCategory)
+            .filter(models.QuickReplyCategory.parent_id == category_id)
+            .first()
+        )
+
+        if child_exists:
+            raise HTTPException(
+                status_code=400,
+                detail="A category with subcategories cannot become a subcategory",
+            )
+
+    return parent
+
+
+def quick_reply_category_to_out(
+    category: models.QuickReplyCategory,
+    reply_count: int = 0,
+) -> dict:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "parent_id": category.parent_id,
+        "sort_order": category.sort_order,
+        "reply_count": int(reply_count or 0),
+        "created_at": category.created_at,
+        "updated_at": category.updated_at,
+    }
+
+
+def quick_reply_to_out(
+    quick_reply: models.QuickReply,
+    current_user: models.User,
+    categories_by_id: dict[int, models.QuickReplyCategory],
+    users_by_id: dict[int, models.User],
+    favorite_quick_reply_ids: set[int],
+) -> dict:
+    category = categories_by_id.get(quick_reply.category_id)
+    parent_category = (
+        categories_by_id.get(category.parent_id)
+        if category and category.parent_id
+        else None
+    )
+    creator = users_by_id.get(quick_reply.created_by_user_id)
+    creator_name = None
+
+    if creator:
+        creator_name = (
+            creator.display_name
+            or creator.full_name
+            or creator.username
+        )
+
+    return {
+        "id": quick_reply.id,
+        "title": quick_reply.title,
+        "content": quick_reply.content,
+        "shortcut": quick_reply.shortcut,
+        "category_id": quick_reply.category_id,
+        "category_name": category.name if category else None,
+        "parent_category_id": parent_category.id if parent_category else None,
+        "parent_category_name": parent_category.name if parent_category else None,
+        "scope": quick_reply.scope,
+        "is_favorite": quick_reply.id in favorite_quick_reply_ids,
+        "sort_order": quick_reply.sort_order,
+        "created_by_user_id": quick_reply.created_by_user_id,
+        "created_by_name": creator_name,
+        "can_edit": can_edit_quick_reply(current_user, quick_reply),
+        "can_delete": can_edit_quick_reply(current_user, quick_reply),
+        "created_at": quick_reply.created_at,
+        "updated_at": quick_reply.updated_at,
+    }
+
+
+@app.get(
+    "/quick-reply-categories/",
+    response_model=list[schemas.QuickReplyCategoryOut],
+)
+def get_quick_reply_categories(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    categories = (
+        db.query(models.QuickReplyCategory)
+        .order_by(
+            models.QuickReplyCategory.sort_order.asc(),
+            models.QuickReplyCategory.name.asc(),
+        )
+        .all()
+    )
+    counts = dict(
+        db.query(
+            models.QuickReply.category_id,
+            func.count(models.QuickReply.id),
+        )
+        .filter(
+            models.QuickReply.category_id.isnot(None),
+            visible_quick_reply_filter(current_user),
+        )
+        .group_by(models.QuickReply.category_id)
+        .all()
+    )
+
+    root_categories = [category for category in categories if category.parent_id is None]
+    ordered_categories = []
+    included_category_ids = set()
+
+    for root_category in root_categories:
+        ordered_categories.append(root_category)
+        included_category_ids.add(root_category.id)
+
+        for child_category in categories:
+            if child_category.parent_id == root_category.id:
+                ordered_categories.append(child_category)
+                included_category_ids.add(child_category.id)
+
+    ordered_categories.extend(
+        category
+        for category in categories
+        if category.id not in included_category_ids
+    )
+
+    return [
+        quick_reply_category_to_out(category, counts.get(category.id, 0))
+        for category in ordered_categories
+    ]
+
+
+@app.post(
+    "/quick-reply-categories/",
+    response_model=schemas.QuickReplyCategoryOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quick_reply_category(
+    category_create: schemas.QuickReplyCategoryCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can create quick reply categories",
+        )
+
+    name = normalize_quick_reply_category_name(category_create.name)
+    validate_quick_reply_parent_category(db, category_create.parent_id)
+
+    duplicate = (
+        db.query(models.QuickReplyCategory)
+        .filter(func.lower(models.QuickReplyCategory.name) == name.lower())
+        .first()
+    )
+
+    if duplicate:
+        raise HTTPException(status_code=400, detail="Category name already exists")
+
+    sort_order = category_create.sort_order
+
+    if sort_order is None:
+        highest_sort_order = (
+            db.query(func.max(models.QuickReplyCategory.sort_order)).scalar() or 0
+        )
+        sort_order = highest_sort_order + 10
+
+    category = models.QuickReplyCategory(
+        name=name,
+        parent_id=category_create.parent_id,
+        sort_order=max(0, int(sort_order)),
+        created_by_user_id=current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+
+    return quick_reply_category_to_out(category)
+
+
+@app.patch(
+    "/quick-reply-categories/{category_id}",
+    response_model=schemas.QuickReplyCategoryOut,
+)
+def update_quick_reply_category(
+    category_id: int,
+    category_update: schemas.QuickReplyCategoryUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can update quick reply categories",
+        )
+
+    category = get_quick_reply_category_or_404(db, category_id)
+    updates = category_update.dict(exclude_unset=True)
+
+    if "name" in updates:
+        name = normalize_quick_reply_category_name(updates["name"])
+        duplicate = (
+            db.query(models.QuickReplyCategory)
+            .filter(
+                func.lower(models.QuickReplyCategory.name) == name.lower(),
+                models.QuickReplyCategory.id != category_id,
+            )
+            .first()
+        )
+
+        if duplicate:
+            raise HTTPException(status_code=400, detail="Category name already exists")
+
+        category.name = name
+
+    if "parent_id" in updates:
+        validate_quick_reply_parent_category(
+            db,
+            updates["parent_id"],
+            category_id=category_id,
+        )
+        category.parent_id = updates["parent_id"]
+
+    if "sort_order" in updates and updates["sort_order"] is not None:
+        category.sort_order = max(0, int(updates["sort_order"]))
+
+    category.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(category)
+
+    reply_count = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.category_id == category.id)
+        .count()
+    )
+    return quick_reply_category_to_out(category, reply_count)
+
+
+@app.delete("/quick-reply-categories/{category_id}")
+def delete_quick_reply_category(
+    category_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can delete quick reply categories",
+        )
+
+    category = get_quick_reply_category_or_404(db, category_id)
+    db.query(models.QuickReply).filter(
+        models.QuickReply.category_id == category.id
+    ).update({models.QuickReply.category_id: None}, synchronize_session=False)
+    db.query(models.QuickReplyCategory).filter(
+        models.QuickReplyCategory.parent_id == category.id
+    ).update({models.QuickReplyCategory.parent_id: None}, synchronize_session=False)
+    db.delete(category)
+    db.commit()
+
+    return {"status": "deleted", "category_id": category_id}
+
+
+@app.get("/quick-replies/", response_model=list[schemas.QuickReplyOut])
+def get_quick_replies(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    q: str | None = Query(default=None, max_length=120),
+    category_id: int | None = Query(default=None),
+    favorites_only: bool = Query(default=False),
+):
+    query = db.query(models.QuickReply).filter(
+        visible_quick_reply_filter(current_user)
+    )
+
+    if category_id is not None:
+        query = query.filter(models.QuickReply.category_id == category_id)
+
+    if favorites_only:
+        query = query.join(
+            models.QuickReplyFavorite,
+            and_(
+                models.QuickReplyFavorite.quick_reply_id == models.QuickReply.id,
+                models.QuickReplyFavorite.user_id == current_user.id,
+            ),
+        )
+
+    search_value = str(q or "").strip()
+
+    if search_value:
+        search_pattern = f"%{search_value}%"
+        query = query.outerjoin(
+            models.QuickReplyCategory,
+            models.QuickReply.category_id == models.QuickReplyCategory.id,
+        ).filter(
+            or_(
+                models.QuickReply.title.ilike(search_pattern),
+                models.QuickReply.shortcut.ilike(search_pattern),
+                models.QuickReply.content.ilike(search_pattern),
+                models.QuickReplyCategory.name.ilike(search_pattern),
+            )
+        )
+
+    quick_replies = query.order_by(
+        models.QuickReply.sort_order.asc(),
+        models.QuickReply.title.asc(),
+    ).all()
+    categories = db.query(models.QuickReplyCategory).all()
+    creator_ids = {reply.created_by_user_id for reply in quick_replies}
+    creators = (
+        db.query(models.User).filter(models.User.id.in_(creator_ids)).all()
+        if creator_ids
+        else []
+    )
+    categories_by_id = {category.id: category for category in categories}
+    users_by_id = {creator.id: creator for creator in creators}
+    favorite_quick_reply_ids = get_favorite_quick_reply_ids(
+        db,
+        current_user.id,
+        {reply.id for reply in quick_replies},
+    )
+
+    quick_replies.sort(
+        key=lambda reply: (
+            reply.id not in favorite_quick_reply_ids,
+            reply.sort_order,
+            reply.title.lower(),
+        )
+    )
+
+    return [
+        quick_reply_to_out(
+            quick_reply,
+            current_user,
+            categories_by_id,
+            users_by_id,
+            favorite_quick_reply_ids,
+        )
+        for quick_reply in quick_replies
+    ]
+
+
+def ensure_unique_quick_reply_shortcut(
+    db: Session,
+    shortcut: str | None,
+    quick_reply_id: int | None = None,
+) -> None:
+    if not shortcut:
+        return
+
+    query = db.query(models.QuickReply).filter(
+        func.lower(models.QuickReply.shortcut) == shortcut.lower()
+    )
+
+    if quick_reply_id is not None:
+        query = query.filter(models.QuickReply.id != quick_reply_id)
+
+    if query.first():
+        raise HTTPException(status_code=400, detail="Shortcut already exists")
+
+
+@app.post(
+    "/quick-replies/",
+    response_model=schemas.QuickReplyOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_quick_reply(
+    quick_reply_create: schemas.QuickReplyCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    if not can_create_quick_replies(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to create quick replies",
+        )
+
+    title = normalize_quick_reply_title(quick_reply_create.title)
+    content = normalize_quick_reply_content(quick_reply_create.content)
+    shortcut = normalize_quick_reply_shortcut(quick_reply_create.shortcut)
+    quick_reply_scope = normalize_quick_reply_scope(quick_reply_create.scope)
+
+    if not can_create_quick_reply_scope(current_user, quick_reply_scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can create team quick replies",
+        )
+
+    ensure_unique_quick_reply_shortcut(db, shortcut)
+
+    if quick_reply_create.category_id is not None:
+        get_quick_reply_category_or_404(db, quick_reply_create.category_id)
+
+    sort_order = quick_reply_create.sort_order
+
+    if sort_order is None:
+        highest_sort_order = db.query(func.max(models.QuickReply.sort_order)).scalar() or 0
+        sort_order = highest_sort_order + 10
+
+    quick_reply = models.QuickReply(
+        title=title,
+        content=content,
+        shortcut=shortcut,
+        scope=quick_reply_scope,
+        category_id=quick_reply_create.category_id,
+        sort_order=max(0, int(sort_order)),
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    db.add(quick_reply)
+    db.flush()
+    set_quick_reply_favorite(
+        db,
+        current_user.id,
+        quick_reply.id,
+        bool(quick_reply_create.is_favorite),
+    )
+    db.commit()
+    db.refresh(quick_reply)
+
+    categories = db.query(models.QuickReplyCategory).all()
+    return quick_reply_to_out(
+        quick_reply,
+        current_user,
+        {category.id: category for category in categories},
+        {current_user.id: current_user},
+        {quick_reply.id} if quick_reply_create.is_favorite else set(),
+    )
+
+
+@app.patch("/quick-replies/{quick_reply_id}", response_model=schemas.QuickReplyOut)
+def update_quick_reply(
+    quick_reply_id: int,
+    quick_reply_update: schemas.QuickReplyUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    quick_reply = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.id == quick_reply_id)
+        .first()
+    )
+
+    if not quick_reply:
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_view_quick_reply(current_user, quick_reply):
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    updates = quick_reply_update.dict(exclude_unset=True)
+    content_updates = {
+        field_name: value
+        for field_name, value in updates.items()
+        if field_name != "is_favorite"
+    }
+
+    if content_updates and not can_edit_quick_reply(current_user, quick_reply):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit this quick reply",
+        )
+
+    if "title" in updates:
+        quick_reply.title = normalize_quick_reply_title(updates["title"])
+
+    if "content" in updates:
+        quick_reply.content = normalize_quick_reply_content(updates["content"])
+
+    if "shortcut" in updates:
+        shortcut = normalize_quick_reply_shortcut(updates["shortcut"])
+        ensure_unique_quick_reply_shortcut(db, shortcut, quick_reply.id)
+        quick_reply.shortcut = shortcut
+
+    if "category_id" in updates:
+        if updates["category_id"] is not None:
+            get_quick_reply_category_or_404(db, updates["category_id"])
+        quick_reply.category_id = updates["category_id"]
+
+    if "scope" in updates:
+        requested_scope = normalize_quick_reply_scope(updates["scope"])
+
+        if not can_create_quick_reply_scope(current_user, requested_scope):
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins can create team quick replies",
+            )
+
+        quick_reply.scope = requested_scope
+
+    if "is_favorite" in updates and updates["is_favorite"] is not None:
+        set_quick_reply_favorite(
+            db,
+            current_user.id,
+            quick_reply.id,
+            bool(updates["is_favorite"]),
+        )
+
+    if "sort_order" in updates and updates["sort_order"] is not None:
+        quick_reply.sort_order = max(0, int(updates["sort_order"]))
+
+    if content_updates:
+        quick_reply.updated_by_user_id = current_user.id
+        quick_reply.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(quick_reply)
+
+    categories = db.query(models.QuickReplyCategory).all()
+    creator = (
+        db.query(models.User)
+        .filter(models.User.id == quick_reply.created_by_user_id)
+        .first()
+    )
+    return quick_reply_to_out(
+        quick_reply,
+        current_user,
+        {category.id: category for category in categories},
+        {creator.id: creator} if creator else {},
+        get_favorite_quick_reply_ids(db, current_user.id, {quick_reply.id}),
+    )
+
+
+@app.delete("/quick-replies/{quick_reply_id}")
+def delete_quick_reply(
+    quick_reply_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    quick_reply = (
+        db.query(models.QuickReply)
+        .filter(models.QuickReply.id == quick_reply_id)
+        .first()
+    )
+
+    if not quick_reply:
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_view_quick_reply(current_user, quick_reply):
+        raise HTTPException(status_code=404, detail="Quick reply not found")
+
+    if not can_edit_quick_reply(current_user, quick_reply):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to delete this quick reply",
+        )
+
+    db.query(models.QuickReplyFavorite).filter(
+        models.QuickReplyFavorite.quick_reply_id == quick_reply.id
+    ).delete(synchronize_session=False)
+    db.delete(quick_reply)
+    db.commit()
+
+    return {"status": "deleted", "quick_reply_id": quick_reply_id}
+
+
+@app.post("/token", response_model=LoginResponse)
 async def login_for_access_token(
+    request: Request,
+    response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
 ):
-    user = authenticate_user(db, form_data.username, form_data.password)
+    now = datetime.utcnow()
+    cleanup_stale_login_throttles(db, now)
+    throttle_key = get_login_throttle_key(request, form_data.username)
+    throttle = check_login_throttle(db, throttle_key, now)
 
-    if not user:
+    user = get_user(db, form_data.username)
+    password_hash = user.hashed_password if user else DUMMY_PASSWORD_HASH
+    password_matches = verify_password(form_data.password, password_hash)
+    login_allowed = bool(user and password_matches and not user.disabled)
+
+    if not login_allowed:
+        retry_after_seconds = record_login_failure(
+            db,
+            throttle_key,
+            throttle,
+            now,
+        )
+
+        if retry_after_seconds is not None:
+            raise_login_throttled(retry_after_seconds)
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    clear_login_failures(db, throttle_key)
 
-    access_token = create_access_token(
-        data={"sub": user.username},
-        expires_delta=access_token_expires,
+    if user.mfa_enabled:
+        if trusted_device_is_valid(db, user, request, response, now):
+            token = issue_access_token_for_user(user)
+            return LoginResponse(
+                access_token=token.access_token,
+                token_type=token.token_type,
+            )
+
+        challenge_token = create_mfa_login_challenge(db, user, now)
+        return LoginResponse(
+            mfa_required=True,
+            challenge_token=challenge_token,
+            trusted_device_available=user.role != "admin",
+        )
+
+    token = issue_access_token_for_user(user)
+    return LoginResponse(
+        access_token=token.access_token,
+        token_type=token.token_type,
     )
 
-    return Token(access_token=access_token, token_type="bearer")
+
+@app.post("/token/mfa", response_model=Token)
+def complete_mfa_login(
+    verification: schemas.MfaLoginVerifyRequest,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+):
+    now = datetime.utcnow()
+    challenge_hash = hash_mfa_challenge_token(verification.challenge_token)
+    challenge = (
+        db.query(models.MfaLoginChallenge)
+        .filter(models.MfaLoginChallenge.challenge_hash == challenge_hash)
+        .first()
+    )
+
+    if (
+        not challenge
+        or challenge.consumed_at is not None
+        or challenge.expires_at <= now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticator request expired. Sign in again.",
+        )
+
+    if challenge.failed_attempts >= MFA_CHALLENGE_MAX_ATTEMPTS:
+        challenge.consumed_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Too many authenticator attempts. Sign in again.",
+        )
+
+    user = db.query(models.User).filter(models.User.id == challenge.user_id).first()
+
+    if not user or user.disabled or not user.mfa_enabled:
+        challenge.consumed_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticator login is no longer available. Sign in again.",
+        )
+
+    if not verify_and_consume_mfa_code(user, verification.code):
+        challenge.failed_attempts += 1
+
+        if challenge.failed_attempts >= MFA_CHALLENGE_MAX_ATTEMPTS:
+            challenge.consumed_at = now
+
+        db.commit()
+
+        if challenge.consumed_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Too many authenticator attempts. Sign in again.",
+            )
+
+        attempts_left = MFA_CHALLENGE_MAX_ATTEMPTS - challenge.failed_attempts
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authenticator code. {attempts_left} attempts remaining.",
+        )
+
+    challenge.consumed_at = now
+
+    if verification.trust_device and user.role != "admin":
+        create_trusted_device(db, user, response, now)
+    else:
+        db.commit()
+
+    return issue_access_token_for_user(user)
 
 
 @app.get("/users/me/", response_model=schemas.UserOut)
 async def read_users_me(
-    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    current_user: Annotated[models.User, Depends(get_current_user)],
 ):
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
     return current_user
 
 
@@ -3338,10 +5229,35 @@ def take_conversation(
             detail="This conversation is already taken by another user",
         )
 
+    previous_assignee_id = conversation.assigned_to_user_id
+    previous_assignee = (
+        db.query(models.User).filter(models.User.id == previous_assignee_id).first()
+        if previous_assignee_id is not None
+        else None
+    )
+
     conversation.assigned_to_user_id = current_user.id
     conversation.status = "open"
     conversation.unread_count = 0
     touch_conversation(conversation)
+
+    if previous_assignee_id != current_user.id:
+        actor_label = get_user_display_label(current_user)
+
+        if previous_assignee is not None:
+            event_content = (
+                f"{actor_label} took this conversation from "
+                f"{get_user_display_label(previous_assignee)}"
+            )
+        else:
+            event_content = f"{actor_label} took this conversation"
+
+        create_internal_conversation_event(
+            db,
+            conversation,
+            current_user,
+            event_content,
+        )
 
     db.commit()
 
@@ -3697,8 +5613,33 @@ def release_conversation(
             detail="Only the assigned user, a power user, or an admin can release this conversation",
         )
 
+    previous_assignee_id = conversation.assigned_to_user_id
+    previous_assignee = (
+        db.query(models.User).filter(models.User.id == previous_assignee_id).first()
+        if previous_assignee_id is not None
+        else None
+    )
+
     conversation.assigned_to_user_id = None
     touch_conversation(conversation)
+
+    if previous_assignee is not None:
+        actor_label = get_user_display_label(current_user)
+
+        if previous_assignee.id == current_user.id:
+            event_content = f"{actor_label} released this conversation"
+        else:
+            event_content = (
+                f"{actor_label} released this conversation from "
+                f"{get_user_display_label(previous_assignee)}"
+            )
+
+        create_internal_conversation_event(
+            db,
+            conversation,
+            current_user,
+            event_content,
+        )
 
     db.commit()
 

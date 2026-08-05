@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from .database import Base
 
@@ -12,10 +21,116 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     full_name = Column(String, nullable=True)
+    display_name = Column(String, nullable=True)
+    assignment_color = Column(String(7), nullable=True)
+    assignment_text_color = Column(String(7), nullable=True)
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="operator", nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     can_view_reports = Column(Boolean, default=False, nullable=False)
+    auth_version = Column(Integer, default=1, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
+    mfa_required = Column(Boolean, default=False, nullable=False)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
+    mfa_secret_encrypted = Column(Text, nullable=True)
+    mfa_pending_secret_encrypted = Column(Text, nullable=True)
+    mfa_recovery_codes_hashed = Column(Text, nullable=True)
+
+    @property
+    def mfa_setup_required(self):
+        return (self.role == "admin" or self.mfa_required) and not self.mfa_enabled
+
+
+class MfaLoginChallenge(Base):
+    __tablename__ = "mfa_login_challenges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    challenge_hash = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    consumed_at = Column(DateTime, nullable=True)
+
+
+class TrustedDevice(Base):
+    __tablename__ = "trusted_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    auth_version = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
+class LoginThrottle(Base):
+    __tablename__ = "login_throttles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    throttle_key = Column(String(64), unique=True, index=True, nullable=False)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    window_started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+    last_failed_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+
+
+class QuickReplyCategory(Base):
+    __tablename__ = "quick_reply_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(60), unique=True, index=True, nullable=False)
+    parent_id = Column(
+        Integer,
+        ForeignKey("quick_reply_categories.id"),
+        nullable=True,
+    )
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QuickReply(Base):
+    __tablename__ = "quick_replies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(100), index=True, nullable=False)
+    shortcut = Column(String(40), unique=True, index=True, nullable=True)
+    content = Column(Text, nullable=False)
+    scope = Column(String(16), default="personal", nullable=False, index=True)
+    category_id = Column(
+        Integer,
+        ForeignKey("quick_reply_categories.id"),
+        nullable=True,
+    )
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class QuickReplyFavorite(Base):
+    __tablename__ = "quick_reply_favorites"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "quick_reply_id",
+            name="uq_quick_reply_favorite_user_reply",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    quick_reply_id = Column(
+        Integer,
+        ForeignKey("quick_replies.id"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Conversation(Base):

@@ -48,11 +48,17 @@ async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || `Request failed with status ${response.status}`);
+    const requestError = new Error(
+      errorText || `Request failed with status ${response.status}`
+    );
+    requestError.status = response.status;
+    requestError.retryAfter = Number(response.headers.get('Retry-After')) || 0;
+    throw requestError;
   }
 
   return response.json();
@@ -71,8 +77,38 @@ export async function login(username, password) {
     body: formData,
   });
 
+  if (data.access_token) {
+    saveToken(data.access_token);
+  }
+
+  return data;
+}
+
+export async function verifyMfaLogin(challengeToken, code, trustDevice = false) {
+  const data = await apiRequest('/token/mfa', {
+    method: 'POST',
+    body: JSON.stringify({
+      challenge_token: challengeToken,
+      code,
+      trust_device: Boolean(trustDevice),
+    }),
+  });
+
   saveToken(data.access_token);
   return data;
+}
+
+export async function startMfaSetup() {
+  return apiRequest('/users/me/mfa/setup', {
+    method: 'POST',
+  });
+}
+
+export async function confirmMfaSetup(code) {
+  return apiRequest('/users/me/mfa/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
 }
 
 export async function getCurrentUser() {
@@ -101,6 +137,91 @@ export async function resetUserPassword(userId, password) {
   return apiRequest(`/users/${userId}/password`, {
     method: 'PATCH',
     body: JSON.stringify({ password }),
+  });
+}
+
+export async function resetUserMfa(userId) {
+  return apiRequest(`/users/${userId}/mfa/reset`, {
+    method: 'POST',
+  });
+}
+
+export async function revokeUserSessions(userId) {
+  return apiRequest(`/users/${userId}/sessions/revoke`, {
+    method: 'POST',
+  });
+}
+
+export async function changeMyPassword(currentPassword, newPassword) {
+  return apiRequest('/users/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+export async function getQuickReplyCategories() {
+  return apiRequest('/quick-reply-categories/');
+}
+
+export async function createQuickReplyCategory(categoryData) {
+  return apiRequest('/quick-reply-categories/', {
+    method: 'POST',
+    body: JSON.stringify(categoryData),
+  });
+}
+
+export async function updateQuickReplyCategory(categoryId, updates) {
+  return apiRequest(`/quick-reply-categories/${categoryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteQuickReplyCategory(categoryId) {
+  return apiRequest(`/quick-reply-categories/${categoryId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getQuickReplies(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.q && String(filters.q).trim()) {
+    params.set('q', String(filters.q).trim());
+  }
+
+  if (filters.categoryId !== undefined && filters.categoryId !== null) {
+    params.set('category_id', String(filters.categoryId));
+  }
+
+  if (filters.favoritesOnly) {
+    params.set('favorites_only', 'true');
+  }
+
+  const queryString = params.toString();
+  return apiRequest(`/quick-replies/${queryString ? `?${queryString}` : ''}`);
+}
+
+export async function createQuickReply(quickReplyData) {
+  return apiRequest('/quick-replies/', {
+    method: 'POST',
+    body: JSON.stringify(quickReplyData),
+  });
+}
+
+export async function updateQuickReply(quickReplyId, updates) {
+  return apiRequest(`/quick-replies/${quickReplyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteQuickReply(quickReplyId) {
+  return apiRequest(`/quick-replies/${quickReplyId}`, {
+    method: 'DELETE',
   });
 }
 

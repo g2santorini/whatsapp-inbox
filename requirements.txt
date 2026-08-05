@@ -8,6 +8,8 @@ h11==0.16.0
 idna==3.11
 passlib[bcrypt]==1.7.4
 psycopg[binary]==3.2.10
+PyOTP==2.10.0
+qrcode==8.2
 pydantic==2.13.2
 pydantic_core==2.46.2
 python-dotenv==1.1.1

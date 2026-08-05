@@ -1,13 +1,20 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import './App.css';
-import sendroLogo from './assets/sendro_logo_clean.svg';
+import sendroLogo from './assets/sendro_logo_reversed.png';
 import SettingsPanel from './components/SettingsPanel';
 import {
   getToken,
   login,
+  verifyMfaLogin,
+  startMfaSetup,
+  confirmMfaSetup,
   clearToken,
+  changeMyPassword,
   getCurrentUser,
   getUsers,
+  getQuickReplies,
+  getQuickReplyCategories,
+  updateQuickReply,
   getConversations,
   getConversationSummary,
   createTemplateConversation,
@@ -36,8 +43,38 @@ const MAX_LOADED_CONVERSATIONS = 200;
 const MESSAGE_PAGE_SIZE = 30;
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 80;
 const PHONE_NUMBER_REGEX = /^\+[1-9]\d{7,14}$/;
+const PASSWORD_MIN_LENGTH = 10;
 const APP_BROWSER_TITLE = 'Sendro | Sunset Oia';
 const BASIC_REACTION_EMOJIS = ['👍', '❤️', '😂', '🙏', '👌'];
+const MOBILE_LAYOUT_QUERY = '(max-width: 820px)';
+const MOBILE_HISTORY_STATE_KEY = '__sendroMobileNavigation';
+const MOBILE_HISTORY_LAYERS = {
+  EXIT_BOUNDARY: 'exit-boundary',
+  LIST: 'list',
+  CONVERSATION: 'conversation',
+  PAGE: 'page',
+  DRAWER: 'drawer',
+  SEARCH: 'search',
+  NEW_CONVERSATION: 'new-conversation',
+  QUICK_REPLIES: 'quick-replies',
+  REACTION: 'reaction',
+  DELETE_CONFIRM: 'delete-confirm',
+};
+const ASSIGNMENT_COLOR_PALETTE = [
+  '#1d4ed8',
+  '#c026d3',
+  '#6d28d9',
+  '#087f5b',
+  '#c2410c',
+  '#be123c',
+  '#047857',
+  '#4338ca',
+  '#a21caf',
+  '#9a3412',
+];
+const AUTOMATIC_DARK_TEXT_COLOR = '#10213f';
+const AUTOMATIC_LIGHT_TEXT_COLOR = '#ffffff';
+const HEX_COLOR_REGEX = /^#[0-9a-f]{6}$/i;
 
 const CONVERSATION_VIEWS = {
   INBOX: 'inbox',
@@ -51,6 +88,145 @@ const APP_PAGES = {
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
+
+const EMPTY_REQUIRED_PASSWORD_CHANGE = {
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+};
+
+const EMPTY_MFA_SETUP_STATE = {
+  secret: '',
+  otpauth_uri: '',
+  qr_code_data_url: '',
+};
+
+function getRelativeLuminance(hexColor) {
+  const normalized = String(hexColor || '').trim().replace('#', '');
+
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) {
+    return 0;
+  }
+
+  const channels = [0, 2, 4].map((offset) => {
+    const channel = Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function getAutomaticTextColor(backgroundColor) {
+  const backgroundLuminance = getRelativeLuminance(backgroundColor);
+  const darkLuminance = getRelativeLuminance(AUTOMATIC_DARK_TEXT_COLOR);
+  const lightContrast = 1.05 / (backgroundLuminance + 0.05);
+  const darkContrast =
+    (Math.max(backgroundLuminance, darkLuminance) + 0.05) /
+    (Math.min(backgroundLuminance, darkLuminance) + 0.05);
+
+  return lightContrast >= darkContrast
+    ? AUTOMATIC_LIGHT_TEXT_COLOR
+    : AUTOMATIC_DARK_TEXT_COLOR;
+}
+
+function isMobileLayout() {
+  return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+}
+
+function Icon({ name, size = 20, strokeWidth = 1.8 }) {
+  const commonProps = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  };
+
+  const paths = {
+    inbox: <><path d="M4 4h16v13H4z" /><path d="M4 13h4l2 3h4l2-3h4" /></>,
+    chat: <><path d="M5 5h14v11H9l-4 3z" /></>,
+    user: <><circle cx="12" cy="8" r="3" /><path d="M5 20c.8-4 3.1-6 7-6s6.2 2 7 6" /></>,
+    users: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6s5.3 2 6 6" /><path d="M16 5c2.4.3 3.7 3.1 2.1 5" /><path d="M17 14c2.1.7 3.4 2.6 4 5" /></>,
+    follow: <><path d="M4 18V6" /><path d="M4 7h10l-1 4 1 4H4" /></>,
+    archive: <><path d="M4 7h16v13H4z" /><path d="M3 4h18v3H3z" /><path d="M9 11h6" /></>,
+    reports: <><path d="M5 20V10" /><path d="M12 20V4" /><path d="M19 20v-7" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m16.5 16.5 4 4" /></>,
+    filter: <><path d="M4 5h16l-6 7v6l-4 2v-8z" /></>,
+    plus: <><path d="M12 5v14M5 12h14" /></>,
+    clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.5 2" /></>,
+    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><path d="M12 7h.01" /></>,
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
+    back: <><path d="m15 18-6-6 6-6" /></>,
+    send: <><path d="m22 2-7 20-4-9-9-4z" /><path d="M22 2 11 13" /></>,
+    take: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="M18 12v6M15 15h6" /></>,
+    release: <><circle cx="9" cy="8" r="3" /><path d="M3 20c.7-4 2.8-6 6-6 1.5 0 2.8.4 3.8 1.1" /><path d="m16 13 4 4m0-4-4 4" /></>,
+    delete: <><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="m6 7 1 13h10l1-13" /><path d="M10 11v5M14 11v5" /></>,
+    folder: <><path d="M3 6h6l2 2h10v11H3z" /></>,
+    quick: <><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2z" /><path d="m18.5 14 .7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z" /></>,
+    menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
+    chevron: <><path d="m8 10 4 4 4-4" /></>,
+    sidebarCollapse: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m15 9-3 3 3 3" /></>,
+    sidebarExpand: <><path d="M4 5h16v14H4z" /><path d="M9 5v14" /><path d="m12 9 3 3-3 3" /></>,
+    responseInbound: <><path d="m16.5 7.5-9 9" /><path d="M14 16.5H7.5V10" /></>,
+    responseOutbound: <><path d="m7.5 16.5 9-9" /><path d="M10 7.5h6.5V14" /></>,
+    responseNeutral: <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />,
+    logout: <><path d="M10 4H5v16h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
+  };
+
+  return <svg {...commonProps}>{paths[name] || paths.chat}</svg>;
+}
+
+function getInitials(value) {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+function getQuickReplySlashMatch(value, cursorPosition) {
+  const draft = String(value || '');
+  const safeCursorPosition = Number.isInteger(cursorPosition)
+    ? cursorPosition
+    : draft.length;
+  const beforeCursor = draft.slice(0, safeCursorPosition);
+  const match = beforeCursor.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
+
+  if (!match) return null;
+
+  return {
+    query: match[2] || '',
+    start: safeCursorPosition - (match[2]?.length || 0) - 1,
+    end: safeCursorPosition,
+  };
+}
+
+function attachCustomerServiceExpiry(conversations) {
+  const receivedAtMs = Date.now();
+
+  return conversations.map((conversation) => {
+    const secondsLeft = Math.max(
+      0,
+      Number(conversation.customer_service_time_left_seconds || 0)
+    );
+
+    return {
+      ...conversation,
+      customer_service_expires_at_ms:
+        conversation.customer_service_window_open && secondsLeft > 0
+          ? receivedAtMs + (secondsLeft * 1000)
+          : null,
+    };
+  });
+}
 
 function playNotificationSound() {
   try {
@@ -457,6 +633,7 @@ function getLocationGoogleMapsUrl(content) {
 function MessageMediaPreview({ message }) {
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaError, setMediaError] = useState('');
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
 
   const messageType = String(message?.message_type || 'text').toLowerCase();
   const caption = getMediaCaption(message?.content);
@@ -505,6 +682,26 @@ function MessageMediaPreview({ message }) {
     };
   }, [hasMedia, message?.id]);
 
+  useEffect(() => {
+    if (!isImagePreviewOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsImagePreviewOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isImagePreviewOpen]);
+
   if (messageType === 'location') {
     return (
       <div className="message-location-card">
@@ -539,26 +736,70 @@ function MessageMediaPreview({ message }) {
   }
 
   if (messageType === 'image' && hasMedia) {
+    const imageAlt = caption || 'WhatsApp photo';
+
     return (
-      <div className="message-media-card message-image-card">
-        {mediaUrl ? (
-          <a href={mediaUrl} target="_blank" rel="noreferrer">
-            <img
-              className="message-image-preview"
-              src={mediaUrl}
-              alt={caption || 'WhatsApp photo'}
-            />
-          </a>
-        ) : (
-          <div className="message-media-loading">Loading photo...</div>
-        )}
+      <>
+        <div className="message-media-card message-image-card">
+          {mediaUrl ? (
+            <button
+              type="button"
+              className="message-image-preview-button"
+              onClick={() => setIsImagePreviewOpen(true)}
+              aria-label="Open photo preview"
+              title="Open photo"
+            >
+              <img
+                className="message-image-preview"
+                src={mediaUrl}
+                alt={imageAlt}
+              />
+              <span className="message-image-preview-hint" aria-hidden="true">
+                View
+              </span>
+            </button>
+          ) : (
+            <div className="message-media-loading">Loading photo...</div>
+          )}
 
-        {caption && <div className="message-media-caption">{caption}</div>}
+          {caption && <div className="message-media-caption">{caption}</div>}
 
-        {mediaError && (
-          <div className="message-media-error">{mediaError}</div>
+          {mediaError && (
+            <div className="message-media-error">{mediaError}</div>
+          )}
+        </div>
+
+        {isImagePreviewOpen && mediaUrl && (
+          <div
+            className="message-image-lightbox"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Photo preview"
+            onMouseDown={() => setIsImagePreviewOpen(false)}
+          >
+            <div
+              className="message-image-lightbox-panel"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="message-image-lightbox-close"
+                onClick={() => setIsImagePreviewOpen(false)}
+                aria-label="Close photo preview"
+                title="Close"
+              >
+                ×
+              </button>
+
+              <img src={mediaUrl} alt={imageAlt} />
+
+              {caption && (
+                <div className="message-image-lightbox-caption">{caption}</div>
+              )}
+            </div>
+          </div>
         )}
-      </div>
+      </>
     );
   }
 
@@ -677,6 +918,23 @@ function App() {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginNotice, setLoginNotice] = useState('');
+  const [mfaChallengeToken, setMfaChallengeToken] = useState('');
+  const [mfaLoginCode, setMfaLoginCode] = useState('');
+  const [canTrustMfaDevice, setCanTrustMfaDevice] = useState(false);
+  const [trustMfaDevice, setTrustMfaDevice] = useState(false);
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+  const [mfaSetupData, setMfaSetupData] = useState(EMPTY_MFA_SETUP_STATE);
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState([]);
+  const [isStartingMfaSetup, setIsStartingMfaSetup] = useState(false);
+  const [isConfirmingMfaSetup, setIsConfirmingMfaSetup] = useState(false);
+  const [didCopyRecoveryCodes, setDidCopyRecoveryCodes] = useState(false);
+  const [requiredPasswordChange, setRequiredPasswordChange] = useState(
+    EMPTY_REQUIRED_PASSWORD_CHANGE
+  );
+  const [isChangingRequiredPassword, setIsChangingRequiredPassword] = useState(false);
 
   const [conversations, setConversations] = useState([]);
   const [conversationSummary, setConversationSummary] = useState(null);
@@ -760,6 +1018,27 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingFollowUp, setIsUpdatingFollowUp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [mobileDrawerMode, setMobileDrawerMode] = useState(null);
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [quickReplyCategories, setQuickReplyCategories] = useState([]);
+  const [quickReplySearch, setQuickReplySearch] = useState('');
+  const [quickReplyCategoryFilter, setQuickReplyCategoryFilter] = useState('all');
+  const [isLoadingQuickReplies, setIsLoadingQuickReplies] = useState(false);
+  const [quickRepliesError, setQuickRepliesError] = useState('');
+  const [copiedQuickReplyId, setCopiedQuickReplyId] = useState(null);
+  const [favoritingQuickReplyIds, setFavoritingQuickReplyIds] = useState([]);
+  const [slashQuickReplyMatch, setSlashQuickReplyMatch] = useState(null);
+  const [activeSlashReplyIndex, setActiveSlashReplyIndex] = useState(0);
+  const [customerServiceNowMs, setCustomerServiceNowMs] = useState(() => Date.now());
+  const inboxSearchInputRef = useRef(null);
+  const mobileHistorySessionIdRef = useRef(null);
+  const skipNextMobilePopRef = useRef(false);
+  const allowMobileExitRef = useRef(false);
+  const mobileNavigationSnapshotRef = useRef({});
 
   const [showNewConversationForm, setShowNewConversationForm] = useState(false);
   const [newContactName, setNewContactName] = useState('');
@@ -781,14 +1060,27 @@ function App() {
   const canTakeConversation =
     Boolean(selectedConversation) && !selectedConversation.assigned_to_user_id;
 
-  const canReleaseConversation =
-    Boolean(selectedConversation) && selectedConversation.assigned_to_user_id === user?.id;
+  const canOverrideConversationAssignment =
+    user?.role === 'admin' || user?.role === 'power_user';
 
-  const canUseConversationAction = canTakeConversation || canReleaseConversation;
+  const canReleaseConversation =
+    Boolean(selectedConversation?.assigned_to_user_id) &&
+    (
+      selectedConversation.assigned_to_user_id === user?.id ||
+      canOverrideConversationAssignment
+    );
+
+  const selectedCustomerServiceSecondsLeft = getCustomerServiceSecondsLeft(
+    selectedConversation,
+    customerServiceNowMs
+  );
 
   const isCustomerServiceSessionExpired =
     Boolean(selectedConversation) &&
-    !selectedConversation.customer_service_window_open;
+    (
+      !selectedConversation.customer_service_window_open ||
+      selectedCustomerServiceSecondsLeft <= 0
+    );
 
   const canTypeMessage =
     Boolean(selectedConversation) &&
@@ -884,6 +1176,632 @@ function App() {
     return true;
   });
 
+  const normalizedQuickReplySearch = quickReplySearch.trim().toLowerCase();
+  const filteredQuickReplies = quickReplies.filter((reply) => {
+    let matchesCategory = true;
+
+    if (quickReplyCategoryFilter === 'favorites') {
+      matchesCategory = Boolean(reply.is_favorite);
+    } else if (quickReplyCategoryFilter === 'team') {
+      matchesCategory = reply.scope === 'team';
+    } else if (quickReplyCategoryFilter === 'mine') {
+      matchesCategory = reply.scope === 'personal';
+    } else if (quickReplyCategoryFilter !== 'all') {
+      const selectedCategoryId = Number(quickReplyCategoryFilter);
+      matchesCategory =
+        reply.category_id === selectedCategoryId ||
+        reply.parent_category_id === selectedCategoryId;
+    }
+
+    if (!matchesCategory) return false;
+    if (!normalizedQuickReplySearch) return true;
+
+    return [
+      reply.title,
+      reply.shortcut,
+      reply.category_name,
+      reply.parent_category_name,
+      reply.content,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuickReplySearch));
+  });
+  const normalizedSlashQuickReplyQuery = String(
+    slashQuickReplyMatch?.query || ''
+  ).toLowerCase();
+  const slashQuickReplies = quickReplies
+    .filter((reply) => {
+      if (!normalizedSlashQuickReplyQuery) return true;
+
+      return [
+        reply.shortcut,
+        reply.title,
+        reply.category_name,
+        reply.parent_category_name,
+        reply.content,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSlashQuickReplyQuery));
+    })
+    .slice(0, 7);
+
+  function getCurrentMobileHistoryMarker() {
+    return window.history.state?.[MOBILE_HISTORY_STATE_KEY] || null;
+  }
+
+  function createMobileHistoryState(layer) {
+    return {
+      ...(window.history.state || {}),
+      [MOBILE_HISTORY_STATE_KEY]: {
+        sessionId: mobileHistorySessionIdRef.current,
+        layer,
+      },
+    };
+  }
+
+  function pushMobileHistoryLayer(layer) {
+    if (!token || !isMobileLayout() || !mobileHistorySessionIdRef.current) {
+      return;
+    }
+
+    const currentMarker = getCurrentMobileHistoryMarker();
+
+    if (
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+      currentMarker.layer === layer
+    ) {
+      return;
+    }
+
+    window.history.pushState(createMobileHistoryState(layer), '', window.location.href);
+  }
+
+  function replaceMobileHistoryLayer(layer) {
+    if (!token || !isMobileLayout() || !mobileHistorySessionIdRef.current) {
+      return;
+    }
+
+    window.history.replaceState(
+      createMobileHistoryState(layer),
+      '',
+      window.location.href
+    );
+  }
+
+  function dismissMobileHistoryLayer(
+    closeLayer,
+    historySteps = 1,
+    expectedLayer = null
+  ) {
+    const currentMarker = getCurrentMobileHistoryMarker();
+    const ownsCurrentEntry =
+      token &&
+      isMobileLayout() &&
+      mobileHistorySessionIdRef.current &&
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+      ![
+        MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY,
+        MOBILE_HISTORY_LAYERS.LIST,
+      ].includes(currentMarker.layer) &&
+      (!expectedLayer || currentMarker.layer === expectedLayer);
+
+    closeLayer();
+
+    if (ownsCurrentEntry) {
+      skipNextMobilePopRef.current = true;
+      window.history.go(-Math.max(1, historySteps));
+    }
+  }
+
+  function openMobileDrawer(mode) {
+    if (mobileDrawerMode || showNewConversationForm || isMobileSearchOpen) {
+      setShowNewConversationForm(false);
+      setIsMobileSearchOpen(false);
+      setMobileDrawerMode(mode);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DRAWER);
+      return;
+    }
+
+    setMobileDrawerMode(mode);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DRAWER);
+  }
+
+  function closeMobileDrawer() {
+    dismissMobileHistoryLayer(
+      () => setMobileDrawerMode(null),
+      1,
+      MOBILE_HISTORY_LAYERS.DRAWER
+    );
+  }
+
+  function toggleNewConversationPanel() {
+    if (showNewConversationForm) {
+      dismissMobileHistoryLayer(
+        () => setShowNewConversationForm(false),
+        1,
+        MOBILE_HISTORY_LAYERS.NEW_CONVERSATION
+      );
+      return;
+    }
+
+    if (isMobileSearchOpen || activePage !== APP_PAGES.INBOX) {
+      setIsMobileSearchOpen(false);
+      setShowNewConversationForm(true);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.NEW_CONVERSATION);
+      return;
+    }
+
+    setShowNewConversationForm(true);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.NEW_CONVERSATION);
+  }
+
+  function closeSlashQuickReplies() {
+    dismissMobileHistoryLayer(() => {
+      setSlashQuickReplyMatch(null);
+      setActiveSlashReplyIndex(0);
+    }, 1, MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+  }
+
+  function toggleReactionPicker(messageId) {
+    if (openReactionPickerMessageId === messageId) {
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
+      return;
+    }
+
+    if (openReactionPickerMessageId) {
+      setOpenReactionPickerMessageId(messageId);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.REACTION);
+      return;
+    }
+
+    setOpenReactionPickerMessageId(messageId);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.REACTION);
+  }
+
+  function closeMobileConversation() {
+    dismissMobileHistoryLayer(() => {
+      setOpenReactionPickerMessageId(null);
+      setSlashQuickReplyMatch(null);
+      setIsMobileChatOpen(false);
+    }, 1, MOBILE_HISTORY_LAYERS.CONVERSATION);
+  }
+
+  function handleMobileChatBack() {
+    if (openReactionPickerMessageId) {
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
+      return;
+    }
+
+    if (slashQuickReplyMatch) {
+      closeSlashQuickReplies();
+      return;
+    }
+
+    closeMobileConversation();
+  }
+
+  function openDeleteConfirmation() {
+    setShowDeleteConfirm(true);
+    pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.DELETE_CONFIRM);
+  }
+
+  function closeDeleteConfirmation() {
+    dismissMobileHistoryLayer(
+      () => setShowDeleteConfirm(false),
+      1,
+      MOBILE_HISTORY_LAYERS.DELETE_CONFIRM
+    );
+  }
+
+  function handleStayInSendro() {
+    setShowExitConfirm(false);
+  }
+
+  function handleExitSendro() {
+    const currentMarker = getCurrentMobileHistoryMarker();
+
+    setShowExitConfirm(false);
+
+    if (
+      isMobileLayout() &&
+      currentMarker?.sessionId === mobileHistorySessionIdRef.current
+    ) {
+      allowMobileExitRef.current = true;
+      window.history.back();
+      return;
+    }
+
+    window.history.back();
+  }
+
+  function openConversationView(view) {
+    const showConversationList = () => {
+      setActivePage(APP_PAGES.INBOX);
+      setActiveConversationView(view);
+      setIsMobileChatOpen(false);
+      setIsMobileSearchOpen(false);
+      setMobileDrawerMode(null);
+    };
+
+    if (
+      mobileDrawerMode ||
+      isMobileChatOpen ||
+      activePage !== APP_PAGES.INBOX
+    ) {
+      dismissMobileHistoryLayer(
+        showConversationList,
+        mobileDrawerMode && activePage !== APP_PAGES.INBOX ? 2 : 1,
+        mobileDrawerMode
+          ? MOBILE_HISTORY_LAYERS.DRAWER
+          : isMobileChatOpen
+            ? MOBILE_HISTORY_LAYERS.CONVERSATION
+            : MOBILE_HISTORY_LAYERS.PAGE
+      );
+      return;
+    }
+
+    showConversationList();
+  }
+
+  async function loadQuickReplyData() {
+    try {
+      setIsLoadingQuickReplies(true);
+      setQuickRepliesError('');
+
+      const [categoryData, replyData] = await Promise.all([
+        getQuickReplyCategories(),
+        getQuickReplies(),
+      ]);
+
+      setQuickReplyCategories(categoryData);
+      setQuickReplies(replyData);
+    } catch (err) {
+      setQuickRepliesError(getErrorMessage(err, 'Could not load quick replies.'));
+    } finally {
+      setIsLoadingQuickReplies(false);
+    }
+  }
+
+  function handleSettingsQuickRepliesChanged(updatedReplies, updatedCategories) {
+    setQuickReplies(updatedReplies);
+    setQuickReplyCategories(updatedCategories);
+    setQuickRepliesError('');
+    setQuickReplyCategoryFilter((currentFilter) => {
+      if (['all', 'team', 'mine', 'favorites'].includes(currentFilter)) {
+        return currentFilter;
+      }
+
+      return updatedCategories.some(
+        (category) => String(category.id) === currentFilter
+      )
+        ? currentFilter
+        : 'all';
+    });
+  }
+
+  function getQuickReplyCategoryLabel(reply) {
+    return [reply.parent_category_name, reply.category_name]
+      .filter(Boolean)
+      .join(' / ') || 'General';
+  }
+
+  async function handleToggleQuickReplyFavorite(reply) {
+    if (favoritingQuickReplyIds.includes(reply.id)) return;
+
+    const nextFavoriteValue = !reply.is_favorite;
+    setFavoritingQuickReplyIds((currentIds) => [...currentIds, reply.id]);
+    setQuickReplies((currentReplies) =>
+      currentReplies.map((currentReply) =>
+        currentReply.id === reply.id
+          ? { ...currentReply, is_favorite: nextFavoriteValue }
+          : currentReply
+      )
+    );
+
+    try {
+      const updatedReply = await updateQuickReply(reply.id, {
+        is_favorite: nextFavoriteValue,
+      });
+      setQuickReplies((currentReplies) =>
+        currentReplies.map((currentReply) =>
+          currentReply.id === updatedReply.id ? updatedReply : currentReply
+        )
+      );
+    } catch (err) {
+      setQuickReplies((currentReplies) =>
+        currentReplies.map((currentReply) =>
+          currentReply.id === reply.id ? reply : currentReply
+        )
+      );
+      setQuickRepliesError(
+        getErrorMessage(err, 'Could not update your Favorites.')
+      );
+    } finally {
+      setFavoritingQuickReplyIds((currentIds) =>
+        currentIds.filter((replyId) => replyId !== reply.id)
+      );
+    }
+  }
+
+  function insertQuickReplyIntoComposer(reply, options = {}) {
+    if (!selectedConversationId || !canTypeMessage) return;
+
+    const currentDraft = newMessage;
+    const textarea = messageInputRef.current;
+    const slashMatch = options.slashMatch || null;
+    const selectionStart = slashMatch?.start ?? textarea?.selectionStart ?? currentDraft.length;
+    const selectionEnd = slashMatch?.end ?? textarea?.selectionEnd ?? selectionStart;
+    const beforeSelection = currentDraft.slice(0, selectionStart);
+    const afterSelection = currentDraft.slice(selectionEnd);
+    const leadingSeparator =
+      !slashMatch && beforeSelection && !/\s$/.test(beforeSelection) ? '\n' : '';
+    const trailingSeparator =
+      afterSelection && !/^\s/.test(afterSelection) ? '\n' : '';
+    const insertedContent = `${leadingSeparator}${reply.content}${trailingSeparator}`;
+    const nextDraft = `${beforeSelection}${insertedContent}${afterSelection}`;
+    const nextCursorPosition = beforeSelection.length + insertedContent.length;
+
+    if (mobileDrawerMode) {
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
+    } else if (slashQuickReplyMatch && isMobileLayout()) {
+      const currentMarker = getCurrentMobileHistoryMarker();
+
+      if (
+        currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+        currentMarker.layer === MOBILE_HISTORY_LAYERS.QUICK_REPLIES
+      ) {
+        skipNextMobilePopRef.current = true;
+        window.history.back();
+      }
+    }
+
+    setConversationDraft(selectedConversationId, nextDraft);
+    setIsMobileChatOpen(true);
+    setMobileDrawerMode(null);
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(
+        nextCursorPosition,
+        nextCursorPosition
+      );
+    }, 0);
+  }
+
+  function handleQuickReplyDragStart(event, reply) {
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-sendro-quick-reply', reply.content);
+    event.dataTransfer.setData('text/plain', reply.content);
+  }
+
+  async function handleCopyQuickReply(reply) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reply.content);
+      } else {
+        const temporaryTextarea = document.createElement('textarea');
+        temporaryTextarea.value = reply.content;
+        temporaryTextarea.style.position = 'fixed';
+        temporaryTextarea.style.opacity = '0';
+        document.body.appendChild(temporaryTextarea);
+        temporaryTextarea.select();
+        const copied = document.execCommand('copy');
+        temporaryTextarea.remove();
+
+        if (!copied) {
+          throw new Error('Copy failed');
+        }
+      }
+      setCopiedQuickReplyId(reply.id);
+      window.setTimeout(() => {
+        setCopiedQuickReplyId((currentId) =>
+          currentId === reply.id ? null : currentId
+        );
+      }, 1600);
+    } catch {
+      setError('Could not copy quick reply.');
+    }
+  }
+
+  function handleQuickReplyDrop(event) {
+    event.preventDefault();
+    const content = event.dataTransfer.getData('application/x-sendro-quick-reply');
+    if (!content || !canTypeMessage) return;
+    insertQuickReplyIntoComposer({ content });
+  }
+
+  function handleComposerDraftChange(event) {
+    const nextDraft = event.target.value;
+    const slashMatch = getQuickReplySlashMatch(
+      nextDraft,
+      event.target.selectionStart
+    );
+
+    setConversationDraft(selectedConversationId, nextDraft);
+
+    if (slashMatch && !slashQuickReplyMatch) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+    } else if (!slashMatch && slashQuickReplyMatch) {
+      closeSlashQuickReplies();
+      return;
+    }
+
+    setSlashQuickReplyMatch(slashMatch);
+    setActiveSlashReplyIndex(0);
+  }
+
+  function openSlashQuickReplyPicker() {
+    if (!selectedConversationId || !canTypeMessage) return;
+
+    const textarea = messageInputRef.current;
+    const cursorPosition = textarea?.selectionStart ?? newMessage.length;
+    const beforeCursor = newMessage.slice(0, cursorPosition);
+    const afterCursor = newMessage.slice(cursorPosition);
+    const prefix = beforeCursor && !/\s$/.test(beforeCursor) ? ' /' : '/';
+    const nextDraft = `${beforeCursor}${prefix}${afterCursor}`;
+    const nextCursorPosition = beforeCursor.length + prefix.length;
+
+    setConversationDraft(selectedConversationId, nextDraft);
+    if (!slashQuickReplyMatch) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.QUICK_REPLIES);
+    }
+    setSlashQuickReplyMatch({
+      query: '',
+      start: nextCursorPosition - 1,
+      end: nextCursorPosition,
+    });
+    setActiveSlashReplyIndex(0);
+
+    window.setTimeout(() => {
+      messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    }, 0);
+  }
+
+  function handleComposerKeyDown(event) {
+    if (slashQuickReplyMatch) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveSlashReplyIndex((currentIndex) =>
+          slashQuickReplies.length
+            ? (currentIndex + 1) % slashQuickReplies.length
+            : 0
+        );
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveSlashReplyIndex((currentIndex) =>
+          slashQuickReplies.length
+            ? (currentIndex - 1 + slashQuickReplies.length) % slashQuickReplies.length
+            : 0
+        );
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeSlashQuickReplies();
+        return;
+      }
+
+      if (event.key === 'Enter' && !event.shiftKey && slashQuickReplies.length > 0) {
+        event.preventDefault();
+        insertQuickReplyIntoComposer(
+          slashQuickReplies[activeSlashReplyIndex] || slashQuickReplies[0],
+          { slashMatch: slashQuickReplyMatch }
+        );
+        return;
+      }
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage(event);
+    }
+  }
+
+  function focusMobileInboxSearch() {
+    if (isMobileSearchOpen) {
+      dismissMobileHistoryLayer(
+        () => setIsMobileSearchOpen(false),
+        1,
+        MOBILE_HISTORY_LAYERS.SEARCH
+      );
+      return;
+    }
+
+    setActivePage(APP_PAGES.INBOX);
+    setIsMobileChatOpen(false);
+    setMobileDrawerMode(null);
+
+    if (showNewConversationForm || activePage !== APP_PAGES.INBOX) {
+      setShowNewConversationForm(false);
+      setIsMobileSearchOpen(true);
+      replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.SEARCH);
+    } else {
+      setIsMobileSearchOpen(true);
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.SEARCH);
+    }
+
+    window.setTimeout(() => {
+      inboxSearchInputRef.current?.focus();
+    }, 0);
+  }
+
+  function renderQuickReplyList() {
+    if (isLoadingQuickReplies) {
+      return <div className="quick-reply-empty">Loading quick replies...</div>;
+    }
+
+    if (quickRepliesError) {
+      return (
+        <div className="quick-reply-empty quick-reply-load-error">
+          <span>{quickRepliesError}</span>
+          <button type="button" onClick={loadQuickReplyData}>Try again</button>
+        </div>
+      );
+    }
+
+    if (filteredQuickReplies.length === 0) {
+      return <div className="quick-reply-empty">No quick replies found.</div>;
+    }
+
+    return filteredQuickReplies.map((reply) => (
+      <article
+        className="quick-reply-card"
+        key={reply.id}
+        draggable={canTypeMessage}
+        onDragStart={(event) => handleQuickReplyDragStart(event, reply)}
+      >
+        <div className="quick-reply-card-heading">
+          <button
+            type="button"
+            className={reply.is_favorite ? 'quick-reply-star active' : 'quick-reply-star'}
+            onClick={() => handleToggleQuickReplyFavorite(reply)}
+            disabled={favoritingQuickReplyIds.includes(reply.id)}
+            aria-label={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+            aria-pressed={Boolean(reply.is_favorite)}
+            title={reply.is_favorite ? 'Remove from my Favorites' : 'Add to my Favorites'}
+          >
+            ★
+          </button>
+          <div>
+            <strong>{reply.title}</strong>
+            <small>
+              {reply.scope === 'personal' ? 'My reply' : 'Team'} · {getQuickReplyCategoryLabel(reply)}
+              {reply.shortcut ? ` · /${reply.shortcut}` : ''}
+            </small>
+          </div>
+        </div>
+        <p>{reply.content}</p>
+        <div className="quick-reply-card-actions">
+          <button type="button" onClick={() => handleCopyQuickReply(reply)}>
+            {copiedQuickReplyId === reply.id ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            type="button"
+            onClick={() => insertQuickReplyIntoComposer(reply)}
+            disabled={!selectedConversationId || !canTypeMessage}
+          >
+            Insert
+          </button>
+        </div>
+      </article>
+    ));
+  }
+
   function getAssignedUser(userId) {
     if (!userId) return null;
     return users.find((singleUser) => singleUser.id === userId) || null;
@@ -895,27 +1813,76 @@ function App() {
     const assignedUser = getAssignedUser(userId);
     if (!assignedUser) return `User #${userId}`;
 
-    return assignedUser.username || `User #${userId}`;
+    const customDisplayName = String(assignedUser.display_name || '').trim();
+
+    if (customDisplayName) {
+      return customDisplayName;
+    }
+
+    const rawName = String(
+      assignedUser.first_name ||
+      assignedUser.full_name ||
+      assignedUser.username ||
+      ''
+    ).trim();
+
+    if (!rawName) return `User #${userId}`;
+
+    const firstName = rawName.split(/[\s._-]+/).filter(Boolean)[0] || rawName;
+
+    return `${firstName.charAt(0).toUpperCase()}${firstName.slice(1).toLowerCase()}`;
   }
 
   function getAssignedUserClass(userId) {
     if (!userId) return 'assigned-nobody';
 
     const assignedUser = getAssignedUser(userId);
-    const usernameValue = assignedUser?.username?.toLowerCase() || '';
+    const stableValue = String(
+      assignedUser?.username ||
+      assignedUser?.id ||
+      userId
+    ).toLowerCase();
+    const fallbackColorIndex = Array.from(stableValue).reduce(
+      (total, character) =>
+        (total + character.charCodeAt(0)) % ASSIGNMENT_COLOR_PALETTE.length,
+      0
+    );
 
-    if (usernameValue === 'george') return 'assigned-george';
-    if (usernameValue === 'panagiotis') return 'assigned-panagiotis';
-
-    return 'assigned-other';
+    return `assigned-color-${fallbackColorIndex + 1}`;
   }
 
-  function getConversationActionLabel() {
-    if (!selectedConversation) return 'Take';
-    if (canTakeConversation) return 'Take';
-    if (canReleaseConversation) return 'Release';
+  function getAssignedUserColor(userId) {
+    const assignedUser = getAssignedUser(userId);
+    const savedColor = String(assignedUser?.assignment_color || '').trim();
 
-    return 'Taken';
+    if (/^#[0-9a-f]{6}$/i.test(savedColor)) {
+      return savedColor;
+    }
+
+    const className = getAssignedUserClass(userId);
+    const colorIndex = Number(className.replace('assigned-color-', '')) - 1;
+    return ASSIGNMENT_COLOR_PALETTE[colorIndex] || ASSIGNMENT_COLOR_PALETTE[0];
+  }
+
+  function getAssignedUserTextColor(userId) {
+    const assignedUser = getAssignedUser(userId);
+    const savedTextColor = String(
+      assignedUser?.assignment_text_color || ''
+    ).trim();
+
+    if (HEX_COLOR_REGEX.test(savedTextColor)) {
+      return savedTextColor;
+    }
+
+    return getAutomaticTextColor(getAssignedUserColor(userId));
+  }
+
+  function handleSettingsUsersChanged(updatedUsers) {
+    setUsers(updatedUsers);
+    setUser((currentUser) => {
+      if (!currentUser?.id) return currentUser;
+      return updatedUsers.find((singleUser) => singleUser.id === currentUser.id) || currentUser;
+    });
   }
 
   function scrollMessagesToBottom() {
@@ -1068,6 +2035,21 @@ function App() {
     return '';
   }
 
+  function getMessageStatusTitle(message) {
+    if (!message || message.direction !== 'outbound') {
+      return '';
+    }
+
+    const statusValue = String(message.whatsapp_status || '').toLowerCase();
+
+    if (statusValue === 'sent') return 'Sent';
+    if (statusValue === 'delivered') return 'Delivered';
+    if (statusValue === 'read') return 'Read';
+    if (statusValue === 'failed') return 'Failed';
+
+    return '';
+  }
+
   function getMessageAuthorLabel(message) {
     if (!message || message.direction !== 'outbound') {
       return '';
@@ -1092,35 +2074,49 @@ function App() {
     return '';
   }
 
-  function formatCustomerServiceWindow(conversation) {
+  function getCustomerServiceSecondsLeft(conversation, nowMs) {
     if (!conversation?.customer_service_window_open) {
-      return 'Session expired — template required';
+      return 0;
     }
 
-    const secondsLeft = Number(
-      conversation.customer_service_time_left_seconds || 0
+    const expiresAtMs = Number(conversation.customer_service_expires_at_ms || 0);
+
+    if (!expiresAtMs) {
+      return Math.max(
+        0,
+        Number(conversation.customer_service_time_left_seconds || 0)
+      );
+    }
+
+    return Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000));
+  }
+
+  function formatCustomerServiceWindow(conversation) {
+    const secondsLeft = getCustomerServiceSecondsLeft(
+      conversation,
+      customerServiceNowMs
     );
 
     if (secondsLeft <= 0) {
-      return 'Session expired — template required';
+      return 'Expired';
     }
 
     const hours = Math.floor(secondsLeft / 3600);
     const minutes = Math.floor((secondsLeft % 3600) / 60);
+    const seconds = secondsLeft % 60;
 
-    return `${hours}h ${minutes}m left`;
+    return [hours, minutes, seconds]
+      .map((value) => String(value).padStart(2, '0'))
+      .join(':');
   }
 
   function getCustomerServiceWindowClass(conversation) {
-    if (!conversation?.customer_service_window_open) {
-      return 'customer-service-expired';
-    }
-
-    const secondsLeft = Number(
-      conversation.customer_service_time_left_seconds || 0
+    const secondsLeft = getCustomerServiceSecondsLeft(
+      conversation,
+      customerServiceNowMs
     );
 
-    if (secondsLeft <= 0) {
+    if (!conversation?.customer_service_window_open || secondsLeft <= 0) {
       return 'customer-service-expired';
     }
 
@@ -1171,6 +2167,15 @@ function App() {
     }
 
     return 'conversation-response-dot-neutral';
+  }
+
+  function getConversationResponseIconName(conversation) {
+    const lastDirection = String(conversation?.last_message_direction || '').toLowerCase();
+
+    if (lastDirection === 'inbound') return 'responseInbound';
+    if (lastDirection === 'outbound') return 'responseOutbound';
+
+    return 'responseNeutral';
   }
 
   function formatReportDate(value) {
@@ -1397,7 +2402,9 @@ function App() {
         return;
       }
 
-      const conversationData = rawConversationData.slice(0, requestedLimit);
+      const conversationData = attachCustomerServiceExpiry(
+        rawConversationData.slice(0, requestedLimit)
+      );
 
       loadedConversationLimitRef.current = Math.max(
         CONVERSATION_PAGE_SIZE,
@@ -1490,7 +2497,9 @@ function App() {
         signal: abortController.signal,
       });
 
-      const nextPage = rawConversationData.slice(0, pageSize);
+      const nextPage = attachCustomerServiceExpiry(
+        rawConversationData.slice(0, pageSize)
+      );
 
       setConversations((currentConversations) => {
         const conversationsById = new Map(
@@ -1532,12 +2541,164 @@ function App() {
   async function handleLogin(event) {
     event.preventDefault();
     setError('');
+    setLoginNotice('');
 
     try {
+      setIsLoggingIn(true);
       const data = await login(username, password);
+      setPassword('');
+
+      if (data.mfa_required && data.challenge_token) {
+        setMfaChallengeToken(data.challenge_token);
+        setMfaLoginCode('');
+        setCanTrustMfaDevice(Boolean(data.trusted_device_available));
+        setTrustMfaDevice(false);
+        return;
+      }
+
+      setCanTrustMfaDevice(false);
+      setTrustMfaDevice(false);
       setToken(data.access_token);
     } catch (err) {
-      setError('Login failed. Check username and password.');
+      if (err.status === 429) {
+        const waitMinutes = Math.max(1, Math.ceil((err.retryAfter || 900) / 60));
+        setError(`Too many login attempts. Try again in about ${waitMinutes} minutes.`);
+      } else {
+        setError('Login failed. Check username and password.');
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleMfaLogin(event) {
+    event.preventDefault();
+    setError('');
+
+    try {
+      setIsVerifyingMfa(true);
+      const data = await verifyMfaLogin(
+        mfaChallengeToken,
+        mfaLoginCode,
+        canTrustMfaDevice && trustMfaDevice
+      );
+      setMfaChallengeToken('');
+      setMfaLoginCode('');
+      setCanTrustMfaDevice(false);
+      setTrustMfaDevice(false);
+      setToken(data.access_token);
+    } catch (err) {
+      const message = getErrorMessage(err, 'Could not verify Authenticator code.');
+
+      if (/sign in again/i.test(message)) {
+        setMfaChallengeToken('');
+        setMfaLoginCode('');
+        setCanTrustMfaDevice(false);
+        setTrustMfaDevice(false);
+      }
+
+      setError(message);
+    } finally {
+      setIsVerifyingMfa(false);
+    }
+  }
+
+  function cancelMfaLogin() {
+    setMfaChallengeToken('');
+    setMfaLoginCode('');
+    setCanTrustMfaDevice(false);
+    setTrustMfaDevice(false);
+    setError('');
+  }
+
+  async function beginMfaSetup() {
+    setError('');
+
+    try {
+      setIsStartingMfaSetup(true);
+      const data = await startMfaSetup();
+      setMfaSetupData(data);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not start Authenticator setup.'));
+    } finally {
+      setIsStartingMfaSetup(false);
+    }
+  }
+
+  async function handleMfaSetupConfirmation(event) {
+    event.preventDefault();
+    setError('');
+
+    try {
+      setIsConfirmingMfaSetup(true);
+      const data = await confirmMfaSetup(mfaSetupCode);
+      setMfaSetupCode('');
+      setMfaSetupData(EMPTY_MFA_SETUP_STATE);
+      setMfaRecoveryCodes(data.recovery_codes || []);
+      setDidCopyRecoveryCodes(false);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not confirm Authenticator setup.'));
+    } finally {
+      setIsConfirmingMfaSetup(false);
+    }
+  }
+
+  async function copyRecoveryCodes() {
+    try {
+      await navigator.clipboard.writeText(mfaRecoveryCodes.join('\n'));
+      setDidCopyRecoveryCodes(true);
+    } catch {
+      setError('Could not copy recovery codes. Save them manually.');
+    }
+  }
+
+  function finishMfaSetup() {
+    const signedInUsername = user?.username || username;
+    handleLogout();
+    setUsername(signedInUsername);
+    setLoginNotice('Authenticator enabled. Sign in again and enter your 6-digit code.');
+  }
+
+  function updateRequiredPasswordChange(fieldName, value) {
+    setRequiredPasswordChange((currentValues) => ({
+      ...currentValues,
+      [fieldName]: value,
+    }));
+  }
+
+  async function handleRequiredPasswordChange(event) {
+    event.preventDefault();
+
+    const {
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    } = requiredPasswordChange;
+
+    setError('');
+
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      setError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters long.`);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    try {
+      setIsChangingRequiredPassword(true);
+      await changeMyPassword(currentPassword, newPassword);
+
+      const signedInUsername = user?.username || username;
+      handleLogout();
+      setUsername(signedInUsername);
+      setLoginNotice('Password updated. Sign in again with your new password.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update password.'));
+    } finally {
+      setIsChangingRequiredPassword(false);
     }
   }
 
@@ -1573,6 +2734,29 @@ function App() {
 
     setReportData(null);
     setReportsError('');
+    setQuickReplies([]);
+    setQuickReplyCategories([]);
+    setQuickReplySearch('');
+    setQuickReplyCategoryFilter('all');
+    setQuickRepliesError('');
+    setCopiedQuickReplyId(null);
+    setFavoritingQuickReplyIds([]);
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
+    setPassword('');
+    setIsLoggingIn(false);
+    setLoginNotice('');
+    setMfaChallengeToken('');
+    setMfaLoginCode('');
+    setIsVerifyingMfa(false);
+    setMfaSetupData(EMPTY_MFA_SETUP_STATE);
+    setMfaSetupCode('');
+    setMfaRecoveryCodes([]);
+    setIsStartingMfaSetup(false);
+    setIsConfirmingMfaSetup(false);
+    setDidCopyRecoveryCodes(false);
+    setRequiredPasswordChange(EMPTY_REQUIRED_PASSWORD_CHANGE);
+    setIsChangingRequiredPassword(false);
     setReportFilters({
       operation_date: '',
       date_from: '',
@@ -1592,6 +2776,10 @@ function App() {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
 
+      if (currentUser.must_change_password || currentUser.mfa_setup_required) {
+        return;
+      }
+
       try {
         const usersData = await getUsers();
         setUsers(usersData);
@@ -1602,6 +2790,7 @@ function App() {
       await Promise.all([
         refreshConversations(),
         refreshConversationSummary(),
+        loadQuickReplyData(),
       ]);
     } catch (err) {
       clearToken();
@@ -1798,6 +2987,14 @@ function App() {
     setError('');
     setActivePage(APP_PAGES.INBOX);
 
+    if (!isMobileChatOpen) {
+      pushMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
+    }
+
+    setIsMobileChatOpen(true);
+    setIsMobileSearchOpen(false);
+    setMobileDrawerMode(null);
+
     messagesRequestInProgressRef.current?.controller?.abort();
     olderMessagesAbortControllerRef.current?.abort();
     latestConversationRequestIdRef.current += 1;
@@ -1887,9 +3084,11 @@ function App() {
 
       if (createdConversation?.id) {
         resetNewConversationForm();
+        replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.CONVERSATION);
         setShowNewConversationForm(false);
         setActivePage(APP_PAGES.INBOX);
         setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+        setIsMobileChatOpen(true);
 
         await Promise.all([
           refreshConversations(
@@ -1922,6 +3121,7 @@ function App() {
       await Promise.all([
         refreshConversations(selectedConversation.id),
         refreshConversationSummary(),
+        loadMessages(selectedConversation.id, { replace: true }),
       ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not take conversation.'));
@@ -1937,20 +3137,10 @@ function App() {
       await Promise.all([
         refreshConversations(selectedConversation.id),
         refreshConversationSummary(),
+        loadMessages(selectedConversation.id, { replace: true }),
       ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not release conversation.'));
-    }
-  }
-
-  async function handleConversationAction() {
-    if (canTakeConversation) {
-      await handleTakeConversation();
-      return;
-    }
-
-    if (canReleaseConversation) {
-      await handleReleaseConversation();
     }
   }
 
@@ -2050,7 +3240,10 @@ function App() {
       setHasMoreOlderMessages(true);
       setIsLoadingOlderMessages(false);
       setError('');
-      setShowDeleteConfirm(false);
+      dismissMobileHistoryLayer(() => {
+        setShowDeleteConfirm(false);
+        setIsMobileChatOpen(false);
+      }, 2, MOBILE_HISTORY_LAYERS.DELETE_CONFIRM);
       await Promise.all([
         refreshConversations(),
         refreshConversationSummary(),
@@ -2082,7 +3275,11 @@ function App() {
         )
       );
 
-      setOpenReactionPickerMessageId(null);
+      dismissMobileHistoryLayer(
+        () => setOpenReactionPickerMessageId(null),
+        1,
+        MOBILE_HISTORY_LAYERS.REACTION
+      );
 
       await Promise.all([
         refreshConversations(selectedConversation?.id || null),
@@ -2118,6 +3315,7 @@ function App() {
   setIsSending(true);
   setError('');
   setConversationDraft(conversationId, '');
+  closeSlashQuickReplies();
 
   try {
     const sentMessage = await sendMessage(conversationId, messageToSend);
@@ -2153,6 +3351,21 @@ function App() {
 }
 
   useEffect(() => {
+    if (!selectedConversation?.customer_service_window_open) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setCustomerServiceNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    selectedConversation?.id,
+    selectedConversation?.customer_service_window_open,
+  ]);
+
+  useEffect(() => {
     function handleVisibilityChange() {
       setIsPageVisible(document.visibilityState !== 'hidden');
     }
@@ -2170,20 +3383,209 @@ function App() {
   }, []);
 
   useEffect(() => {
+    mobileNavigationSnapshotRef.current = {
+      showDeleteConfirm,
+      showExitConfirm,
+      openReactionPickerMessageId,
+      slashQuickReplyMatch,
+      mobileDrawerMode,
+      showNewConversationForm,
+      isMobileSearchOpen,
+      isMobileChatOpen,
+      activePage,
+    };
+  }, [
+    showDeleteConfirm,
+    showExitConfirm,
+    openReactionPickerMessageId,
+    slashQuickReplyMatch,
+    mobileDrawerMode,
+    showNewConversationForm,
+    isMobileSearchOpen,
+    isMobileChatOpen,
+    activePage,
+  ]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const mobileMediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+
+    function initializeMobileHistory() {
+      if (!mobileMediaQuery.matches) {
+        return;
+      }
+
+      const existingMarker = getCurrentMobileHistoryMarker();
+
+      if (!mobileHistorySessionIdRef.current) {
+        mobileHistorySessionIdRef.current =
+          existingMarker?.sessionId ||
+          `sendro-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+
+      if (
+        existingMarker?.sessionId === mobileHistorySessionIdRef.current &&
+        existingMarker.layer === MOBILE_HISTORY_LAYERS.LIST
+      ) {
+        return;
+      }
+
+      if (existingMarker?.sessionId === mobileHistorySessionIdRef.current) {
+        window.history.replaceState(
+          createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+          '',
+          window.location.href
+        );
+        return;
+      }
+
+      window.history.replaceState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY),
+        '',
+        window.location.href
+      );
+      window.history.pushState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+        '',
+        window.location.href
+      );
+    }
+
+    function handleMobilePopState(event) {
+      if (!mobileMediaQuery.matches) {
+        return;
+      }
+
+      const marker = event.state?.[MOBILE_HISTORY_STATE_KEY];
+
+      if (marker?.sessionId !== mobileHistorySessionIdRef.current) {
+        return;
+      }
+
+      if (skipNextMobilePopRef.current) {
+        skipNextMobilePopRef.current = false;
+        return;
+      }
+
+      if (allowMobileExitRef.current) {
+        if (marker.layer !== MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY) {
+          window.history.back();
+          return;
+        }
+
+        allowMobileExitRef.current = false;
+        const exitLocation = window.location.href;
+
+        window.history.back();
+        window.setTimeout(() => {
+          const currentMarker = getCurrentMobileHistoryMarker();
+
+          if (
+            document.visibilityState !== 'hidden' &&
+            window.location.href === exitLocation &&
+            currentMarker?.sessionId === mobileHistorySessionIdRef.current &&
+            currentMarker.layer === MOBILE_HISTORY_LAYERS.EXIT_BOUNDARY
+          ) {
+            window.location.replace('about:blank');
+          }
+        }, 500);
+        return;
+      }
+
+      const snapshot = mobileNavigationSnapshotRef.current;
+
+      if (snapshot.showExitConfirm) {
+        window.history.pushState(
+          createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+          '',
+          window.location.href
+        );
+        setShowExitConfirm(false);
+        return;
+      }
+
+      if (snapshot.showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+        return;
+      }
+
+      if (snapshot.openReactionPickerMessageId) {
+        setOpenReactionPickerMessageId(null);
+        return;
+      }
+
+      if (snapshot.slashQuickReplyMatch) {
+        setSlashQuickReplyMatch(null);
+        setActiveSlashReplyIndex(0);
+        return;
+      }
+
+      if (snapshot.mobileDrawerMode) {
+        setMobileDrawerMode(null);
+        return;
+      }
+
+      if (snapshot.showNewConversationForm) {
+        setShowNewConversationForm(false);
+        return;
+      }
+
+      if (snapshot.isMobileSearchOpen) {
+        setIsMobileSearchOpen(false);
+        return;
+      }
+
+      if (snapshot.activePage !== APP_PAGES.INBOX) {
+        setActivePage(APP_PAGES.INBOX);
+        setIsMobileChatOpen(false);
+        return;
+      }
+
+      if (snapshot.isMobileChatOpen) {
+        setIsMobileChatOpen(false);
+        return;
+      }
+
+      window.history.pushState(
+        createMobileHistoryState(MOBILE_HISTORY_LAYERS.LIST),
+        '',
+        window.location.href
+      );
+      setShowExitConfirm(true);
+    }
+
+    initializeMobileHistory();
+    window.addEventListener('popstate', handleMobilePopState);
+    mobileMediaQuery.addEventListener?.('change', initializeMobileHistory);
+
+    return () => {
+      window.removeEventListener('popstate', handleMobilePopState);
+      mobileMediaQuery.removeEventListener?.('change', initializeMobileHistory);
+    };
+  }, [token]);
+
+  useEffect(() => {
     if (token) {
       loadInitialData();
     }
   }, [token]);
-
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.REPORTS) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.REPORTS
+    ) {
       return;
     }
 
     loadTemplateReports().catch(() => {
       // Report loading errors are handled inside loadTemplateReports.
     });
-  }, [token, activePage]);
+  }, [token, user, activePage]);
 
   useEffect(() => {
     messagesRequestInProgressRef.current?.controller?.abort();
@@ -2210,6 +3612,8 @@ function App() {
       setHasMoreOlderMessages(true);
       setIsLoadingOlderMessages(false);
     }
+    setSlashQuickReplyMatch(null);
+    setActiveSlashReplyIndex(0);
   }, [selectedConversation?.id, activePage]);
 
   const lastMessageId =
@@ -2253,7 +3657,13 @@ function App() {
   }, [selectedConversation?.id, lastMessageId]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible
+    ) {
       return undefined;
     }
 
@@ -2275,6 +3685,7 @@ function App() {
     };
   }, [
     token,
+    user,
     activePage,
     isPageVisible,
     inboxSearchQuery,
@@ -2316,6 +3727,8 @@ function App() {
   useEffect(() => {
     if (
       !token ||
+      !user ||
+      user.must_change_password ||
       activePage !== APP_PAGES.INBOX ||
       !isPageVisible ||
       inboxSearchQuery.trim()
@@ -2362,6 +3775,7 @@ function App() {
     };
   }, [
     token,
+    user,
     activePage,
     isPageVisible,
     selectedConversation?.id,
@@ -2370,7 +3784,13 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!token || activePage !== APP_PAGES.INBOX || !isPageVisible) {
+    if (
+      !token ||
+      !user ||
+      user.must_change_password ||
+      activePage !== APP_PAGES.INBOX ||
+      !isPageVisible
+    ) {
       return undefined;
     }
 
@@ -2406,11 +3826,13 @@ function App() {
     // This effect is keyed by page visibility/auth state; the refresh helper
     // intentionally reads the latest abort-controller ref on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activePage, isPageVisible]);
+  }, [token, user, activePage, isPageVisible]);
 
   useEffect(() => {
     if (
       !token ||
+      !user ||
+      user.must_change_password ||
       activePage !== APP_PAGES.INBOX ||
       !isPageVisible ||
       !selectedConversation?.id
@@ -2459,7 +3881,7 @@ function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [token, activePage, isPageVisible, selectedConversation?.id]);
+  }, [token, user, activePage, isPageVisible, selectedConversation?.id]);
 
   function renderReportsPanel() {
     const summary = reportData?.summary || {};
@@ -2706,36 +4128,62 @@ function App() {
     );
   }
 
-  if (!token) {
+  if (!token && mfaChallengeToken) {
     return (
       <div className="login-page">
-        <form className="login-card" onSubmit={handleLogin}>
+        <form className="login-card mfa-login-card" onSubmit={handleMfaLogin}>
           <div className="login-brand">
-            <div className="brand">
-              <div className="brand-icon">
-                <img src={sendroLogo} alt="Sendro logo" className="brand-logo" />
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
               </div>
-              <div>
-                <h1>Sendro</h1>
-                <p>Team WhatsApp Inbox</p>
-              </div>
+              <p>Two-step verification</p>
             </div>
           </div>
 
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="Username"
-          />
+          <div className="password-change-intro mfa-login-intro">
+            <strong>Enter your Authenticator code</strong>
+            <span>
+              Open Google Authenticator, Microsoft Authenticator, or another TOTP app.
+              You can also use one recovery code.
+            </span>
+          </div>
 
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-            type="password"
-          />
+          <label className="login-field">
+            <span>6-digit code or recovery code</span>
+            <input
+              value={mfaLoginCode}
+              onChange={(event) => setMfaLoginCode(event.target.value)}
+              placeholder="000000"
+              autoComplete="one-time-code"
+              autoCapitalize="characters"
+              maxLength="32"
+              autoFocus
+              required
+            />
+          </label>
 
-          <button type="submit">Login</button>
+          {canTrustMfaDevice && (
+            <label className="mfa-trust-device-option">
+              <input
+                type="checkbox"
+                checked={trustMfaDevice}
+                onChange={(event) => setTrustMfaDevice(event.target.checked)}
+              />
+              <span>
+                <strong>Trust this device for 15 days</strong>
+                <small>Use this only on your private work device, not on a shared computer.</small>
+              </span>
+            </label>
+          )}
+
+          <button type="submit" disabled={isVerifyingMfa}>
+            {isVerifyingMfa ? 'Verifying...' : 'Verify and continue'}
+          </button>
+
+          <button type="button" className="login-secondary-button" onClick={cancelMfaLogin}>
+            Back to login
+          </button>
 
           {error && <p className="error-message">{error}</p>}
         </form>
@@ -2743,35 +4191,315 @@ function App() {
     );
   }
 
+  if (!token) {
+    return (
+      <div className="login-page">
+        <form className="login-card" onSubmit={handleLogin}>
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Team WhatsApp Inbox</p>
+            </div>
+          </div>
+
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Username"
+            autoComplete="username"
+            required
+          />
+
+          <input
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+
+          <button type="submit" disabled={isLoggingIn}>
+            {isLoggingIn ? 'Signing in...' : 'Login'}
+          </button>
+
+          <details className="login-recovery">
+            <summary>Forgot password?</summary>
+            <div className="login-recovery-note">
+              <strong>Contact your Sendro administrator.</strong>
+              <span>
+                An administrator can reset your password from Settings → Users.
+              </span>
+            </div>
+          </details>
+
+          {loginNotice && <p className="login-success-message">{loginNotice}</p>}
+          {error && <p className="error-message">{error}</p>}
+        </form>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="login-page">
+        <div className="login-card login-session-card">
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Checking your secure session...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user.must_change_password) {
+    return (
+      <div className="login-page">
+        <form
+          className="login-card password-change-card"
+          onSubmit={handleRequiredPasswordChange}
+        >
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Secure your account</p>
+            </div>
+          </div>
+
+          <div className="password-change-intro">
+            <strong>Choose your own password</strong>
+            <span>
+              Your administrator gave you a temporary password. Replace it before
+              opening the inbox.
+            </span>
+          </div>
+
+          <label className="login-field">
+            <span>Temporary password</span>
+            <input
+              value={requiredPasswordChange.currentPassword}
+              onChange={(event) => updateRequiredPasswordChange('currentPassword', event.target.value)}
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          <label className="login-field">
+            <span>New password</span>
+            <input
+              value={requiredPasswordChange.newPassword}
+              onChange={(event) => updateRequiredPasswordChange('newPassword', event.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength="128"
+              required
+            />
+          </label>
+
+          <label className="login-field">
+            <span>Confirm new password</span>
+            <input
+              value={requiredPasswordChange.confirmPassword}
+              onChange={(event) => updateRequiredPasswordChange('confirmPassword', event.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength="128"
+              required
+            />
+          </label>
+
+          <small className="password-requirement">
+            Use at least {PASSWORD_MIN_LENGTH} characters and avoid names or common passwords.
+          </small>
+
+          <button type="submit" disabled={isChangingRequiredPassword}>
+            {isChangingRequiredPassword ? 'Updating...' : 'Update password'}
+          </button>
+
+          {error && <p className="error-message">{error}</p>}
+        </form>
+      </div>
+    );
+  }
+
+  if (user.mfa_setup_required) {
+    return (
+      <div className="login-page mfa-setup-page">
+        <div className="login-card mfa-setup-card">
+          <div className="login-brand">
+            <div className="brand glossy-login-brand">
+              <div className="login-brand-logo-wrap">
+                <img src={sendroLogo} alt="Sendro" className="login-brand-logo" />
+              </div>
+              <p>Protect your administrator account</p>
+            </div>
+          </div>
+
+          {mfaRecoveryCodes.length > 0 ? (
+            <div className="mfa-recovery-step">
+              <div className="password-change-intro mfa-success-intro">
+                <strong>Authenticator is enabled</strong>
+                <span>
+                  Save these recovery codes now. Each code works once if you lose access
+                  to your Authenticator app.
+                </span>
+              </div>
+
+              <div className="mfa-recovery-codes" aria-label="Recovery codes">
+                {mfaRecoveryCodes.map((code) => (
+                  <code key={code}>{code}</code>
+                ))}
+              </div>
+
+              <button type="button" className="login-secondary-button" onClick={copyRecoveryCodes}>
+                {didCopyRecoveryCodes ? 'Recovery codes copied' : 'Copy recovery codes'}
+              </button>
+
+              <button type="button" onClick={finishMfaSetup}>
+                I saved them — sign in again
+              </button>
+            </div>
+          ) : mfaSetupData.qr_code_data_url ? (
+            <form className="mfa-setup-form" onSubmit={handleMfaSetupConfirmation}>
+              <div className="mfa-setup-layout">
+                <div className="mfa-qr-wrap">
+                  <img src={mfaSetupData.qr_code_data_url} alt="Authenticator QR code" />
+                </div>
+
+                <div className="mfa-setup-steps">
+                  <strong>Set up Authenticator</strong>
+                  <span>1. Open your Authenticator app.</span>
+                  <span>2. Scan this QR code.</span>
+                  <span>3. Enter the 6-digit code shown in the app.</span>
+                </div>
+              </div>
+
+              <details className="mfa-manual-key">
+                <summary>Cannot scan the QR code?</summary>
+                <div>
+                  <span>Enter this setup key manually:</span>
+                  <code>{mfaSetupData.secret}</code>
+                </div>
+              </details>
+
+              <label className="login-field">
+                <span>6-digit Authenticator code</span>
+                <input
+                  value={mfaSetupCode}
+                  onChange={(event) => setMfaSetupCode(event.target.value)}
+                  placeholder="000000"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength="6"
+                  autoFocus
+                  required
+                />
+              </label>
+
+              <button type="submit" disabled={isConfirmingMfaSetup}>
+                {isConfirmingMfaSetup ? 'Confirming...' : 'Enable Authenticator'}
+              </button>
+            </form>
+          ) : (
+            <div className="mfa-setup-loading">
+              <strong>Authenticator setup is required</strong>
+              <span>
+                Connect Google Authenticator, Microsoft Authenticator, or another TOTP app
+                before opening the inbox.
+              </span>
+              <button type="button" onClick={beginMfaSetup} disabled={isStartingMfaSetup}>
+                {isStartingMfaSetup ? 'Preparing...' : 'Start secure setup'}
+              </button>
+            </div>
+          )}
+
+          {error && <p className="error-message">{error}</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''
-        } ${activePage === APP_PAGES.SETTINGS ? 'settings-mode' : ''}`}
+        } ${activePage === APP_PAGES.SETTINGS ? 'settings-mode' : ''} ${isMobileChatOpen ? 'mobile-chat-open' : ''}`}
     >
       {error && <div className="app-error">{error}</div>}
 
-      <aside className="blue-sidebar">
+      <header className="mobile-app-bar">
+        <div className="mobile-app-logo-wrap">
+          <img src={sendroLogo} alt="Sendro" className="mobile-app-logo" />
+        </div>
+        <button
+          type="button"
+          className={`mobile-new-conversation-button ${showNewConversationForm ? 'active' : ''}`}
+          onClick={() => {
+            setError('');
+            setActivePage(APP_PAGES.INBOX);
+            setIsMobileChatOpen(false);
+            toggleNewConversationPanel();
+          }}
+          aria-label={showNewConversationForm ? 'Close new conversation form' : 'Create new conversation'}
+          title={showNewConversationForm ? 'Close' : 'New conversation'}
+        >
+          {showNewConversationForm ? '×' : <Icon name="plus" size={22} />}
+        </button>
+        <div className="mobile-app-actions">
+          <button
+            type="button"
+            onClick={focusMobileInboxSearch}
+            aria-label={isMobileSearchOpen ? 'Hide conversation search' : 'Search conversations'}
+            aria-pressed={isMobileSearchOpen}
+          >
+            <Icon name="search" size={25} />
+          </button>
+          <button type="button" onClick={() => openMobileDrawer('menu')} aria-label="Open menu">
+            <Icon name="menu" size={27} />
+          </button>
+        </div>
+      </header>
+
+      <aside className={`blue-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="blue-sidebar-top">
           <div className="blue-brand">
-            <div className="blue-brand-icon">
-              <img src={sendroLogo} alt="Sendro logo" className="blue-brand-logo" />
+            <div className="blue-brand-logo-wrap">
+              <img src={sendroLogo} alt="Sendro" className="blue-brand-logo" />
             </div>
-            <span>Sendro</span>
+            <button
+              type="button"
+              className="blue-sidebar-toggle"
+              onClick={() => setIsSidebarCollapsed((currentValue) => !currentValue)}
+              aria-label={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              title={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            >
+              <Icon name={isSidebarCollapsed ? 'sidebarExpand' : 'sidebarCollapse'} size={18} />
+            </button>
           </div>
 
-          <div className="blue-section-title">Conversations</div>
+          <div className="blue-section-title">Workspace</div>
 
           <div className="blue-filter-list">
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.INBOX);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+              title="Inbox"
             >
-              <span>Inbox</span>
+              <span className="blue-nav-label"><Icon name="inbox" /><span>Inbox</span></span>
               {inboxUnreadCount > 0 && <strong>{inboxUnreadCount}</strong>}
             </button>
 
@@ -2779,12 +4507,10 @@ function App() {
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.MINE);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}
+              title="Mine"
             >
-              <span>Mine</span>
+              <span className="blue-nav-label"><Icon name="user" /><span>Mine</span></span>
               {mineCount > 0 && <strong>{mineCount}</strong>}
             </button>
 
@@ -2792,57 +4518,71 @@ function App() {
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.FOLLOW_UP);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}
+              title="To Follow Up"
             >
-              <span>To Follow Up</span>
+              <span className="blue-nav-label"><Icon name="follow" /><span>To Follow Up</span></span>
+              {Number(conversationSummary?.follow_up || 0) > 0 && (
+                <strong>{conversationSummary.follow_up}</strong>
+              )}
             </button>
 
             <button
               type="button"
               className={`blue-filter-button ${activeConversationView === CONVERSATION_VIEWS.ARCHIVED ? 'active' : ''
                 }`}
-              onClick={() => {
-                setActivePage(APP_PAGES.INBOX);
-                setActiveConversationView(CONVERSATION_VIEWS.ARCHIVED);
-              }}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}
+              title="Archived"
             >
-              <span>Archived</span>
+              <span className="blue-nav-label"><Icon name="archive" /><span>Archived</span></span>
             </button>
           </div>
+
+          <div className="blue-section-title blue-section-spaced">Channel</div>
+          <div className="blue-channel-row">
+            <span className="whatsapp-mark">W</span>
+            <span className="blue-channel-label">WhatsApp</span>
+            {browserUnreadCount > 0 && <strong>{browserUnreadCount}</strong>}
+          </div>
+
+          <div className="blue-section-title blue-section-spaced">Tools</div>
 
           {canCurrentUserViewReports && (
             <button
               type="button"
               className={`blue-settings-button ${activePage === APP_PAGES.REPORTS ? 'active' : ''}`}
+              title="Reports"
               onClick={() => {
                 setActivePage(APP_PAGES.REPORTS);
                 setSelectedConversation(null);
+                setIsMobileChatOpen(false);
               }}
             >
-              Reports
+              <Icon name="reports" /><span className="blue-tool-label">Reports</span>
             </button>
           )}
 
           <button
             type="button"
             className={`blue-settings-button ${activePage === APP_PAGES.SETTINGS ? 'active' : ''}`}
+            title="Settings"
             onClick={() => {
               setActivePage(APP_PAGES.SETTINGS);
               setSelectedConversation(null);
+              setIsMobileChatOpen(false);
             }}
           >
-            Settings
+            <Icon name="settings" /><span className="blue-tool-label">Settings</span>
           </button>
         </div>
 
         <div className="blue-sidebar-bottom">
           <div className="blue-user-box">
-            <span>Logged in as</span>
-            <strong>{user?.username || 'User'}</strong>
-            <small>{user?.role || 'user'}</small>
+            <span className="blue-user-avatar">{getInitials(user?.username || 'User')}</span>
+            <span className="blue-user-copy">
+              <strong>{user?.username || 'User'}</strong>
+              <small>{user?.role || 'user'}</small>
+            </span>
           </div>
 
           <div className={`sendro-system-status ${systemStatus === 'live' ? 'live' : 'issue'}`}>
@@ -2856,36 +4596,65 @@ function App() {
             </span>
           </div>
 
-          <button className="blue-logout-button" onClick={handleLogout}>
-            Logout
+          <button className="blue-logout-button" onClick={handleLogout} title="Logout">
+            <Icon name="logout" size={18} /><span>Logout</span>
           </button>
         </div>
       </aside>
 
+      <div className="sendro-workspace">
+        <header className="workspace-topbar">
+          <div className="workspace-account">
+            <strong>Sunset Oia</strong>
+            <Icon name="chevron" size={16} />
+            <span className={`workspace-online ${systemStatus === 'live' ? 'live' : 'issue'}`}>
+              <i />{systemStatus === 'live' ? 'Online' : 'Connection issue'}
+            </span>
+          </div>
+          <div className="workspace-tools">
+            <span title="Team"><Icon name="users" /></span>
+            <span aria-hidden="true"><Icon name="more" /></span>
+          </div>
+        </header>
+
+        <div className="sendro-workspace-columns">
+
       <section className="conversation-column">
         <div className="conversation-column-header">
-          <button
-            className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
-            onClick={() => {
-              setError('');
-              setShowNewConversationForm((currentValue) => !currentValue);
-            }}
-            type="button"
-            aria-label="Create new conversation"
-          >
-            <span className="new-conversation-plus">
-              {showNewConversationForm ? '×' : '+'}
-            </span>
-            <span className="new-conversation-label">
-              {showNewConversationForm ? 'Close' : 'New'}
-            </span>
-          </button>
+          <div className="conversation-column-title">
+            <div>
+              <span>Conversations</span>
+              <strong>
+                {activeConversationView === CONVERSATION_VIEWS.MINE
+                  ? 'Mine'
+                  : activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
+                    ? 'Follow Up'
+                    : activeConversationView === CONVERSATION_VIEWS.ARCHIVED
+                      ? 'Archived'
+                      : 'Inbox'}
+              </strong>
+            </div>
+            <button
+              className={`new-conversation-fab ${showNewConversationForm ? 'active' : ''}`}
+              onClick={() => {
+                setError('');
+                toggleNewConversationPanel();
+              }}
+              type="button"
+              aria-label="Create new conversation"
+              title="New conversation"
+            >
+              {showNewConversationForm ? '×' : <Icon name="plus" size={19} />}
+            </button>
+          </div>
 
-          <div className="inbox-search">
+          <div className={`inbox-search ${isMobileSearchOpen ? 'mobile-search-open' : ''}`}>
+            <Icon name="search" size={19} />
             <input
+              ref={inboxSearchInputRef}
               value={inboxSearchQuery}
               onChange={(event) => setInboxSearchQuery(event.target.value)}
-              placeholder="Search name, phone, message..."
+              placeholder="Search conversations..."
             />
 
             {inboxSearchQuery && (
@@ -2897,6 +4666,39 @@ function App() {
                 ×
               </button>
             )}
+            <button
+              type="button"
+              className="inbox-filter-button"
+              aria-label="View archived conversations"
+              title="Archived conversations"
+              onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}
+            >
+              <Icon name="filter" size={18} />
+            </button>
+          </div>
+
+          <div className="conversation-view-tabs" role="tablist" aria-label="Conversation views">
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+            >
+              Open <span>{inboxUnreadCount || ''}</span>
+            </button>
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.MINE ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}
+            >
+              Mine <span>{mineCount || ''}</span>
+            </button>
+            <button
+              type="button"
+              className={activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP ? 'active' : ''}
+              onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}
+            >
+              Follow Up
+            </button>
           </div>
         </div>
 
@@ -3004,42 +4806,62 @@ function App() {
                   className={`conversation ${isActive ? 'active' : ''}`}
                   onClick={() => handleSelectConversation(conversation)}
                 >
-                  <div className="conversation-title-row">
-                    <div className="conversation-title-main">
+                  <span className="conversation-avatar" aria-hidden="true">
+                    {getInitials(label)}
+                    <i>W</i>
+                  </span>
+
+                  <span className="conversation-copy">
+                    <span className="conversation-title-row">
+                      <strong>{label}</strong>
+                      <small className="conversation-time">
+                        {formatMessageTime(conversation.last_message_at)}
+                      </small>
+                    </span>
+
+                    <span className="conversation-preview-row">
+                      <span className="conversation-preview">{conversation.contact_phone}</span>
                       <span
                         className={`conversation-response-dot ${getConversationResponseDotClass(
                           conversation
                         )}`}
                         title={getResponseIndicatorLabel(conversation)}
                         aria-label={getResponseIndicatorLabel(conversation)}
-                      />
-
-                      <strong>{label}</strong>
-                    </div>
-
-                    {unreadCount > 0 && (
-                      <span className="unread-badge">{unreadCount}</span>
-                    )}
-                  </div>
-
-                  <span>{conversation.contact_phone}</span>
-
-                  <small className="conversation-meta">
-
-                    {isArchivedConversation(conversation) && (
-                      <span className="status-pill">Archived</span>
-                    )}
-
-                    {conversation.assigned_to_user_id && (
-                      <span
-                        className={`assigned-badge ${getAssignedUserClass(
-                          conversation.assigned_to_user_id
-                        )}`}
                       >
-                        Taken by {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                        <Icon
+                          name={getConversationResponseIconName(conversation)}
+                          size={15}
+                          strokeWidth={2.6}
+                        />
                       </span>
-                    )}
-                  </small>
+                      {unreadCount > 0 && (
+                        <span className="unread-badge">{unreadCount}</span>
+                      )}
+                    </span>
+
+                    <small className="conversation-meta">
+
+                      {isArchivedConversation(conversation) && (
+                        <span className="status-pill">Archived</span>
+                      )}
+
+                      {conversation.assigned_to_user_id && (
+                        <span
+                          className="assigned-badge assigned-user-color"
+                          style={{
+                            backgroundColor: getAssignedUserColor(
+                              conversation.assigned_to_user_id
+                            ),
+                            color: getAssignedUserTextColor(
+                              conversation.assigned_to_user_id
+                            ),
+                          }}
+                        >
+                          {getAssignedUserLabel(conversation.assigned_to_user_id)}
+                        </span>
+                      )}
+                    </small>
+                  </span>
                 </button>
               );
             })
@@ -3062,28 +4884,32 @@ function App() {
         {activePage === APP_PAGES.REPORTS && canCurrentUserViewReports ? (
           renderReportsPanel()
         ) : activePage === APP_PAGES.SETTINGS ? (
-          user?.role === 'admin' ? (
-            <SettingsPanel />
-          ) : (
-            <div className="settings-access-denied">
-              <div>
-                <span>Settings locked</span>
-                <h2>Admin access required</h2>
-                <p>
-                  Settings are available only to admins. You can still use the inbox according
-                  to your role permissions.
-                </p>
-                <button type="button" onClick={() => setActivePage(APP_PAGES.INBOX)}>
-                  Back to conversations
-                </button>
-              </div>
-            </div>
-          )
+          <SettingsPanel
+            onUsersChanged={handleSettingsUsersChanged}
+            onQuickRepliesChanged={handleSettingsQuickRepliesChanged}
+          />
         ) : selectedConversation ? (
           <>
             <header className="chat-header">
-              <div>
-                <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
+              <button
+                type="button"
+                className="mobile-chat-back"
+                onClick={handleMobileChatBack}
+                aria-label="Back to conversations"
+              >
+                <Icon name="back" size={27} />
+              </button>
+
+              <span className="chat-contact-avatar" aria-hidden="true">
+                {getInitials(selectedConversation.contact_name || selectedConversation.contact_phone)}
+                <i>W</i>
+              </span>
+
+              <div className="chat-contact-copy">
+                <div className="chat-contact-title-row">
+                  <h2>{selectedConversation.contact_name || 'Unknown contact'}</h2>
+                  <span className="chat-whatsapp-label">WhatsApp</span>
+                </div>
                 <p>{selectedConversation.contact_phone}</p>
 
                 <div className="conversation-status-area">
@@ -3095,65 +4921,61 @@ function App() {
 
                     {selectedConversation.assigned_to_user_id ? (
                       <span
-                        className={`assigned-badge ${getAssignedUserClass(
-                          selectedConversation.assigned_to_user_id
-                        )}`}
+                        className="assigned-badge assigned-user-color"
+                        style={{
+                          backgroundColor: getAssignedUserColor(
+                            selectedConversation.assigned_to_user_id
+                          ),
+                          color: getAssignedUserTextColor(
+                            selectedConversation.assigned_to_user_id
+                          ),
+                        }}
                       >
-                        Taken by {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
+                        {getAssignedUserLabel(selectedConversation.assigned_to_user_id)}
                       </span>
-                    ) : (
-                      <span className="assigned-badge assigned-nobody">Available</span>
-                    )}
-
-                    <span
-                      className={`customer-service-badge ${getCustomerServiceWindowClass(
-                        selectedConversation
-                      )}`}
-                    >
-                      {formatCustomerServiceWindow(selectedConversation)}
-                    </span>
+                    ) : null}
 
                   </p>
-
-                  {isDoneConversation(selectedConversation) && (
-                    <label className="follow-up-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(selectedConversation.follow_up)}
-                        onChange={(event) => handleToggleFollowUp(event.target.checked)}
-                        disabled={isUpdatingFollowUp}
-                      />
-                      <span>To Follow Up</span>
-                    </label>
-                  )}
                 </div>
               </div>
 
-              <div className="chat-actions">
-                <button
-                  className={`conversation-action-button ${canReleaseConversation ? 'release-mode' : ''
-                    }`}
-                  onClick={handleConversationAction}
-                  disabled={!canUseConversationAction}
-                >
-                  {getConversationActionLabel()}
-                </button>
+              {isDoneConversation(selectedConversation) && (
+                <div className="chat-header-follow-up">
+                  <label className="follow-up-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedConversation.follow_up)}
+                      onChange={(event) => handleToggleFollowUp(event.target.checked)}
+                      disabled={isUpdatingFollowUp}
+                    />
+                    <span className="follow-up-toggle-track" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span className="follow-up-toggle-label">Follow Up</span>
+                  </label>
+                </div>
+              )}
 
-                <button
-                  className="conversation-action-button"
-                  type="button"
-                  onClick={handleArchiveConversation}
+              <div className="chat-header-tools">
+                <div
+                  className={`customer-service-live ${getCustomerServiceWindowClass(
+                    selectedConversation
+                  )}`}
+                  title={
+                    isCustomerServiceSessionExpired
+                      ? 'Template required'
+                      : 'WhatsApp reply window'
+                  }
+                  aria-label={
+                    isCustomerServiceSessionExpired
+                      ? 'WhatsApp reply window expired'
+                      : `${formatCustomerServiceWindow(selectedConversation)} remaining`
+                  }
                 >
-                  {selectedConversation.status === 'archived' ? 'Back to Inbox' : 'Archive'}
-                </button>
-
-                <button
-                  className="conversation-action-button release-mode"
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  Delete
-                </button>
+                  <Icon name="clock" size={18} strokeWidth={2.1} />
+                  <i aria-hidden="true" />
+                  <strong>{formatCustomerServiceWindow(selectedConversation)}</strong>
+                </div>
               </div>
             </header>
 
@@ -3177,6 +4999,9 @@ function App() {
                     !isSameMessageDay(currentMessageDate, previousMessageDate);
                   const messageTime = formatMessageTime(message.created_at);
                   const messageAuthorLabel = getMessageAuthorLabel(message);
+                  const isInternalSystemEvent =
+                    message.direction === 'internal' ||
+                    String(message.message_type || '').toLowerCase() === 'system';
 
                   return (
                     <Fragment key={message.id}>
@@ -3186,91 +5011,99 @@ function App() {
                         </div>
                       )}
 
-                      <div
-                        className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                          }`}
-                      >
-                        <MessageMediaPreview message={message} />
-
-                        {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
-                          <div className="message-meta">
-                            {messageAuthorLabel && (
-                              <span className="message-author">{messageAuthorLabel}</span>
-                            )}
-
-                            {messageAuthorLabel && messageTime && (
-                              <span className="message-author-separator">•</span>
-                            )}
-
-                            {messageTime && <span>{messageTime}</span>}
-
-                            {getMessageStatusLabel(message) && (
-                              <span
-                                className={`message-status ${getMessageStatusClass(
-                                  message
-                                )}`}
-                              >
-                                {getMessageStatusLabel(message)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {message.direction === 'outbound' && message.reaction_emoji && (
-                        <div className="message-reaction outgoing">
-                          {message.reaction_emoji}
+                      {isInternalSystemEvent ? (
+                        <div className="conversation-system-event" role="note">
+                          <span className="conversation-system-event-dot" aria-hidden="true" />
+                          <strong>{message.content}</strong>
+                          {messageTime && <time>{messageTime}</time>}
                         </div>
-                      )}
+                      ) : (
+                        <>
+                          <div
+                            className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                              }`}
+                          >
+                            <MessageMediaPreview message={message} />
 
-                      {message.direction === 'inbound' &&
-                        selectedConversation.status !== 'archived' &&
-                        !isCustomerServiceSessionExpired && (
-                          <div className="message-reaction-control incoming">
-                            <button
-                              type="button"
-                              className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
-                                }`}
-                              onClick={() =>
-                                setOpenReactionPickerMessageId((currentMessageId) =>
-                                  currentMessageId === message.id ? null : message.id
-                                )
-                              }
-                              disabled={reactingMessageIds.includes(message.id)}
-                              title="React"
-                            >
-                              {message.reaction_emoji || 'R'}
-                            </button>
+                            {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
+                              <div className="message-meta">
+                                {messageAuthorLabel && (
+                                  <span className="message-author">{messageAuthorLabel}</span>
+                                )}
 
-                            {openReactionPickerMessageId === message.id && (
-                              <div className="message-reaction-picker">
-                                {BASIC_REACTION_EMOJIS.map((emoji) => (
-                                  <button
-                                    key={emoji}
-                                    type="button"
-                                    className={`message-reaction-option ${message.reaction_emoji === emoji ? 'selected' : ''
-                                      }`}
-                                    onClick={() => handleSendReaction(message.id, emoji)}
-                                    disabled={reactingMessageIds.includes(message.id)}
-                                    title={`React with ${emoji}`}
+                                {messageAuthorLabel && messageTime && (
+                                  <span className="message-author-separator">•</span>
+                                )}
+
+                                {messageTime && <span>{messageTime}</span>}
+
+                                {getMessageStatusLabel(message) && (
+                                  <span
+                                    className={`message-status ${getMessageStatusClass(
+                                      message
+                                    )}`}
+                                    title={getMessageStatusTitle(message)}
+                                    aria-label={getMessageStatusTitle(message)}
                                   >
-                                    {emoji}
-                                  </button>
-                                ))}
-
-                                <button
-                                  type="button"
-                                  className="message-reaction-option remove"
-                                  onClick={() => handleSendReaction(message.id, null)}
-                                  disabled={reactingMessageIds.includes(message.id) || !message.reaction_emoji}
-                                  title="Remove reaction"
-                                >
-                                  ×
-                                </button>
+                                    {getMessageStatusLabel(message)}
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>
-                        )}
+
+                          {message.direction === 'outbound' && message.reaction_emoji && (
+                            <div className="message-reaction outgoing">
+                              {message.reaction_emoji}
+                            </div>
+                          )}
+
+                          {message.direction === 'inbound' &&
+                            selectedConversation.status !== 'archived' &&
+                            !isCustomerServiceSessionExpired && (
+                              <div className="message-reaction-control incoming">
+                                <button
+                                  type="button"
+                                  className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
+                                    }`}
+                                  onClick={() => toggleReactionPicker(message.id)}
+                                  disabled={reactingMessageIds.includes(message.id)}
+                                  title="React"
+                                >
+                                  {message.reaction_emoji || 'R'}
+                                </button>
+
+                                {openReactionPickerMessageId === message.id && (
+                                  <div className="message-reaction-picker">
+                                    {BASIC_REACTION_EMOJIS.map((emoji) => (
+                                      <button
+                                        key={emoji}
+                                        type="button"
+                                        className={`message-reaction-option ${message.reaction_emoji === emoji ? 'selected' : ''
+                                          }`}
+                                        onClick={() => handleSendReaction(message.id, emoji)}
+                                        disabled={reactingMessageIds.includes(message.id)}
+                                        title={`React with ${emoji}`}
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+
+                                    <button
+                                      type="button"
+                                      className="message-reaction-option remove"
+                                      onClick={() => handleSendReaction(message.id, null)}
+                                      disabled={reactingMessageIds.includes(message.id) || !message.reaction_emoji}
+                                      title="Remove reaction"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                        </>
+                      )}
                     </Fragment>
                   );
                 })
@@ -3280,50 +5113,389 @@ function App() {
             </section>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <textarea
-                ref={messageInputRef}
-                value={newMessage}
-                onChange={(event) =>
-                  setConversationDraft(selectedConversationId, event.target.value)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    handleSendMessage(event);
+              <div className="composer-body">
+                <textarea
+                  ref={messageInputRef}
+                  value={newMessage}
+                  onChange={handleComposerDraftChange}
+                  onKeyDown={handleComposerKeyDown}
+                  onDragOver={(event) => {
+                    if (canTypeMessage) event.preventDefault();
+                  }}
+                  onDrop={handleQuickReplyDrop}
+                  placeholder={
+                    selectedConversation.status === 'archived'
+                      ? 'Archived conversation'
+                      : isCustomerServiceSessionExpired
+                        ? 'Session expired — template required'
+                        : isConversationTakenByAnotherUser
+                          ? getAssignedUserLabel(
+                            selectedConversation.assigned_to_user_id
+                          )
+                          : 'Type a message...'
                   }
-                }}
-                placeholder={
-                  selectedConversation.status === 'archived'
-                    ? 'Archived conversation'
-                    : isCustomerServiceSessionExpired
-                      ? 'Session expired — template required'
-                      : isConversationTakenByAnotherUser
-                        ? `Taken by ${getAssignedUserLabel(
-                          selectedConversation.assigned_to_user_id
-                        )}`
-                        : 'Type a message...'
-                }
-                disabled={
-                  selectedConversation.status === 'archived' ||
-                  isCustomerServiceSessionExpired ||
-                  isConversationTakenByAnotherUser
-                }
-                rows="2"
-              />
+                  disabled={
+                    selectedConversation.status === 'archived' ||
+                    isCustomerServiceSessionExpired ||
+                    isConversationTakenByAnotherUser
+                  }
+                  rows="2"
+                />
 
-              <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
-                {isSending ? 'Sending...' : 'Send'}
-              </button>
+                {slashQuickReplyMatch && canTypeMessage && (
+                  <div className="quick-reply-slash-picker">
+                    <div className="quick-reply-slash-picker-header">
+                      <span>Quick Replies</span>
+                      <small>
+                        {slashQuickReplyMatch.query
+                          ? `Results for /${slashQuickReplyMatch.query}`
+                          : 'Type to search · ↑↓ to navigate'}
+                      </small>
+                    </div>
+
+                    {slashQuickReplies.length === 0 ? (
+                      <div className="quick-reply-slash-empty">No matching quick replies.</div>
+                    ) : (
+                      <div className="quick-reply-slash-results">
+                        {slashQuickReplies.map((reply, index) => (
+                          <button
+                            type="button"
+                            key={reply.id}
+                            className={index === activeSlashReplyIndex ? 'active' : ''}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => insertQuickReplyIntoComposer(reply, { slashMatch: slashQuickReplyMatch })}
+                          >
+                            <span className={reply.is_favorite ? 'favorite' : ''}>★</span>
+                            <span>
+                              <strong>{reply.title}</strong>
+                              <small>{getQuickReplyCategoryLabel(reply)}</small>
+                            </span>
+                            <code>/{reply.shortcut || reply.title.toLowerCase().replace(/\s+/g, '-')}</code>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="composer-footer">
+                  <button
+                    type="button"
+                    className="composer-helper"
+                    onClick={openSlashQuickReplyPicker}
+                    disabled={!canTypeMessage}
+                    title="Open Quick Replies"
+                  >
+                    <span className="quick-reply-slash">/</span>
+                    <span>Quick reply</span>
+                  </button>
+                  <button type="submit" disabled={!canSendMessage || !newMessage.trim()}>
+                    <span>{isSending ? 'Sending...' : 'Send'}</span>
+                    <Icon name="send" size={18} />
+                  </button>
+                </div>
+              </div>
             </form>
+
+            <div className="conversation-action-bar" aria-label="Conversation actions">
+              <button type="button" onClick={handleTakeConversation} disabled={!canTakeConversation}>
+                <Icon name="take" size={19} /><span>Take</span>
+              </button>
+              <button
+                type="button"
+                className={canReleaseConversation ? 'release-active' : ''}
+                onClick={handleReleaseConversation}
+                disabled={!canReleaseConversation}
+                title={
+                  canReleaseConversation && isConversationTakenByAnotherUser
+                    ? `Release from ${getAssignedUserLabel(assignedToUserId)}`
+                    : 'Release conversation'
+                }
+              >
+                <Icon name="release" size={19} /><span>Release</span>
+              </button>
+              <button type="button" onClick={handleArchiveConversation}>
+                <Icon name="archive" size={19} />
+                <span>{selectedConversation.status === 'archived' ? 'Inbox' : 'Archive'}</span>
+              </button>
+              <button type="button" className="danger" onClick={openDeleteConfirmation}>
+                <Icon name="delete" size={19} /><span>Delete</span>
+              </button>
+            </div>
           </>
         ) : (
           <div className="no-chat-selected">Select a conversation to start.</div>
         )}
       </main>
+
+      <aside className="future-panel" aria-label="Quick replies panel">
+        <div className="future-panel-tabs">
+          <span className="active"><Icon name="quick" size={17} />Quick Replies</span>
+          <span>AI Assistant</span>
+        </div>
+
+        <div className="quick-replies-panel-body">
+          <div className="quick-reply-search">
+            <Icon name="search" size={18} />
+            <input
+              value={quickReplySearch}
+              onChange={(event) => setQuickReplySearch(event.target.value)}
+              placeholder="Search quick replies..."
+            />
+            {quickReplySearch && (
+              <button type="button" onClick={() => setQuickReplySearch('')} aria-label="Clear quick reply search">×</button>
+            )}
+          </div>
+
+          <div className="quick-reply-categories">
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'all' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'team' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('team')}
+            >
+              Team
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'mine' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('mine')}
+            >
+              My Replies
+            </button>
+            <button
+              type="button"
+              className={quickReplyCategoryFilter === 'favorites' ? 'active' : ''}
+              onClick={() => setQuickReplyCategoryFilter('favorites')}
+            >
+              ★ Favorites
+            </button>
+            {quickReplyCategories.filter((category) => !category.parent_id).map((category) => (
+              <button
+                type="button"
+                key={category.id}
+                className={quickReplyCategoryFilter === String(category.id) ? 'active' : ''}
+                onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+              >
+                {category.parent_id ? '↳ ' : ''}{category.name}
+              </button>
+            ))}
+          </div>
+
+          {quickReplyCategories.length > 0 && (
+            <div className="quick-reply-panel-folders">
+              <div>
+                <span>FOLDERS</span>
+                <small>{quickReplyCategories.length}</small>
+              </div>
+              <div>
+                {quickReplyCategories.map((category) => (
+                  <button
+                    type="button"
+                    key={category.id}
+                    className={`${category.parent_id ? 'child' : ''} ${quickReplyCategoryFilter === String(category.id) ? 'active' : ''}`}
+                    onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+                  >
+                    <span><Icon name="folder" size={15} />{category.name}</span>
+                    <strong>
+                      {quickReplies.filter(
+                        (reply) =>
+                          reply.category_id === category.id ||
+                          reply.parent_category_id === category.id
+                      ).length}
+                    </strong>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="quick-reply-section-title">
+            <span>QUICK REPLIES</span>
+            <small>{filteredQuickReplies.length} saved · drag or click to insert</small>
+          </div>
+
+          <div className="quick-reply-list">{renderQuickReplyList()}</div>
+        </div>
+      </aside>
+        </div>
+      </div>
+
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <button
+          type="button"
+          className={!isMobileChatOpen && activePage === APP_PAGES.INBOX ? 'active' : ''}
+          onClick={() => {
+            const showConversationList = () => {
+              setActivePage(APP_PAGES.INBOX);
+              setIsMobileChatOpen(false);
+              setMobileDrawerMode(null);
+            };
+
+            if (activePage !== APP_PAGES.INBOX) {
+              dismissMobileHistoryLayer(
+                showConversationList,
+                1,
+                MOBILE_HISTORY_LAYERS.PAGE
+              );
+            } else {
+              showConversationList();
+            }
+          }}
+        >
+          <Icon name="chat" size={24} /><span>Conversations</span>
+        </button>
+        <button
+          type="button"
+          className={activeConversationView === CONVERSATION_VIEWS.INBOX ? 'active' : ''}
+          onClick={() => openConversationView(CONVERSATION_VIEWS.INBOX)}
+        >
+          <span className="mobile-nav-icon-wrap">
+            <Icon name="inbox" size={24} />
+            {inboxUnreadCount > 0 && <i>{inboxUnreadCount}</i>}
+          </span>
+          <span>Inbox</span>
+        </button>
+        <button type="button" onClick={() => openMobileDrawer('quick')}>
+          <Icon name="quick" size={25} /><span>Quick Replies</span>
+        </button>
+        <button type="button" onClick={() => openMobileDrawer('menu')}>
+          <Icon name="more" size={26} /><span>More</span>
+        </button>
+      </nav>
+
+      {mobileDrawerMode && (
+        <div className="mobile-drawer-overlay" onClick={closeMobileDrawer}>
+          <aside className="mobile-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="mobile-drawer-header">
+              <strong>{mobileDrawerMode === 'quick' ? 'Quick Replies' : 'Menu'}</strong>
+              <button type="button" onClick={closeMobileDrawer} aria-label="Close">×</button>
+            </div>
+
+            {mobileDrawerMode === 'quick' ? (
+              <>
+                <div className="quick-reply-search mobile">
+                  <Icon name="search" size={18} />
+                  <input
+                    value={quickReplySearch}
+                    onChange={(event) => setQuickReplySearch(event.target.value)}
+                    placeholder="Search quick replies..."
+                  />
+                </div>
+                <div className="quick-reply-categories mobile">
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'all' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('all')}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'team' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('team')}
+                  >
+                    Team
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'mine' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('mine')}
+                  >
+                    My Replies
+                  </button>
+                  <button
+                    type="button"
+                    className={quickReplyCategoryFilter === 'favorites' ? 'active' : ''}
+                    onClick={() => setQuickReplyCategoryFilter('favorites')}
+                  >
+                    ★ Favorites
+                  </button>
+                  {quickReplyCategories.map((category) => (
+                    <button
+                      type="button"
+                      key={category.id}
+                      className={quickReplyCategoryFilter === String(category.id) ? 'active' : ''}
+                      onClick={() => setQuickReplyCategoryFilter(String(category.id))}
+                    >
+                      {category.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="mobile-quick-reply-list">{renderQuickReplyList()}</div>
+              </>
+            ) : (
+              <div className="mobile-menu-list">
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}>
+                  <Icon name="user" />Mine <span>{mineCount || ''}</span>
+                </button>
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.FOLLOW_UP)}>
+                  <Icon name="follow" />Follow Up
+                </button>
+                <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.ARCHIVED)}>
+                  <Icon name="archive" />Archived
+                </button>
+                {canCurrentUserViewReports && (
+                  <button type="button" onClick={() => {
+                    setActivePage(APP_PAGES.REPORTS);
+                    setMobileDrawerMode(null);
+                    setIsMobileChatOpen(false);
+                    replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.PAGE);
+                  }}>
+                    <Icon name="reports" />Reports
+                  </button>
+                )}
+                <button type="button" onClick={() => {
+                  setActivePage(APP_PAGES.SETTINGS);
+                  setMobileDrawerMode(null);
+                  setIsMobileChatOpen(false);
+                  replaceMobileHistoryLayer(MOBILE_HISTORY_LAYERS.PAGE);
+                }}>
+                  <Icon name="settings" />Settings
+                </button>
+                <button type="button" className="danger" onClick={handleLogout}>
+                  <Icon name="logout" />Logout
+                </button>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
+
+      {showExitConfirm && (
+        <div className="exit-confirm-overlay" onClick={handleStayInSendro}>
+          <div
+            className="exit-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="exit-sendro-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="exit-confirm-mark" aria-hidden="true">S</span>
+            <h3 id="exit-sendro-title">Exit Sendro?</h3>
+            <p>Are you sure you want to leave Sendro?</p>
+            <div className="exit-confirm-actions">
+              <button type="button" className="stay" onClick={handleStayInSendro} autoFocus>
+                Stay
+              </button>
+              <button type="button" className="exit" onClick={handleExitSendro}>
+                Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDeleteConfirm && selectedConversation && (
         <div
           className="delete-confirm-overlay"
-          onClick={() => setShowDeleteConfirm(false)}
+          onClick={closeDeleteConfirmation}
         >
           <div
             className="delete-confirm-modal"
@@ -3337,7 +5509,7 @@ function App() {
               <button
                 type="button"
                 className="delete-confirm-cancel"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={closeDeleteConfirmation}
               >
                 Cancel
               </button>
@@ -3353,7 +5525,6 @@ function App() {
           </div>
         </div>
       )}
-      <aside className="future-panel" aria-label="Future templates and quick replies panel" />
     </div>
   );
 }
