@@ -432,7 +432,10 @@ def attach_customer_service_window_data(
             models.Message.conversation_id,
             func.max(models.Message.id).label("last_message_id"),
         )
-        .filter(models.Message.conversation_id.in_(conversation_ids))
+        .filter(
+            models.Message.conversation_id.in_(conversation_ids),
+            models.Message.direction.in_(("inbound", "outbound")),
+        )
         .group_by(models.Message.conversation_id)
         .subquery()
     )
@@ -2004,6 +2007,38 @@ def get_conversation(db: Session, conversation_id: int):
         .filter(models.Conversation.id == conversation_id)
         .first()
     )
+
+
+def get_user_display_label(user: models.User | None) -> str:
+    if user is None:
+        return "Unknown user"
+
+    for value in (user.display_name, user.full_name, user.username):
+        normalized_value = str(value or "").strip()
+
+        if normalized_value:
+            return normalized_value
+
+    return f"User #{user.id}"
+
+
+def create_internal_conversation_event(
+    db: Session,
+    conversation: models.Conversation,
+    actor: models.User,
+    content: str,
+):
+    event = models.Message(
+        content=content,
+        direction="internal",
+        is_read=True,
+        message_type="system",
+        created_at=datetime.utcnow(),
+        user_id=actor.id,
+        conversation_id=conversation.id,
+    )
+    db.add(event)
+    return event
 
 
 def attach_message_author_data(
@@ -5150,10 +5185,35 @@ def take_conversation(
             detail="This conversation is already taken by another user",
         )
 
+    previous_assignee_id = conversation.assigned_to_user_id
+    previous_assignee = (
+        db.query(models.User).filter(models.User.id == previous_assignee_id).first()
+        if previous_assignee_id is not None
+        else None
+    )
+
     conversation.assigned_to_user_id = current_user.id
     conversation.status = "open"
     conversation.unread_count = 0
     touch_conversation(conversation)
+
+    if previous_assignee_id != current_user.id:
+        actor_label = get_user_display_label(current_user)
+
+        if previous_assignee is not None:
+            event_content = (
+                f"{actor_label} took this conversation from "
+                f"{get_user_display_label(previous_assignee)}"
+            )
+        else:
+            event_content = f"{actor_label} took this conversation"
+
+        create_internal_conversation_event(
+            db,
+            conversation,
+            current_user,
+            event_content,
+        )
 
     db.commit()
 
@@ -5509,8 +5569,33 @@ def release_conversation(
             detail="Only the assigned user, a power user, or an admin can release this conversation",
         )
 
+    previous_assignee_id = conversation.assigned_to_user_id
+    previous_assignee = (
+        db.query(models.User).filter(models.User.id == previous_assignee_id).first()
+        if previous_assignee_id is not None
+        else None
+    )
+
     conversation.assigned_to_user_id = None
     touch_conversation(conversation)
+
+    if previous_assignee is not None:
+        actor_label = get_user_display_label(current_user)
+
+        if previous_assignee.id == current_user.id:
+            event_content = f"{actor_label} released this conversation"
+        else:
+            event_content = (
+                f"{actor_label} released this conversation from "
+                f"{get_user_display_label(previous_assignee)}"
+            )
+
+        create_internal_conversation_event(
+            db,
+            conversation,
+            current_user,
+            event_content,
+        )
 
     db.commit()
 

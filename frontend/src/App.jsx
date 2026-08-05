@@ -1052,8 +1052,15 @@ function App() {
   const canTakeConversation =
     Boolean(selectedConversation) && !selectedConversation.assigned_to_user_id;
 
+  const canOverrideConversationAssignment =
+    user?.role === 'admin' || user?.role === 'power_user';
+
   const canReleaseConversation =
-    Boolean(selectedConversation) && selectedConversation.assigned_to_user_id === user?.id;
+    Boolean(selectedConversation?.assigned_to_user_id) &&
+    (
+      selectedConversation.assigned_to_user_id === user?.id ||
+      canOverrideConversationAssignment
+    );
 
   const selectedCustomerServiceSecondsLeft = getCustomerServiceSecondsLeft(
     selectedConversation,
@@ -3106,6 +3113,7 @@ function App() {
       await Promise.all([
         refreshConversations(selectedConversation.id),
         refreshConversationSummary(),
+        loadMessages(selectedConversation.id, { replace: true }),
       ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not take conversation.'));
@@ -3121,6 +3129,7 @@ function App() {
       await Promise.all([
         refreshConversations(selectedConversation.id),
         refreshConversationSummary(),
+        loadMessages(selectedConversation.id, { replace: true }),
       ]);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not release conversation.'));
@@ -4982,6 +4991,9 @@ function App() {
                     !isSameMessageDay(currentMessageDate, previousMessageDate);
                   const messageTime = formatMessageTime(message.created_at);
                   const messageAuthorLabel = getMessageAuthorLabel(message);
+                  const isInternalSystemEvent =
+                    message.direction === 'internal' ||
+                    String(message.message_type || '').toLowerCase() === 'system';
 
                   return (
                     <Fragment key={message.id}>
@@ -4991,89 +5003,99 @@ function App() {
                         </div>
                       )}
 
-                      <div
-                        className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
-                          }`}
-                      >
-                        <MessageMediaPreview message={message} />
-
-                        {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
-                          <div className="message-meta">
-                            {messageAuthorLabel && (
-                              <span className="message-author">{messageAuthorLabel}</span>
-                            )}
-
-                            {messageAuthorLabel && messageTime && (
-                              <span className="message-author-separator">•</span>
-                            )}
-
-                            {messageTime && <span>{messageTime}</span>}
-
-                            {getMessageStatusLabel(message) && (
-                              <span
-                                className={`message-status ${getMessageStatusClass(
-                                  message
-                                )}`}
-                                title={getMessageStatusTitle(message)}
-                                aria-label={getMessageStatusTitle(message)}
-                              >
-                                {getMessageStatusLabel(message)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {message.direction === 'outbound' && message.reaction_emoji && (
-                        <div className="message-reaction outgoing">
-                          {message.reaction_emoji}
+                      {isInternalSystemEvent ? (
+                        <div className="conversation-system-event" role="note">
+                          <span className="conversation-system-event-dot" aria-hidden="true" />
+                          <strong>{message.content}</strong>
+                          {messageTime && <time>{messageTime}</time>}
                         </div>
-                      )}
+                      ) : (
+                        <>
+                          <div
+                            className={`message ${message.direction === 'outbound' ? 'outgoing' : 'incoming'
+                              }`}
+                          >
+                            <MessageMediaPreview message={message} />
 
-                      {message.direction === 'inbound' &&
-                        selectedConversation.status !== 'archived' &&
-                        !isCustomerServiceSessionExpired && (
-                          <div className="message-reaction-control incoming">
-                            <button
-                              type="button"
-                              className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
-                                }`}
-                              onClick={() => toggleReactionPicker(message.id)}
-                              disabled={reactingMessageIds.includes(message.id)}
-                              title="React"
-                            >
-                              {message.reaction_emoji || 'R'}
-                            </button>
+                            {(messageAuthorLabel || messageTime || getMessageStatusLabel(message)) && (
+                              <div className="message-meta">
+                                {messageAuthorLabel && (
+                                  <span className="message-author">{messageAuthorLabel}</span>
+                                )}
 
-                            {openReactionPickerMessageId === message.id && (
-                              <div className="message-reaction-picker">
-                                {BASIC_REACTION_EMOJIS.map((emoji) => (
-                                  <button
-                                    key={emoji}
-                                    type="button"
-                                    className={`message-reaction-option ${message.reaction_emoji === emoji ? 'selected' : ''
-                                      }`}
-                                    onClick={() => handleSendReaction(message.id, emoji)}
-                                    disabled={reactingMessageIds.includes(message.id)}
-                                    title={`React with ${emoji}`}
+                                {messageAuthorLabel && messageTime && (
+                                  <span className="message-author-separator">•</span>
+                                )}
+
+                                {messageTime && <span>{messageTime}</span>}
+
+                                {getMessageStatusLabel(message) && (
+                                  <span
+                                    className={`message-status ${getMessageStatusClass(
+                                      message
+                                    )}`}
+                                    title={getMessageStatusTitle(message)}
+                                    aria-label={getMessageStatusTitle(message)}
                                   >
-                                    {emoji}
-                                  </button>
-                                ))}
-
-                                <button
-                                  type="button"
-                                  className="message-reaction-option remove"
-                                  onClick={() => handleSendReaction(message.id, null)}
-                                  disabled={reactingMessageIds.includes(message.id) || !message.reaction_emoji}
-                                  title="Remove reaction"
-                                >
-                                  ×
-                                </button>
+                                    {getMessageStatusLabel(message)}
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>
-                        )}
+
+                          {message.direction === 'outbound' && message.reaction_emoji && (
+                            <div className="message-reaction outgoing">
+                              {message.reaction_emoji}
+                            </div>
+                          )}
+
+                          {message.direction === 'inbound' &&
+                            selectedConversation.status !== 'archived' &&
+                            !isCustomerServiceSessionExpired && (
+                              <div className="message-reaction-control incoming">
+                                <button
+                                  type="button"
+                                  className={`message-reaction-trigger ${message.reaction_emoji ? 'has-reaction' : ''
+                                    }`}
+                                  onClick={() => toggleReactionPicker(message.id)}
+                                  disabled={reactingMessageIds.includes(message.id)}
+                                  title="React"
+                                >
+                                  {message.reaction_emoji || 'R'}
+                                </button>
+
+                                {openReactionPickerMessageId === message.id && (
+                                  <div className="message-reaction-picker">
+                                    {BASIC_REACTION_EMOJIS.map((emoji) => (
+                                      <button
+                                        key={emoji}
+                                        type="button"
+                                        className={`message-reaction-option ${message.reaction_emoji === emoji ? 'selected' : ''
+                                          }`}
+                                        onClick={() => handleSendReaction(message.id, emoji)}
+                                        disabled={reactingMessageIds.includes(message.id)}
+                                        title={`React with ${emoji}`}
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+
+                                    <button
+                                      type="button"
+                                      className="message-reaction-option remove"
+                                      onClick={() => handleSendReaction(message.id, null)}
+                                      disabled={reactingMessageIds.includes(message.id) || !message.reaction_emoji}
+                                      title="Remove reaction"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                        </>
+                      )}
                     </Fragment>
                   );
                 })
@@ -5171,7 +5193,17 @@ function App() {
               <button type="button" onClick={handleTakeConversation} disabled={!canTakeConversation}>
                 <Icon name="take" size={19} /><span>Take</span>
               </button>
-              <button type="button" onClick={handleReleaseConversation} disabled={!canReleaseConversation}>
+              <button
+                type="button"
+                className={canReleaseConversation ? 'release-active' : ''}
+                onClick={handleReleaseConversation}
+                disabled={!canReleaseConversation}
+                title={
+                  canReleaseConversation && isConversationTakenByAnotherUser
+                    ? `Release from ${getAssignedUserLabel(assignedToUserId)}`
+                    : 'Release conversation'
+                }
+              >
                 <Icon name="release" size={19} /><span>Release</span>
               </button>
               <button type="button" onClick={handleArchiveConversation}>
