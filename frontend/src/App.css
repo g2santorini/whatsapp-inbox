@@ -2951,6 +2951,11 @@ body {
 }
 
 .inbox-search > button {
+  position: static;
+  top: auto;
+  right: auto;
+  flex: 0 0 auto;
+  transform: none;
   width: 25px;
   height: 25px;
   padding: 0;
