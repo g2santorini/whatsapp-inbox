@@ -305,6 +305,10 @@ function isSystemUser(user) {
   );
 }
 
+function isProjectOnlyRole(role) {
+  return role === 'developer' || role === 'project_viewer';
+}
+
 function reportsIncludedByRole(userOrRole) {
   const role = typeof userOrRole === 'string' ? userOrRole : userOrRole?.role;
   return role === 'admin' || role === 'power_user';
@@ -1420,16 +1424,16 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                         <span>
                           <strong>Require Authenticator</strong>
                           <small>
-                            {newUserForm.role === 'admin'
-                              ? 'Required for every administrator account.'
+                            {newUserForm.role === 'admin' || isProjectOnlyRole(newUserForm.role)
+                              ? 'Required for administrators and project-only accounts.'
                               : 'The user will connect an Authenticator app after changing the temporary password.'}
                           </small>
                         </span>
                         <input
                           type="checkbox"
-                          checked={newUserForm.role === 'admin' || Boolean(newUserForm.mfa_required)}
+                          checked={newUserForm.role === 'admin' || isProjectOnlyRole(newUserForm.role) || Boolean(newUserForm.mfa_required)}
                           onChange={(event) => updateNewUserForm('mfa_required', event.target.checked)}
-                          disabled={isCreatingUser || newUserForm.role === 'admin'}
+                          disabled={isCreatingUser || newUserForm.role === 'admin' || isProjectOnlyRole(newUserForm.role)}
                         />
                       </label>
 
@@ -1723,7 +1727,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     <select value={editUserForm.role} onChange={(event) => updateEditUserForm('role', event.target.value)} disabled={isUpdating || isCurrentUser}>
                                       {ROLE_OPTIONS.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}
                                     </select>
-                                    <small>{reportsIncludedByRole(editUserForm.role) ? 'Reports included by role.' : 'Project access only — no inbox for Developer / Viewer roles.'}</small>
+                                    <small>{reportsIncludedByRole(editUserForm.role) ? 'Reports included by role.' : isProjectOnlyRole(editUserForm.role) ? 'Projects only — no Inbox, Reports or WhatsApp access.' : 'Standard Inbox access.'}</small>
                                   </label>
 
                                   <label className="settings-toggle-card">
@@ -1733,9 +1737,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     </span>
                                     <input
                                       type="checkbox"
-                                      checked={reportsIncludedByRole(editUserForm.role) || Boolean(editUserForm.can_view_reports)}
+                                      checked={!isProjectOnlyRole(editUserForm.role) && (reportsIncludedByRole(editUserForm.role) || Boolean(editUserForm.can_view_reports))}
                                       onChange={(event) => updateEditUserForm('can_view_reports', event.target.checked)}
-                                      disabled={isUpdating || reportsIncludedByRole(editUserForm.role)}
+                                      disabled={isUpdating || isProjectOnlyRole(editUserForm.role) || reportsIncludedByRole(editUserForm.role)}
                                     />
                                   </label>
 
@@ -1743,8 +1747,8 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     <span>
                                       <strong>Require Authenticator</strong>
                                       <small>
-                                        {editUserForm.role === 'admin'
-                                          ? 'Mandatory for administrators'
+                                        {editUserForm.role === 'admin' || isProjectOnlyRole(editUserForm.role)
+                                          ? 'Mandatory for administrators and project-only accounts'
                                           : editUserForm.mfa_required
                                             ? 'Setup required at next sign-in if not enabled'
                                             : singleUser.mfa_enabled
@@ -1754,9 +1758,9 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     </span>
                                     <input
                                       type="checkbox"
-                                      checked={editUserForm.role === 'admin' || Boolean(editUserForm.mfa_required)}
+                                      checked={editUserForm.role === 'admin' || isProjectOnlyRole(editUserForm.role) || Boolean(editUserForm.mfa_required)}
                                       onChange={(event) => updateEditUserForm('mfa_required', event.target.checked)}
-                                      disabled={isUpdating || editUserForm.role === 'admin'}
+                                      disabled={isUpdating || editUserForm.role === 'admin' || isProjectOnlyRole(editUserForm.role)}
                                     />
                                   </label>
 
