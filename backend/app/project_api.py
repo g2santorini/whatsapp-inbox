@@ -14,7 +14,7 @@ from .project_models import Project, ProjectMember, ProjectMilestone, ProjectTas
 TASK_STATUSES = {"todo", "in_progress", "blocked", "done"}
 TASK_PRIORITIES = {"low", "normal", "high", "urgent"}
 PROJECT_STATUSES = {"active", "paused", "completed"}
-MANAGER_ROLES = {"admin", "power_user"}
+MANAGER_ROLES = {"admin"}
 
 
 class ProjectCreate(BaseModel):
