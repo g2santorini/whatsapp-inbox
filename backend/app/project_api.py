@@ -375,7 +375,8 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _project(db, project_id, user, edit=True)
+        _manager_only(user)
+        _project(db, project_id, user)
         values = payload.model_dump()
         _validate_task_links(db, project_id, values)
         values["title"] = values["title"].strip()
