@@ -11,7 +11,7 @@ const STATUSES = [
   { value: 'done', label: 'Done' },
 ];
 const EMPTY_TASK = { title: '', description: '', priority: 'normal', due_date: '', assigned_to_id: '' };
-const isManagerRole = (role) => role === 'admin' || role === 'power_user';
+const isManagerRole = (role) => role === 'admin';
 
 function Progress({ progress }) {
   return (
