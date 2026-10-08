@@ -27,7 +27,7 @@ def workspace():
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False)
     with factory() as db:
-        for i, role in enumerate(("admin", "developer", "project_viewer", "user"), 1):
+        for i, role in enumerate(("admin", "developer", "project_viewer", "user", "power_user"), 1):
             db.add(models.User(
                 id=i, username=f"user_{i}", email=f"staff{i}@example.test",
                 role=role, hashed_password="test", disabled=False,
@@ -80,6 +80,11 @@ def test_project_isolation_and_read_only_access(workspace):
     current["id"] = 4  # unrelated employee: no project membership
     assert client.get("/projects/").json() == []
     assert client.get(f"/projects/{project_id}").status_code == 404
+
+    current["id"] = 5  # existing elevated Inbox role isn't a project manager
+    assert client.get("/projects/").json() == []
+    assert client.get(f"/projects/{project_id}").status_code == 404
+    assert client.post("/projects/", json={"name": "Unauthorized"}).status_code == 403
 
     current["id"] = 2  # developer: only assigned project
     assert len(client.get("/projects/").json()) == 1
