@@ -245,7 +245,19 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
           <>
             <div className="pm-project-header">
               <div className="pm-title-group"><span className="pm-eyebrow">PROJECT OVERVIEW</span><h1>{detail.name}</h1><p>{detail.description || 'Track tasks, milestones and progress in one place.'}</p></div>
-              <span className={`pm-project-state state-${detail.status}`}>{detail.status}</span>
+              {detail.can_manage ? (
+                <select
+                  className={`pm-project-state state-${detail.status}`}
+                  aria-label="Project status"
+                  value={detail.status}
+                  disabled={working}
+                  onChange={(e) => act(() => projectApi.update(detail.id, { status: e.target.value }))}
+                >
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+                </select>
+              ) : <span className={`pm-project-state state-${detail.status}`}>{detail.status}</span>}
             </div>
             <div className="pm-overview">
               <div className="pm-stat"><span>Overall progress</span><Progress progress={detail.progress} /></div>
