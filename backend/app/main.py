@@ -28,7 +28,7 @@ from sqlalchemy import and_, case, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from . import models, schemas, project_models, project_api
 from .database import Base, engine, get_db
 from .template_registry import (
     build_template_variables,
@@ -1761,7 +1761,7 @@ def issue_access_token_for_user(user: models.User) -> Token:
     return Token(access_token=access_token, token_type="bearer")
 
 
-ALLOWED_USER_ROLES = {"admin", "power_user", "user"}
+ALLOWED_USER_ROLES = {"admin", "power_user", "user", "developer", "project_viewer"}
 ASSIGNMENT_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 QUICK_REPLY_SHORTCUT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 QUICK_REPLY_SCOPES = {"team", "personal"}
@@ -2217,6 +2217,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
+    request: Request,
     current_user: Annotated[models.User, Depends(get_current_user)],
 ):
     if current_user.disabled:
@@ -2234,7 +2235,20 @@ async def get_current_active_user(
             detail="Authenticator setup required",
         )
 
+    # Project-only accounts are not WhatsApp agents. Enforce this on every
+    # existing endpoint using the active-user dependency, not just in React.
+    if current_user.role in {"developer", "project_viewer"}:
+        path = request.url.path.rstrip("/")
+        if path != "/projects" and not path.startswith("/projects/"):
+            raise HTTPException(
+                status_code=403,
+                detail="This account is restricted to Project Manager",
+            )
+
     return current_user
+
+
+app.include_router(project_api.create_project_router(get_current_active_user))
 
 
 @app.post(
@@ -3152,7 +3166,7 @@ def create_user(
     if requested_role not in ALLOWED_USER_ROLES:
         raise HTTPException(
             status_code=400,
-            detail="Invalid role. Allowed roles: admin, power_user, user",
+            detail="Invalid role. Allowed roles: admin, power_user, user, developer, project_viewer",
         )
 
     if display_name and len(display_name) > 24:
@@ -3317,7 +3331,7 @@ def update_user(
         if new_role not in ALLOWED_USER_ROLES:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid role. Allowed roles: admin, power_user, user",
+                detail="Invalid role. Allowed roles: admin, power_user, user, developer, project_viewer",
             )
 
         if db_user.id == current_user.id and new_role != "admin":
