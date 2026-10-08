@@ -3197,7 +3197,7 @@ def create_user(
         role=requested_role,
         disabled=False,
         must_change_password=True,
-        mfa_required=bool(user.mfa_required),
+        mfa_required=bool(user.mfa_required or requested_role in {"developer", "project_viewer"}),
     )
 
     db.add(db_user)
@@ -3405,6 +3405,10 @@ def update_user(
 
     if new_mfa_required is not None:
         db_user.mfa_required = new_mfa_required
+
+    # External project-only accounts require MFA, regardless of admin UI flags.
+    if db_user.role in {"developer", "project_viewer"}:
+        db_user.mfa_required = True
 
     security_policy_changed = (
         db_user.role != original_role
