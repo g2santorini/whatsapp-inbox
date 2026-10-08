@@ -24,6 +24,8 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
   { value: 'power_user', label: 'Power User' },
   { value: 'user', label: 'User' },
+  { value: 'developer', label: 'Developer — Projects only' },
+  { value: 'project_viewer', label: 'Project Viewer — Read only' },
 ];
 
 const COLOR_PRESETS = [
@@ -1721,7 +1723,7 @@ function SettingsPanel({ onUsersChanged, onQuickRepliesChanged }) {
                                     <select value={editUserForm.role} onChange={(event) => updateEditUserForm('role', event.target.value)} disabled={isUpdating || isCurrentUser}>
                                       {ROLE_OPTIONS.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}
                                     </select>
-                                    <small>{reportsIncludedByRole(editUserForm.role) ? 'Reports included by role.' : 'Standard inbox access.'}</small>
+                                    <small>{reportsIncludedByRole(editUserForm.role) ? 'Reports included by role.' : 'Project access only — no inbox for Developer / Viewer roles.'}</small>
                                   </label>
 
                                   <label className="settings-toggle-card">
