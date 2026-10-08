@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import './App.css';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import SettingsPanel from './components/SettingsPanel';
+import ProjectWorkspace from './ProjectWorkspace';
 import {
   getToken,
   login,
@@ -87,6 +88,7 @@ const CONVERSATION_VIEWS = {
 };
 
 const APP_PAGES = {
+  PROJECTS: 'projects',
   INBOX: 'inbox',
   REPORTS: 'reports',
   SETTINGS: 'settings',
@@ -943,7 +945,7 @@ function App() {
   const [conversationSummary, setConversationSummary] = useState(null);
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false);
-  const [activePage, setActivePage] = useState(APP_PAGES.INBOX);
+  const [activePage, setActivePage] = useState(() => window.location.hash === '#/projects' ? APP_PAGES.PROJECTS : APP_PAGES.INBOX);
   const [isPageVisible, setIsPageVisible] = useState(
     () => document.visibilityState !== 'hidden'
   );
@@ -2786,6 +2788,12 @@ function App() {
         return;
       }
 
+      if (currentUser.role === 'developer' || currentUser.role === 'project_viewer') {
+        setActivePage(APP_PAGES.PROJECTS);
+        window.location.hash = '#/projects';
+        return; // Never load WhatsApp inbox data for project-only accounts.
+      }
+
       try {
         const usersData = await getUsers();
         setUsers(usersData);
@@ -4590,6 +4598,19 @@ function App() {
     );
   }
 
+  if (activePage === APP_PAGES.PROJECTS || user.role === 'developer' || user.role === 'project_viewer') {
+    return (
+      <ProjectWorkspace
+        currentUser={user}
+        onLogout={handleLogout}
+        onBack={user.role === 'developer' || user.role === 'project_viewer' ? null : () => {
+          window.location.hash = '#/inbox';
+          setActivePage(APP_PAGES.INBOX);
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''
@@ -4704,6 +4725,15 @@ function App() {
           </div>
 
           <div className="blue-section-title blue-section-spaced">Tools</div>
+
+          <button
+            type="button"
+            className="blue-settings-button"
+            title="Projects"
+            onClick={() => { window.location.hash = '#/projects'; setActivePage(APP_PAGES.PROJECTS); }}
+          >
+            <span aria-hidden="true">▦</span><span className="blue-tool-label">Projects</span>
+          </button>
 
           {canCurrentUserViewReports && (
             <button
@@ -5590,6 +5620,11 @@ function App() {
               </>
             ) : (
               <div className="mobile-menu-list">
+                <button type="button" onClick={() => {
+                  window.location.hash = '#/projects';
+                  setActivePage(APP_PAGES.PROJECTS);
+                  setMobileDrawerMode(null);
+                }}>▦ Projects</button>
                 <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}>
                   <Icon name="user" />Mine <span>{mineCount || ''}</span>
                 </button>
