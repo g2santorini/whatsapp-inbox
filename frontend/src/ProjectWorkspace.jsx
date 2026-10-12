@@ -91,7 +91,18 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
     setComment('');
     if (activeId) {
       projectApi.get(activeId)
-        .then((result) => { if (!cancelled) setDetail(result); })
+        .then(async (result) => {
+          if (cancelled) return;
+          setDetail(result);
+          if (result.can_manage) {
+            try {
+              const eligible = await projectApi.eligibleUsers(activeId);
+              if (!cancelled) setAllUsers(eligible);
+            } catch (err) { if (!cancelled) setError(err.message); }
+          } else {
+            setAllUsers([]);
+          }
+        })
         .catch((err) => { if (!cancelled) setError(err.message); });
     }
     return () => { cancelled = true; };
