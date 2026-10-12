@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import { getUsers } from './api';
 import { projectApi } from './projectApi';
+import { tasksApi } from './tasksApi';
+import TaskHub from './TaskHub';
 import './ProjectWorkspace.css';
 
 const STATUSES = [
@@ -31,6 +33,7 @@ function formatDate(value) {
 }
 
 export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
+  const [activeSection, setActiveSection] = useState('overview');
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -156,7 +159,7 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
             type="checkbox"
             aria-label={`Mark ${task.title} complete`}
             checked={task.status === 'done'}
-            disabled={!detail.can_edit || working}
+            disabled={(!detail.can_manage && task.assigned_to_id !== currentUser.id) || working}
             onChange={(event) => act(() => projectApi.updateTask(detail.id, task.id, { status: event.target.checked ? 'done' : 'todo' }))}
           />
           <button className="pm-task-title" type="button" onClick={() => setSelectedTaskId(task.id)}>
@@ -166,12 +169,16 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
           <select
             className={`pm-task-status status-${task.status}`}
             value={task.status}
-            disabled={!detail.can_edit || working}
+            disabled={(!detail.can_manage && task.assigned_to_id !== currentUser.id) || working}
             aria-label={`Status for ${task.title}`}
             onChange={(event) => act(() => projectApi.updateTask(detail.id, task.id, { status: event.target.value }))}
           >
             {STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
           </select>
+          {task.assigned_to_id === null && detail.can_edit && task.status !== 'done' && (
+            <button disabled={working} className="pm-take-task" type="button"
+              onClick={() => act(() => tasksApi.claim({ kind: 'project', task_id: task.id }))}>Take</button>
+          )}
           {detail.can_manage && <button className="pm-subtask-button" type="button" title="Add subtask" onClick={() => { setTaskTarget({ milestoneId: task.milestone_id, parentId: task.id }); setTaskDraft(EMPTY_TASK); }}>+</button>}
         </div>
         {children.map((child) => renderTask(child, depth + 1))}
@@ -208,19 +215,34 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
   return (
     <div className="pm-shell">
       <aside className="pm-sidebar">
-        <div className="pm-brand"><img src={sendroLogo} alt="Sendro" /><span>PROJECTS</span></div>
+        <div className="pm-brand"><img src={sendroLogo} alt="Sendro" /><span>WORKSPACE</span></div>
         <div className="pm-side-heading">Workspace</div>
+        <nav className="pm-navigation" aria-label="Project Manager sections">
+          {[
+            ['overview', '◫', 'Overview'],
+            ['tasks', '☑', 'Tasks'],
+            ['projects', '▦', 'Projects'],
+            ['pool', '◎', 'Open Pool'],
+            ...(isManager ? [['team', '♙', 'Team']] : []),
+          ].map(([key, symbol, label]) => (
+            <button key={key} type="button"
+              className={`pm-nav-link ${activeSection === key ? 'active' : ''}`}
+              onClick={() => { setActiveSection(key); setCreateOpen(false); }}
+            ><span aria-hidden="true">{symbol}</span>{label}</button>
+          ))}
+        </nav>
+        <div className="pm-side-heading">Projects</div>
         {loading ? <p className="pm-sidebar-muted">Loading projects…</p> : (
           <div className="pm-project-list">
             {projects.map((project) => (
-              <button type="button" key={project.id} className={`pm-project-link ${project.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(project.id)}>
+              <button type="button" key={project.id} className={`pm-project-link ${project.id === activeId ? 'active' : ''}`} onClick={() => { setActiveId(project.id); setActiveSection('projects'); }}>
                 <span className="pm-project-symbol">▦</span>
                 <span className="pm-project-info"><strong>{project.name}</strong><small>{project.progress}% complete</small></span>
               </button>
             ))}
           </div>
         )}
-        {isManager && <button className="pm-new-project" type="button" onClick={() => setCreateOpen((v) => !v)}>+ New project</button>}
+        {isManager && <button className="pm-new-project" type="button" onClick={() => { setActiveSection('projects'); setCreateOpen((v) => !v); }}>+ New project</button>}
         <div className="pm-sidebar-footer">
           <div className="pm-account"><strong>{currentUser.display_name || currentUser.full_name || currentUser.username}</strong><small>{currentUser.role === 'project_viewer' ? 'Project Viewer' : currentUser.role === 'developer' ? 'Developer' : currentUser.role}</small></div>
           {onBack && <button type="button" onClick={onBack}>← Back to Inbox</button>}
@@ -229,8 +251,15 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
       </aside>
 
       <main className="pm-main">
-        <header className="pm-topbar"><div><span>SENDRO / WORKSPACE</span><strong>Project Manager</strong></div><span className="pm-topbar-role">{currentUser.role === 'project_viewer' ? 'Read only' : 'Projects'}</span></header>
+        <header className="pm-topbar"><div><span>SENDRO / WORKSPACE</span><strong>Project & Task Manager</strong></div><span className="pm-topbar-role">{currentUser.role === 'project_viewer' ? 'Read only' : activeSection === 'pool' ? 'Open Pool' : activeSection === 'projects' ? 'Projects' : activeSection === 'team' ? 'Team' : activeSection === 'tasks' ? 'Tasks' : 'Overview'}</span></header>
         {error && <div className="pm-error" role="alert">{error}<button type="button" onClick={() => setError('')}>×</button></div>}
+        {activeSection !== 'projects' ? (
+          <TaskHub
+            view={activeSection}
+            currentUser={currentUser}
+            onProjectOpen={(projectId) => { setActiveId(projectId); setActiveSection('projects'); }}
+          />
+        ) : (<>
         {createOpen && isManager && (
           <form className="pm-create-project" onSubmit={createProject}>
             <h3>Create project</h3>
@@ -290,13 +319,23 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
                     <div className="pm-details-header"><span>TASK DETAILS</span><button type="button" onClick={() => setSelectedTaskId(null)} aria-label="Close task details">×</button></div>
                     <h3>{focusedTask.title}</h3><p>{focusedTask.description || 'No description added.'}</p>
                     <div className="pm-detail-item"><strong>Status</strong><span>{STATUSES.find((s) => s.value === focusedTask.status)?.label}</span></div>
-                    <div className="pm-detail-item"><strong>Assignee</strong><span>{focusedTask.assigned_to_name || 'Unassigned'}</span></div>
+                    <div className="pm-detail-item"><strong>Assignee</strong>
+                      {detail.can_manage ? <select
+                        aria-label="Assign this task" value={focusedTask.assigned_to_id || ''}
+                        disabled={working}
+                        onChange={(e) => act(() => projectApi.updateTask(detail.id, focusedTask.id, {
+                          assigned_to_id: e.target.value ? Number(e.target.value) : null,
+                        }))}>
+                        <option value="">Open Pool — unassigned</option>
+                        {detail.members.filter((m) => m.permission !== 'viewer').map((m) => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
+                      </select> : <span>{focusedTask.assigned_to_name || 'Unassigned'}</span>}
+                    </div>
                     <div className="pm-detail-item"><strong>Priority</strong><span>{focusedTask.priority}</span></div>
                     {focusedTask.due_date && <div className="pm-detail-item"><strong>Due date</strong><span>{formatDate(focusedTask.due_date)}</span></div>}
                     {detail.can_manage && <button type="button" className="pm-edit-task" onClick={async () => { const title = window.prompt('Task title', focusedTask.title); if (title?.trim()) await act(() => projectApi.updateTask(detail.id, focusedTask.id, { title: title.trim() })); }}>Edit title</button>}
                     <h4>Updates & comments</h4>
                     <div className="pm-comments">{focusedComments.length ? focusedComments.map((item) => <div className="pm-comment" key={item.id}><strong>{item.author_name}</strong><small>{formatDate(item.created_at)}</small><p>{item.body}</p></div>) : <p className="pm-muted">No updates yet.</p>}</div>
-                    {detail.can_edit && <form className="pm-comment-form" onSubmit={async (e) => { e.preventDefault(); if (!comment.trim()) return; await act(() => projectApi.addComment(detail.id, focusedTask.id, { body: comment.trim() })); setComment(''); }}>
+                    {(detail.can_manage || focusedTask.assigned_to_id === currentUser.id) && <form className="pm-comment-form" onSubmit={async (e) => { e.preventDefault(); if (!comment.trim()) return; await act(() => projectApi.addComment(detail.id, focusedTask.id, { body: comment.trim() })); setComment(''); }}>
                       <textarea value={comment} maxLength="6000" onChange={(e) => setComment(e.target.value)} rows="3" placeholder="Write an update or explain a blocker…" required />
                       <button type="submit" disabled={working}>Post update</button>
                     </form>}
@@ -312,7 +351,7 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
                         <option value="">Select a user</option>
                         {unassignedUsers.map((person) => <option value={person.id} key={person.id}>{person.display_name || person.full_name || person.username} ({person.role})</option>)}
                       </select>
-                      <select aria-label="Project permission" value={memberPermission} onChange={(e) => setMemberPermission(e.target.value)}><option value="editor">Editor</option><option value="viewer">Viewer</option></select>
+                      <select aria-label="Project permission" value={memberPermission} onChange={(e) => setMemberPermission(e.target.value)}><option value="manager">Manager</option><option value="editor">Editor</option><option value="viewer">Viewer</option></select>
                       <button type="submit" disabled={working}>Add member</button>
                     </form>}
                     <div className="pm-tip">Select a task to view its description and project updates.</div>
@@ -322,6 +361,7 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
             </div>
           </>
         )}
+        </>)}
       </main>
     </div>
   );
