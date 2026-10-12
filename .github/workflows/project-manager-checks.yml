@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r backend/requirements.txt 'httpx>=0.27' 'pytest>=8.0'
-      - run: python -m pytest backend/tests/test_project_manager.py backend/tests/test_project_route_guard.py backend/tests/test_task_hub.py -q
+      - run: cd backend && PYTHONPATH=.. python -m pytest tests/test_project_manager.py tests/test_project_route_guard.py tests/test_task_hub.py -q
 
   frontend:
     name: React production build
