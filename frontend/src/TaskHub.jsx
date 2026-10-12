@@ -56,7 +56,13 @@ export default function TaskHub({ view, currentUser, onProjectOpen }) {
       await fn();
       await reload();
       if (focused?.kind === 'standalone') {
-        setTaskDetail(await tasksApi.detail(focused.task_id));
+        try {
+          setTaskDetail(await tasksApi.detail(focused.task_id));
+        } catch {
+          // Releasing a private assignment can legitimately revoke access.
+          setFocused(null);
+          setTaskDetail(null);
+        }
       }
     } catch (err) {
       setError(err.message || 'Could not save your changes.');
