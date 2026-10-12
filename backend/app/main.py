@@ -4644,6 +4644,72 @@ def get_conversation_summary(
     }
 
 
+@app.get("/conversations/live-panel/")
+def get_live_whatsapp_panel(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+):
+    """Small, authenticated Inbox preview. No project-only account may use it.
+
+    Returns at most six unread and six recent conversations, without downloading
+    message histories or exposing message bodies beyond a short preview.
+    """
+    active = models.Conversation.status != "archived"
+    unread = (
+        db.query(models.Conversation)
+        .filter(active, models.Conversation.unread_count > 0)
+        .order_by(models.Conversation.last_message_at.desc(), models.Conversation.id.desc())
+        .limit(6)
+        .all()
+    )
+    recent = (
+        db.query(models.Conversation)
+        .filter(active)
+        .order_by(models.Conversation.last_message_at.desc(), models.Conversation.id.desc())
+        .limit(6)
+        .all()
+    )
+    ids = list({conversation.id for conversation in [*unread, *recent]})
+    previews = {}
+    if ids:
+        latest = (
+            db.query(
+                models.Message.conversation_id,
+                func.max(models.Message.id).label("latest_message_id"),
+            )
+            .filter(models.Message.conversation_id.in_(ids))
+            .group_by(models.Message.conversation_id)
+            .subquery()
+        )
+        for message in (
+            db.query(models.Message)
+            .join(latest, models.Message.id == latest.c.latest_message_id)
+            .all()
+        ):
+            previews[message.conversation_id] = message
+
+    def compact(conversation):
+        message = previews.get(conversation.id)
+        content = str(message.content or "").strip() if message else ""
+        if not content and message and message.message_type != "text":
+            content = f"[{message.message_type or 'Media'}]"
+        return {
+            "id": conversation.id,
+            "contact_name": conversation.contact_name or conversation.contact_phone,
+            "contact_phone": conversation.contact_phone,
+            "unread_count": int(conversation.unread_count or 0),
+            "follow_up": bool(conversation.follow_up),
+            "last_message_at": conversation.last_message_at,
+            "last_message_preview": content[:160],
+        }
+
+    return {
+        "summary": get_conversation_summary(db, current_user),
+        "unread": [compact(item) for item in unread],
+        "recent": [compact(item) for item in recent],
+    }
+
+
 @app.get("/conversations/", response_model=list[schemas.ConversationOut])
 def get_conversations(
     db: Annotated[Session, Depends(get_db)],

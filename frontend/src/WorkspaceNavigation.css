@@ -1,0 +1,24 @@
+/* Shared global navigation: first WhatsApp, second Project Manager */
+.sendro-global-tabs { display:flex; align-items:center; gap:10px; min-width:0; flex-wrap:nowrap; }
+.sendro-global-tab { display:inline-flex; align-items:center; justify-content:center; gap:10px; min-height:46px; white-space:nowrap; border:1px solid #d8e4f3; border-radius:10px; padding:10px 16px; background:#f2f7fd; color:#173759; font-weight:800; font-size:13px; letter-spacing:.1px; cursor:pointer; transition:background .16s,box-shadow .16s,transform .16s; position:relative; }
+.sendro-global-tab:hover { border-color:#a6c7e6; box-shadow:0 3px 10px rgba(25,84,146,.12); }
+.sendro-global-tab.is-active { background:linear-gradient(135deg,#0b59c6,#0750a8); border-color:#1258b0; color:#fff; box-shadow:0 4px 12px rgba(13,92,191,.22); }
+.sendro-global-tab-symbol { font-size:20px; font-weight:900; line-height:1; display:inline-flex; align-items:center; justify-content:center; width:23px; }
+.sendro-global-tab-symbol.whatsapp { color:#08b977; }
+.sendro-global-tab.is-active .sendro-global-tab-symbol.whatsapp { color:#81ffb9; }
+.sendro-global-tab-symbol.projects { color:#1a62a7; }
+.sendro-global-tab.is-active .sendro-global-tab-symbol.projects { color:#fff; }
+.sendro-global-unread { background:#eb302e; color:#fff; border:2px solid white; border-radius:100px; min-width:24px; height:24px; padding:0 5px; display:inline-flex; align-items:center; justify-content:center; font-size:11px; line-height:1; margin-left:1px; }
+.sendro-global-tab:focus-visible { outline:3px solid #66acee; outline-offset:2px; }
+.sendro-global-header { display:flex; align-items:center; }
+@media(max-width:1000px) {
+  .sendro-inbox-top-tabs { height:55px; flex:0 0 55px; display:flex; justify-content:center; align-items:center; padding:5px 10px; background:#f1f6fd; border-bottom:1px solid #dce5f0; }
+  .sendro-inbox-top-tabs .sendro-global-tabs { width:100%; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .sendro-inbox-top-tabs .sendro-global-tab { min-width:0; height:41px; min-height:41px; padding:8px; font-size:12px; }
+  .sendro-inbox-top-tabs .sendro-global-tab-symbol { font-size:16px; width:16px; }
+}
+@media(max-width:430px) { .sendro-global-tab { font-size:11px !important; gap:5px; } .sendro-global-unread { min-width:20px;height:20px;font-size:10px; } }
+
+/* Mobile tabs live below the compact Inbox app bar; desktop uses the workspace topbar. */
+.sendro-inbox-top-tabs { display:none; }
+@media(max-width:1000px) { .sendro-inbox-top-tabs { display:flex; } }

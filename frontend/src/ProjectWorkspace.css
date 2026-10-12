@@ -122,3 +122,27 @@
 .pm-nav-link.active span { color:#71d5b6; }
 .pm-take-task { border:0; border-radius:6px; font-size:10px !important; font-weight:800; color:#187d5b; padding:7px 9px; background:#dbf6eb; white-space:nowrap; }
 @media(max-width:820px) { .pm-navigation { grid-column:1/-1; display:flex; overflow-x:auto; padding:2px 0 6px; gap:4px; } .pm-nav-link { flex:0 0 auto; padding:9px 12px; width:auto; font-size:11px !important; } .pm-nav-link span { width:auto; } }
+
+
+/* Unified application tabs and live messaging companion */
+.pm-content-grid { display:flex; gap:20px; align-items:flex-start; min-width:0; }
+.pm-content-primary { flex:1; min-width:0; }
+.pm-content-grid.pm-content-full .pm-content-primary { width:100%; }
+.pm-topbar { gap:12px; }
+.pm-topbar .sendro-global-tabs { flex:1; }
+.pm-topbar .pm-topbar-role { flex-shrink:0; }
+@media(max-width:1600px) { .pm-content-grid:not(.pm-content-full) .pm-layout { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:1220px) { .pm-content-grid { flex-direction:column; } .pm-content-primary { width:100%; } }
+@media(max-width:820px) {
+  .pm-topbar { height:auto; min-height:70px; flex-wrap:wrap; padding:10px 0; gap:8px; }
+  .pm-topbar .sendro-global-tabs { width:100%; }
+  .pm-topbar .sendro-global-tab { flex:1; min-width:0; font-size:12px; padding:10px 8px; }
+  .pm-topbar .pm-topbar-role { display:none; }
+}
+
+
+.pm-topbar .sendro-global-tab span { color:inherit; font-size:inherit; letter-spacing:normal; font-weight:inherit; }
+.pm-topbar .sendro-global-tab.is-active { color:#fff; }
+.pm-topbar .sendro-global-tab .sendro-global-unread { color:#fff; font-size:11px; font-weight:800; }
+.pm-topbar .sendro-global-tab .sendro-global-tab-symbol.whatsapp { color:#08b977; font-size:20px; }
+.pm-topbar .sendro-global-tab.is-active .sendro-global-tab-symbol.whatsapp { color:#81ffb9; }

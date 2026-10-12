@@ -4,6 +4,8 @@ import { getUsers } from './api';
 import { projectApi } from './projectApi';
 import { tasksApi } from './tasksApi';
 import TaskHub from './TaskHub';
+import WorkspaceTabs from './WorkspaceTabs';
+import WhatsAppLivePanel from './WhatsAppLivePanel';
 import './ProjectWorkspace.css';
 
 const STATUSES = [
@@ -32,8 +34,10 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
+export default function ProjectWorkspace({ currentUser, onBack, onOpenConversation, onLogout }) {
   const [activeSection, setActiveSection] = useState('overview');
+  const [whatsappUnreadCount, setWhatsappUnreadCount] = useState(0);
+  const canAccessWhatsApp = !['developer', 'project_viewer'].includes(currentUser.role);
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -256,13 +260,23 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
         {isManager && <button className="pm-new-project" type="button" onClick={() => { setActiveSection('projects'); setCreateOpen((v) => !v); }}>+ New project</button>}
         <div className="pm-sidebar-footer">
           <div className="pm-account"><strong>{currentUser.display_name || currentUser.full_name || currentUser.username}</strong><small>{currentUser.role === 'project_viewer' ? 'Project Viewer' : currentUser.role === 'developer' ? 'Developer' : currentUser.role}</small></div>
-          {onBack && <button type="button" onClick={onBack}>← Back to Inbox</button>}
           <button type="button" onClick={onLogout}>Sign out</button>
         </div>
       </aside>
 
       <main className="pm-main">
-        <header className="pm-topbar"><div><span>SENDRO / WORKSPACE</span><strong>Project & Task Manager</strong></div><span className="pm-topbar-role">{currentUser.role === 'project_viewer' ? 'Read only' : activeSection === 'pool' ? 'Open Pool' : activeSection === 'projects' ? 'Projects' : activeSection === 'team' ? 'Team' : activeSection === 'tasks' ? 'Tasks' : 'Overview'}</span></header>
+        <header className="pm-topbar">
+          <WorkspaceTabs
+            active="projects"
+            showInbox={canAccessWhatsApp}
+            showProjects
+            unreadCount={whatsappUnreadCount}
+            onInbox={onBack}
+          />
+          <span className="pm-topbar-role">{currentUser.role === 'project_viewer' ? 'Read only' : activeSection === 'pool' ? 'Open Pool' : activeSection === 'projects' ? 'Projects' : activeSection === 'team' ? 'Team' : activeSection === 'tasks' ? 'Tasks' : 'Overview'}</span>
+        </header>
+        <div className={canAccessWhatsApp ? 'pm-content-grid' : 'pm-content-grid pm-content-full'}>
+          <div className="pm-content-primary">
         {error && <div className="pm-error" role="alert">{error}<button type="button" onClick={() => setError('')}>×</button></div>}
         {activeSection !== 'projects' ? (
           <TaskHub
@@ -373,6 +387,15 @@ export default function ProjectWorkspace({ currentUser, onBack, onLogout }) {
           </>
         )}
         </>)}
+          </div>
+          {canAccessWhatsApp && (
+            <WhatsAppLivePanel
+              onOpenInbox={onBack}
+              onOpenConversation={onOpenConversation}
+              onCountChange={setWhatsappUnreadCount}
+            />
+          )}
+        </div>
       </main>
     </div>
   );
