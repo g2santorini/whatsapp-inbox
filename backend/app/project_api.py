@@ -23,6 +23,10 @@ class ProjectCreate(BaseModel):
     description: str = Field(default="", max_length=12000)
 
 
+class ProjectDeleteConfirm(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=160)
+
+
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=160)
     description: Optional[str] = Field(default=None, max_length=12000)
@@ -272,6 +276,53 @@ def create_project_router(active_user_dependency):
         _manager_only(user)
         project = _project(db, project_id, user)
         return import_webflow_ai_backlog(db, project, user.id)
+
+    @router.delete("/{project_id}")
+    def delete_webflow_ai_project(
+        project_id: int,
+        payload: ProjectDeleteConfirm,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(active_user_dependency),
+    ):
+        """One-time removal for the Webflow AI backlog, never another project."""
+        _manager_only(user)
+        project = _project(db, project_id, user)
+        if project.name != "Webflow - Ai":
+            raise HTTPException(status_code=403, detail="Only Webflow - Ai may be removed here")
+        if payload.confirmation != project.name:
+            raise HTTPException(status_code=400, detail="Type the exact project name to confirm")
+
+        # All removals are restricted to this project ID and one transaction.
+        # Delete task comments before tasks, tasks before milestones, then project.
+        # Explicit deletes also work in environments without FK cascades enabled.
+        try:
+            comments = db.query(ProjectTaskComment).filter_by(project_id=project.id).delete(
+                synchronize_session=False
+            )
+            tasks = db.query(ProjectTask).filter_by(project_id=project.id).delete(
+                synchronize_session=False
+            )
+            milestones = db.query(ProjectMilestone).filter_by(project_id=project.id).delete(
+                synchronize_session=False
+            )
+            members = db.query(ProjectMember).filter_by(project_id=project.id).delete(
+                synchronize_session=False
+            )
+            db.delete(project)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+        return {
+            "status": "deleted",
+            "project_id": project_id,
+            "name": "Webflow - Ai",
+            "deleted_tasks": tasks,
+            "deleted_milestones": milestones,
+            "deleted_comments": comments,
+            "deleted_members": members,
+        }
 
     @router.patch("/{project_id}")
     def update_project(
