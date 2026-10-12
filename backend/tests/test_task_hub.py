@@ -127,10 +127,17 @@ def test_project_pool_access_and_scoped_manager(system):
     session["id"] = 4
     assert client.get("/projects/").json()[0]["name"] == "Alpha"
     assert client.get("/tasks/").json()[0]["can_claim"] is False
+    assert client.get(f"/projects/{alpha}/eligible-users").status_code == 403
     assert client.post(f"/tasks/project/{task_id}/claim").status_code == 403
 
     session["id"] = 3
     assert client.get(f"/projects/{beta}").status_code == 404
+    assert client.get(f"/projects/{beta}/eligible-users").status_code == 404
+    directory = client.get(f"/projects/{alpha}/eligible-users")
+    assert directory.status_code == 200
+    assert len(directory.json()) == 6
+    assert "email" not in directory.json()[0]
+    assert "hashed_password" not in directory.json()[0]
     detail = client.get(f"/projects/{alpha}")
     assert detail.json()["can_manage"] is True
     assert client.post(f"/projects/{alpha}/tasks", json={"title": "Manager created task"}).status_code == 201
