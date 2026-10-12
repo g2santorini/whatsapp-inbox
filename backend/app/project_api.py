@@ -283,6 +283,28 @@ def create_project_router(active_user_dependency):
         db.commit()
         return _project_summary(project, db.query(ProjectTask).filter_by(project_id=project_id).all())
 
+    @router.get("/{project_id}/eligible-users")
+    def project_assignable_users(
+        project_id: int,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(active_user_dependency),
+    ):
+        # Project managers only see minimum necessary identity fields.
+        _project_manager_only(db, project_id, user)
+        people = db.query(models.User).filter(models.User.disabled.is_(False)).order_by(
+            models.User.username.asc()
+        ).all()
+        return [{
+            "id": person.id,
+            "username": person.username,
+            "display_name": person.display_name,
+            "full_name": person.full_name,
+            "role": person.role,
+        } for person in people if not (
+            person.username.lower() in {"sendro_webhook", "whatsapp_webhook"}
+            or person.email.lower().endswith("@sendro.local")
+        )]
+
     @router.post("/{project_id}/members", status_code=201)
     def add_member(
         project_id: int,
