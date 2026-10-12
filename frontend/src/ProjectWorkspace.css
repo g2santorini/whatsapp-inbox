@@ -146,3 +146,8 @@
 .pm-topbar .sendro-global-tab .sendro-global-unread { color:#fff; font-size:11px; font-weight:800; }
 .pm-topbar .sendro-global-tab .sendro-global-tab-symbol.whatsapp { color:#08b977; font-size:20px; }
 .pm-topbar .sendro-global-tab.is-active .sendro-global-tab-symbol.whatsapp { color:#81ffb9; }
+
+/* Admin-only, confirm-before-write project backlog importer. */
+.pm-import-backlog { padding:10px 13px; color:#fff; background:#166cba; border:0; border-radius:8px; font-size:12px; font-weight:800; white-space:normal; text-align:center; cursor:pointer; }
+.pm-import-backlog:hover { background:#10528e; }
+.pm-import-backlog:disabled { opacity:.6; cursor:not-allowed; }
