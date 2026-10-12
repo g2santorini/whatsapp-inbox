@@ -160,3 +160,63 @@ def test_invalid_links_and_cycles_are_rejected(workspace):
         f"/projects/{p1}/tasks/{parent}", json={"status": "oops"}
     )
     assert bad_status.status_code == 400
+
+
+def test_webflow_ai_project_delete_is_admin_only_and_does_not_affect_other_projects(workspace):
+    client, current = workspace
+    target = client.post("/projects/", json={"name": "Webflow - Ai"}).json()["id"]
+    unrelated = client.post("/projects/", json={"name": "Retain this project"}).json()["id"]
+
+    category = client.post(f"/projects/{target}/milestones", json={"title": "Imported tasks"}).json()["id"]
+    target_task = client.post(
+        f"/projects/{target}/tasks", json={"title": "An imported item", "milestone_id": category}
+    ).json()["id"]
+    client.post(f"/projects/{target}/tasks/{target_task}/comments", json={"body": "Saved note"})
+    client.post(
+        f"/projects/{target}/members", json={"user_id": 2, "permission": "manager"}
+    )
+
+    another_milestone = client.post(
+        f"/projects/{unrelated}/milestones", json={"title": "Unrelated milestone"}
+    ).json()["id"]
+    another_task = client.post(
+        f"/projects/{unrelated}/tasks",
+        json={"title": "Keep this task", "milestone_id": another_milestone},
+    ).json()["id"]
+
+    current["id"] = 2  # Even Project Managers cannot delete projects.
+    denied = client.request(
+        "DELETE", f"/projects/{target}", json={"confirmation": "Webflow - Ai"}
+    )
+    assert denied.status_code == 403
+
+    current["id"] = 1
+    assert client.request(
+        "DELETE", f"/projects/{target}", json={"confirmation": "wrong name"}
+    ).status_code == 400
+    assert client.request(
+        "DELETE", f"/projects/{unrelated}", json={"confirmation": "Retain this project"}
+    ).status_code == 403
+    assert client.get(f"/projects/{target}").status_code == 200
+
+    deleted = client.request(
+        "DELETE", f"/projects/{target}", json={"confirmation": "Webflow - Ai"}
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {
+        "status": "deleted", "project_id": target, "name": "Webflow - Ai",
+        "deleted_tasks": 1, "deleted_milestones": 1,
+        "deleted_comments": 1, "deleted_members": 1,
+    }
+    assert client.get(f"/projects/{target}").status_code == 404
+    project_list = client.get("/projects/").json()
+    assert [p["name"] for p in project_list] == ["Retain this project"]
+    other_detail = client.get(f"/projects/{unrelated}").json()
+    assert len(other_detail["milestones"]) == 1
+    assert len(other_detail["tasks"]) == 1
+    assert other_detail["tasks"][0]["id"] == another_task
+
+    # A second removal does not silently succeed.
+    assert client.request(
+        "DELETE", f"/projects/{target}", json={"confirmation": "Webflow - Ai"}
+    ).status_code == 404
