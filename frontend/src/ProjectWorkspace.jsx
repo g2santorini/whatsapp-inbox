@@ -125,6 +125,35 @@ export default function ProjectWorkspace({ currentUser, onBack, onOpenConversati
     }
   };
 
+  const deleteWebflowAi = async () => {
+    if (!detail || currentUser.role !== 'admin' || detail.name !== 'Webflow - Ai' || working) return;
+
+    const confirmation = window.prompt(
+      'This permanently removes Webflow - Ai, its milestones, tasks and comments.\n' +
+      'Type exactly: Webflow - Ai',
+      ''
+    );
+    if (confirmation === null) return;
+    if (confirmation !== detail.name) {
+      setError('Deletion cancelled: project name did not match exactly.');
+      return;
+    }
+    if (!window.confirm('Permanently delete Webflow - Ai and ALL of its tasks? This cannot be undone.')) return;
+
+    setWorking(true);
+    setError('');
+    try {
+      await projectApi.deleteWebflowAi(detail.id, confirmation);
+      setDetail(null);
+      setSelectedTaskId(null);
+      await refreshList();
+    } catch (err) {
+      setError(err.message || 'Could not delete project.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const taskMap = useMemo(() => new Map((detail?.tasks || []).map((t) => [t.id, t])), [detail]);
   const focusedTask = selectedTaskId ? taskMap.get(selectedTaskId) : null;
   const focusedComments = (detail?.comments || []).filter((c) => c.task_id === selectedTaskId);
@@ -299,19 +328,31 @@ export default function ProjectWorkspace({ currentUser, onBack, onOpenConversati
           <>
             <div className="pm-project-header">
               <div className="pm-title-group"><span className="pm-eyebrow">PROJECT OVERVIEW</span><h1>{detail.name}</h1><p>{detail.description || 'Track tasks, milestones and progress in one place.'}</p></div>
-              {detail.can_manage ? (
-                <select
-                  className={`pm-project-state state-${detail.status}`}
-                  aria-label="Project status"
-                  value={detail.status}
-                  disabled={working}
-                  onChange={(e) => act(() => projectApi.update(detail.id, { status: e.target.value }))}
-                >
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
-                  <option value="completed">Completed</option>
-                </select>
-              ) : <span className={`pm-project-state state-${detail.status}`}>{detail.status}</span>}
+              <div className="pm-project-actions">
+                {detail.can_manage ? (
+                  <select
+                    className={`pm-project-state state-${detail.status}`}
+                    aria-label="Project status"
+                    value={detail.status}
+                    disabled={working}
+                    onChange={(e) => act(() => projectApi.update(detail.id, { status: e.target.value }))}
+                  >
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                ) : <span className={`pm-project-state state-${detail.status}`}>{detail.status}</span>}
+                {currentUser.role === 'admin' && detail.name === 'Webflow - Ai' && (
+                  <button
+                    type="button"
+                    className="pm-project-delete"
+                    disabled={working}
+                    onClick={deleteWebflowAi}
+                  >
+                    Delete Webflow - Ai
+                  </button>
+                )}
+              </div>
             </div>
             <div className="pm-overview">
               <div className="pm-stat"><span>Overall progress</span><Progress progress={detail.progress} /></div>
