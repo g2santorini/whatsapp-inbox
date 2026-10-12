@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from backend.app.database import Base, get_db
 from backend.app import models, project_models
 from backend.app.project_api import create_project_router
+from backend.app.tasks_api import create_tasks_router
 
 
 @pytest.fixture()
@@ -46,6 +47,7 @@ def workspace():
 
     app.dependency_overrides[get_db] = test_db
     app.include_router(create_project_router(test_user))
+    app.include_router(create_tasks_router(test_user))
     with TestClient(app) as client:
         yield client, current
     engine.dispose()
@@ -96,6 +98,11 @@ def test_project_isolation_and_read_only_access(workspace):
     assert client.patch(
         f"/projects/{project_id}/tasks/{task_id}", json={"title": "Rewrite the scope"}
     ).status_code == 403
+    # Unassigned work must be claimed before editing status.
+    assert client.patch(
+        f"/projects/{project_id}/tasks/{task_id}", json={"status": "done"}
+    ).status_code == 403
+    assert client.post(f"/tasks/project/{task_id}/claim").status_code == 200
     assert client.patch(
         f"/projects/{project_id}/tasks/{task_id}", json={"status": "done"}
     ).status_code == 200
