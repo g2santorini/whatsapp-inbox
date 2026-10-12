@@ -25,6 +25,7 @@ export const projectApi = {
   get: (id) => request(`/${id}`),
   create: (payload) => request('/', 'POST', payload),
   update: (id, payload) => request(`/${id}`, 'PATCH', payload),
+  eligibleUsers: (id) => request(`/${id}/eligible-users`),
   addMember: (id, payload) => request(`/${id}/members`, 'POST', payload),
   removeMember: (id, userId) => request(`/${id}/members/${userId}`, 'DELETE'),
   updateMember: (id, userId, payload) => request(`/${id}/members/${userId}`, 'PATCH', payload),
