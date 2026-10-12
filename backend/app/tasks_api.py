@@ -80,7 +80,7 @@ def _project_task(db, task_id, user, permissions=None):
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
-def _summary(task, kind, users, project_names, user, can_claim):
+def _summary(task, kind, users, project_names, user, can_claim, project_manager=False):
     project_id = task.project_id if kind == "project" else None
     return {
         "id": f"{'p' if kind == 'project' else 's'}:{task.id}",
@@ -93,10 +93,10 @@ def _summary(task, kind, users, project_names, user, can_claim):
         "assigned_to_name": users.get(task.assigned_to_id),
         "created_at": task.created_at,
         "can_claim": bool(can_claim),
-        "can_update_status": bool(_admin(user) or (
+        "can_update_status": bool(_admin(user) or project_manager or (
             _editable(user) and task.assigned_to_id == user.id
         )),
-        "can_manage": _admin(user),
+        "can_manage": _admin(user) or project_manager,
     }
 
 def _tasks_for_user(db, user):
@@ -137,7 +137,9 @@ def _all_summaries(db, user):
                  t.assigned_to_id is None and t.status != "done"
                  and _editable(user) and (
                      _admin(user) or permissions.get(t.project_id) in {"editor", "manager"}
-                 ))
+                 ),
+                 project_manager=(not _admin(user) and
+                                  permissions.get(t.project_id) == "manager" and _editable(user)))
         for t in project_tasks
     ]
     result.extend([
@@ -338,8 +340,11 @@ def create_tasks_router(active_user_dependency):
         user: models.User = Depends(active_user_dependency),
     ):
         task = _project_task(db, task_id, user)
+        perms = _member_permissions(db, user)
         if not _admin(user) and (
-            not _editable(user) or task.assigned_to_id != user.id
+            not _editable(user) or (
+                task.assigned_to_id != user.id and perms.get(task.project_id) != "manager"
+            )
         ):
             raise HTTPException(status_code=403, detail="Only assignee or manager may release")
         if task.status == "done":
