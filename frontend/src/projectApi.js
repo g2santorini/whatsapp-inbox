@@ -25,6 +25,7 @@ export const projectApi = {
   get: (id) => request(`/${id}`),
   create: (payload) => request('/', 'POST', payload),
   update: (id, payload) => request(`/${id}`, 'PATCH', payload),
+  deleteWebflowAi: (id, confirmation) => request(`/${id}`, 'DELETE', { confirmation }),
   importWebflowBacklog: (id) => request(`/${id}/import-webflow-ai-backlog`, 'POST'),
   eligibleUsers: (id) => request(`/${id}/eligible-users`),
   addMember: (id, payload) => request(`/${id}/members`, 'POST', payload),
