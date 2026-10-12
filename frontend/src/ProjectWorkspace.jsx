@@ -321,7 +321,20 @@ export default function ProjectWorkspace({ currentUser, onBack, onOpenConversati
             </div>
             <div className="pm-layout">
               <section className="pm-board">
-                <div className="pm-section-heading"><h2>Milestones & tasks</h2><span>{detail.milestones.length} milestones</span></div>
+                <div className="pm-section-heading">
+                  <h2>Milestones &amp; tasks</h2>
+                  {currentUser.role === 'admin' && detail.name === 'Webflow - Ai'
+                    && detail.milestones.length === 0 && detail.tasks.length === 0 ? (
+                    <button type="button" className="pm-import-backlog" disabled={working}
+                      onClick={() => {
+                        if (window.confirm('Import the supplied Sunset Oia backlog: 12 sections, 28 milestones, 134 tasks and 10 open specifications into Webflow - Ai? This is a one-time operation.')) {
+                          act(() => projectApi.importWebflowBacklog(detail.id));
+                        }
+                      }}>
+                      + Import development backlog
+                    </button>
+                  ) : <span>{detail.milestones.length} milestones</span>}
+                </div>
                 {detail.milestones.map((milestone) => {
                   const roots = detail.tasks.filter((task) => task.milestone_id === milestone.id && (!task.parent_task_id || !taskMap.has(task.parent_task_id) || taskMap.get(task.parent_task_id).milestone_id !== milestone.id));
                   return <article className="pm-milestone" key={milestone.id}>
