@@ -210,3 +210,14 @@
     overflow-x: hidden;
   }
 }
+
+
+/* Deliberately scoped destructive action: only displayed for Webflow - Ai admins. */
+.pm-project-actions { display:flex; flex-direction:column; align-items:flex-end; gap:10px; flex-shrink:0; }
+.pm-project-delete { border:1px solid #e8b7b7; background:#fff4f4; border-radius:8px; padding:9px 12px; color:#b32a31; font-size:12px !important; font-weight:800; cursor:pointer; }
+.pm-project-delete:hover { background:#ffe6e6; }
+.pm-project-delete:disabled { opacity:.5; cursor:not-allowed; }
+@media(max-width:600px) {
+  .pm-project-header { flex-wrap:wrap; }
+  .pm-project-actions { flex-direction:row; flex-wrap:wrap; align-items:center; width:100%; justify-content:space-between; }
+}
