@@ -18,3 +18,7 @@
   .sendro-inbox-top-tabs .sendro-global-tab-symbol { font-size:16px; width:16px; }
 }
 @media(max-width:430px) { .sendro-global-tab { font-size:11px !important; gap:5px; } .sendro-global-unread { min-width:20px;height:20px;font-size:10px; } }
+
+/* Mobile tabs live below the compact Inbox app bar; desktop uses the workspace topbar. */
+.sendro-inbox-top-tabs { display:none; }
+@media(max-width:1000px) { .sendro-inbox-top-tabs { display:flex; } }
