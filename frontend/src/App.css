@@ -5869,3 +5869,10 @@ body {
     min-height: 112px;
   }
 }
+
+
+/* Global application switcher sits above Inbox; original messages layout remains intact. */
+.workspace-topbar .sendro-global-tabs { flex:1; }
+.workspace-topbar .workspace-tools { gap:10px; padding-left:12px; flex-shrink:0; }
+.sendro-company-label { color:#3b6087; white-space:nowrap; font-size:12px; }
+@media(max-width:1220px) { .sendro-company-label { display:none; } }
