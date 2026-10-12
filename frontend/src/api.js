@@ -283,6 +283,10 @@ export async function getConversations(options = {}) {
   });
 }
 
+export async function getWhatsAppLivePanel(options = {}) {
+  return apiRequest('/conversations/live-panel/', { signal: options.signal });
+}
+
 export async function getConversationSummary(options = {}) {
   return apiRequest('/conversations/summary/', {
     signal: options.signal,
