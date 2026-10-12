@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from . import models
 from .project_models import Project, ProjectMember, ProjectMilestone, ProjectTask, ProjectTaskComment
+from .webflow_backlog_import import import_webflow_ai_backlog
 
 
 TASK_STATUSES = {"todo", "in_progress", "blocked", "done"}
@@ -260,6 +261,17 @@ def create_project_router(active_user_dependency):
             "body": c.body, "created_at": c.created_at,
         } for c in comments]
         return response
+
+    @router.post("/{project_id}/import-webflow-ai-backlog")
+    def import_webflow_backlog(
+        project_id: int,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(active_user_dependency),
+    ):
+        # Bulk import is a deliberate owner/admin action, not available to developers.
+        _manager_only(user)
+        project = _project(db, project_id, user)
+        return import_webflow_ai_backlog(db, project, user.id)
 
     @router.patch("/{project_id}")
     def update_project(
