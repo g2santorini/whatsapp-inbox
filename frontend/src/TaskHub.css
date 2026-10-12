@@ -1,0 +1,83 @@
+.hub-root { padding-bottom:45px; position:relative; }
+.hub-root * { box-sizing:border-box; }
+.hub-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:3px 0 26px; }
+.hub-eyebrow { font-size:11px; font-weight:800; letter-spacing:1.8px; color:#4180ae; }
+.hub-heading h1 { margin:8px 0 7px; font-size:32px; color:#132c4d; letter-spacing:-.7px; }
+.hub-heading p { margin:0; font-size:13px; color:#7185a0; line-height:1.6; }
+.hub-main-action,.hub-create .hub-buttons button:first-child,.hub-comment-form button,.hub-edit-fields .hub-buttons button:first-child { background:#206da7; border:0; border-radius:8px; color:#fff; font-weight:800; padding:12px 16px; white-space:nowrap; font-size:12px; }
+.hub-main-action:hover { background:#145589; }
+.hub-stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:29px; }
+.hub-stat { border:1px solid #dde6f2; background:#fff; border-radius:11px; min-height:105px; display:flex; flex-direction:column; justify-content:space-between; padding:18px; box-shadow:0 8px 18px rgba(31,68,118,.025); }
+.hub-stat span { color:#7587a0; font-weight:700; font-size:12px; }
+.hub-stat strong { color:#153358; font-size:30px; }
+.hub-list-heading { font-size:18px; margin-bottom:14px; }
+.hub-board { border:1px solid #dce6f2; border-radius:12px; background:#fff; overflow:hidden; }
+.hub-board-header { min-height:70px; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid #e8eef5; }
+.hub-board-header h2 { font-size:17px; margin:0; }
+.hub-board-header span { color:#7c91a9; font-size:12px; }
+.hub-board-header input { padding:10px 13px; background:#f8fafc; border:1px solid #dce5f0; border-radius:8px; font-size:12px; color:#163552; max-width:240px; width:100%; }
+.hub-task-row { display:flex; align-items:center; gap:15px; padding:13px 18px; min-height:77px; border-bottom:1px solid #edf1f7; }
+.hub-task-row:last-child { border:0; }
+.hub-task-row:hover { background:#f8fbff; }
+.hub-task-open { flex:1; min-width:0; background:transparent; border:0; text-align:left; display:grid; gap:8px; padding:0; color:#16314d; cursor:pointer; }
+.hub-task-name { font-weight:750; font-size:13px; white-space:normal; overflow-wrap:anywhere; }
+.hub-task-open:hover .hub-task-name { color:#1674b6; }
+.hub-task-meta { display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-size:11px; color:#8597aa; }
+.hub-task-meta>span:not(:last-child)::after { content:'·'; margin-left:7px; color:#bcc8d6; }
+.hub-project-chip,.hub-standalone-chip { font-size:10px; font-weight:750; color:#4076a2; }
+.hub-standalone-chip { color:#86849c; }
+.hub-priority,.hub-status { font-size:10px; font-weight:800; border-radius:100px; padding:7px 9px; white-space:nowrap; text-align:center; min-width:70px; }
+.hub-priority { color:#577596; background:#eef3f9; }
+.hub-priority-high { background:#fff2dc; color:#946214; }
+.hub-priority-urgent { background:#fcebe9; color:#b3443a; }
+.hub-status { color:#5b7694; background:#edf3fa; }
+.hub-status-in_progress { background:#e6f1ff; color:#27659f; }
+.hub-status-blocked { background:#ffefed; color:#aa4c45; }
+.hub-status-done { background:#e6f8ef; color:#20855c; }
+.hub-take { border:0; background:#def5ed; color:#14805b; padding:10px 12px; font-size:11px; font-weight:800; border-radius:8px; white-space:nowrap; min-width:83px; }
+.hub-take:hover { background:#c5ecde; }
+.hub-quiet { color:#4c6e90; border:1px solid #d8e4f1; background:#f5f8fc; border-radius:8px; padding:9px 12px; font-size:11px; font-weight:700; }
+.hub-quiet:hover { background:#e6eef8; }
+.hub-row-end { width:83px; color:#a8b5c5; text-align:center; }
+.hub-filters { margin:0 0 17px; display:flex; flex-wrap:wrap; gap:7px; }
+.hub-filters button { padding:9px 14px; border:1px solid #dfe7f2; border-radius:8px; color:#617d9b; background:#fff; font-size:12px; font-weight:750; }
+.hub-filters button.selected { background:#173e6d; border-color:#173e6d; color:#fff; }
+.hub-empty { margin:0; padding:38px 24px; color:#8499ad; font-size:13px; line-height:1.6; }
+.hub-error { border:1px solid #f1c6c4; background:#fff1f0; color:#9e3232; padding:13px 16px; border-radius:10px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; font-size:12px; }
+.hub-error button { border:0; background:none; color:inherit; font-size:19px; }
+.hub-create { max-width:940px; border:1px solid #dce6f2; border-radius:12px; background:#fff; padding:22px; display:grid; gap:11px; margin:0 0 23px; }
+.hub-create h3 { font-size:17px; margin:0; }
+.hub-create p { color:#7e92aa; font-size:12px; margin:0 0 9px; }
+.hub-create input,.hub-create textarea,.hub-create select,.hub-edit-fields input,.hub-edit-fields textarea,.hub-edit-fields select,.hub-comment-form textarea,.hub-detail-label select { border:1px solid #d5e1ee; border-radius:8px; color:#17324e; background:#fff; padding:11px 12px; font:inherit; font-size:12px; max-width:100%; }
+.hub-create-options { display:grid; grid-template-columns:2fr 1fr 1fr; gap:12px; }
+.hub-create-options label,.hub-detail-label { display:grid; gap:8px; font-weight:800; color:#72869f; font-size:11px; }
+.hub-buttons { display:flex; gap:10px; }
+.hub-buttons button { align-self:flex-start; }
+.hub-team-grid { display:grid; }
+.hub-team-member { display:grid; grid-template-columns:40px minmax(0,1fr) repeat(3,60px); align-items:center; gap:14px; padding:17px 22px; border-bottom:1px solid #edf1f7; }
+.hub-team-member:last-child { border:0; }
+.hub-avatar { width:38px; height:38px; border-radius:10px; background:#e6f2fc; display:grid; place-items:center; color:#2673ae; font-size:12px; font-weight:800; }
+.hub-team-member>div:nth-child(2) { display:grid; gap:5px; min-width:0; }
+.hub-team-member>div:nth-child(2) strong { font-size:13px; overflow-wrap:anywhere; }
+.hub-team-member small { font-size:10px; color:#899bb0; text-transform:capitalize; }
+.hub-team-count { text-align:center; display:grid; gap:4px; }
+.hub-team-count strong { color:#1e4168; font-size:18px; }
+.hub-team-count span { font-size:10px; color:#859bb1; }
+.hub-task-detail { position:fixed; z-index:190; right:0; top:0; bottom:0; width:min(430px,100%); background:#fff; padding:30px 27px; overflow:auto; box-shadow:-13px 0 55px rgba(6,30,62,.21); border-left:1px solid #dbe5f1; }
+.hub-detail-top { display:flex; justify-content:space-between; color:#3e79aa; font-size:10px; letter-spacing:1.4px; font-weight:800; }
+.hub-detail-top button { border:0; background:none; font-size:24px; color:#7f95aa; }
+.hub-task-detail h3 { font-size:22px; line-height:1.35; margin:23px 0 18px; }
+.hub-task-detail>p { color:#6c819a; font-size:13px; line-height:1.6; }
+.hub-description { white-space:pre-wrap; overflow-wrap:anywhere; }
+.hub-task-detail h4 { padding-top:16px; margin:20px 0 15px; border-top:1px solid #e9eff6; }
+.hub-comment { border-bottom:1px solid #edf1f6; padding:12px 0; display:grid; gap:5px; }
+.hub-comment strong { font-size:12px; }
+.hub-comment small { font-size:10px; color:#8ca0b4; }
+.hub-comment p { font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; margin:5px 0; }
+.hub-comment-form,.hub-edit-fields { margin-top:15px; display:grid; gap:10px; }
+.hub-comment-form button { justify-self:start; }
+.hub-muted { color:#97a7ba !important; }
+.hub-detail-label { margin:18px 0; }
+.hub-edit-button { border:0; background:#e8f2fb; color:#256b9b; padding:10px 12px; border-radius:7px; font-size:12px; font-weight:800; }
+@media(max-width:1100px) { .hub-stats { grid-template-columns:repeat(3,minmax(0,1fr)); } .hub-task-row { gap:9px; } }
+@media(max-width:720px) { .hub-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .hub-stat { min-height:88px; padding:13px; } .hub-stat strong { font-size:23px; } .hub-heading h1 { font-size:25px; } .hub-create-options { grid-template-columns:1fr; } .hub-task-row { flex-wrap:wrap; gap:8px 12px; } .hub-task-open { flex:1 1 100%; } .hub-task-row .hub-priority,.hub-task-row .hub-status { min-width:0; } .hub-task-row .hub-take,.hub-task-row .hub-quiet { margin-left:auto; } .hub-row-end { display:none; } .hub-board-header { padding:12px; } .hub-board-header h2 { font-size:15px; } .hub-team-member { grid-template-columns:34px minmax(0,1fr) repeat(3,38px); gap:6px; padding:12px 10px; } .hub-team-count strong { font-size:16px; } .hub-team-count span { font-size:9px; } .hub-avatar { width:32px; height:32px; } }

@@ -84,9 +84,23 @@ def _project(db, project_id, user, edit=False, manager=False):
     if not member:
         # Do not disclose existence of projects outside the user's membership.
         raise HTTPException(status_code=404, detail="Project not found")
-    if manager or (edit and (user.role == "project_viewer" or member.permission != "editor")):
+    if manager and (user.role == "project_viewer" or member.permission != "manager"):
+        raise HTTPException(status_code=403, detail="Project manager permission required")
+    if edit and (user.role == "project_viewer" or member.permission not in {"editor", "manager"}):
         raise HTTPException(status_code=403, detail="Read-only project access")
     return project
+
+
+def _project_is_manager(db, project_id, user):
+    if _manager(user):
+        return True
+    return user.role != "project_viewer" and db.query(ProjectMember).filter_by(
+        project_id=project_id, user_id=user.id, permission="manager"
+    ).first() is not None
+
+
+def _project_manager_only(db, project_id, user):
+    return _project(db, project_id, user, manager=True)
 
 
 def _manager_only(user):
@@ -215,10 +229,10 @@ def create_project_router(active_user_dependency):
             u.id: u for u in db.query(models.User).filter(models.User.id.in_(ids)).all()
         } if ids else {}
         response = _project_summary(project, tasks)
-        response["can_manage"] = _manager(user)
+        response["can_manage"] = _project_is_manager(db, project_id, user)
         response["can_edit"] = _manager(user) or (
             user.role != "project_viewer"
-            and any(m.user_id == user.id and m.permission == "editor" for m in members)
+            and any(m.user_id == user.id and m.permission in {"editor", "manager"} for m in members)
         )
         response["members"] = [
             {
@@ -254,7 +268,7 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         project = _project(db, project_id, user)
         values = payload.model_dump(exclude_unset=True)
         if "name" in values:
@@ -269,6 +283,28 @@ def create_project_router(active_user_dependency):
         db.commit()
         return _project_summary(project, db.query(ProjectTask).filter_by(project_id=project_id).all())
 
+    @router.get("/{project_id}/eligible-users")
+    def project_assignable_users(
+        project_id: int,
+        db: Session = Depends(get_db),
+        user: models.User = Depends(active_user_dependency),
+    ):
+        # Project managers only see minimum necessary identity fields.
+        _project_manager_only(db, project_id, user)
+        people = db.query(models.User).filter(models.User.disabled.is_(False)).order_by(
+            models.User.username.asc()
+        ).all()
+        return [{
+            "id": person.id,
+            "username": person.username,
+            "display_name": person.display_name,
+            "full_name": person.full_name,
+            "role": person.role,
+        } for person in people if not (
+            person.username.lower() in {"sendro_webhook", "whatsapp_webhook"}
+            or person.email.lower().endswith("@sendro.local")
+        )]
+
     @router.post("/{project_id}/members", status_code=201)
     def add_member(
         project_id: int,
@@ -276,9 +312,9 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
-        if payload.permission not in {"editor", "viewer"}:
+        if payload.permission not in {"manager", "editor", "viewer"}:
             raise HTTPException(status_code=400, detail="Invalid project permission")
         member_user = db.get(models.User, payload.user_id)
         if not member_user or member_user.disabled:
@@ -304,9 +340,9 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
-        if payload.permission not in {"editor", "viewer"}:
+        if payload.permission not in {"manager", "editor", "viewer"}:
             raise HTTPException(status_code=400, detail="Invalid permission")
         member = db.query(ProjectMember).filter_by(project_id=project_id, user_id=member_id).first()
         if not member:
@@ -323,7 +359,7 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
         member = db.query(ProjectMember).filter_by(project_id=project_id, user_id=member_id).first()
         if not member:
@@ -339,7 +375,7 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
         milestone = ProjectMilestone(project_id=project_id, title=payload.title.strip())
         if not milestone.title:
@@ -357,7 +393,7 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
         milestone = db.get(ProjectMilestone, milestone_id)
         if not milestone or milestone.project_id != project_id:
@@ -375,7 +411,7 @@ def create_project_router(active_user_dependency):
         db: Session = Depends(get_db),
         user: models.User = Depends(active_user_dependency),
     ):
-        _manager_only(user)
+        _project_manager_only(db, project_id, user)
         _project(db, project_id, user)
         values = payload.model_dump()
         _validate_task_links(db, project_id, values)
@@ -399,8 +435,9 @@ def create_project_router(active_user_dependency):
         _project(db, project_id, user, edit=True)
         task = _task(db, project_id, task_id)
         values = payload.model_dump(exclude_unset=True)
-        if not _manager(user) and set(values) - {"status"}:
-            raise HTTPException(status_code=403, detail="Only managers can change task details")
+        if not _project_is_manager(db, project_id, user):
+            if set(values) - {"status"} or task.assigned_to_id != user.id:
+                raise HTTPException(status_code=403, detail="Only your assigned task status can be changed")
         _validate_task_links(db, project_id, values, task)
         if "title" in values:
             values["title"] = (values["title"] or "").strip()
@@ -421,7 +458,9 @@ def create_project_router(active_user_dependency):
         user: models.User = Depends(active_user_dependency),
     ):
         _project(db, project_id, user, edit=True)
-        _task(db, project_id, task_id)
+        task = _task(db, project_id, task_id)
+        if not _project_is_manager(db, project_id, user) and task.assigned_to_id != user.id:
+            raise HTTPException(status_code=403, detail="Only assignee or manager can comment")
         comment_body = payload.body.strip()
         if not comment_body:
             raise HTTPException(status_code=400, detail="Comment cannot be empty")

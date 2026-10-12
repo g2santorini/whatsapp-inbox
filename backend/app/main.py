@@ -28,7 +28,7 @@ from sqlalchemy import and_, case, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import models, schemas, project_models, project_api
+from . import models, schemas, project_models, project_api, task_models, tasks_api
 from .database import Base, engine, get_db
 from .template_registry import (
     build_template_variables,
@@ -2239,7 +2239,7 @@ async def get_current_active_user(
     # existing endpoint using the active-user dependency, not just in React.
     if current_user.role in {"developer", "project_viewer"}:
         path = request.url.path.rstrip("/")
-        if path != "/projects" and not path.startswith("/projects/"):
+        if not (path in {"/projects", "/tasks"} or path.startswith(("/projects/", "/tasks/"))):
             raise HTTPException(
                 status_code=403,
                 detail="This account is restricted to Project Manager",
@@ -2249,6 +2249,7 @@ async def get_current_active_user(
 
 
 app.include_router(project_api.create_project_router(get_current_active_user))
+app.include_router(tasks_api.create_tasks_router(get_current_active_user))
 
 
 @app.post(
