@@ -27,7 +27,7 @@ def test_whatsapp_live_panel_requires_messaging_role_and_returns_real_preview():
         db.add_all([
             models.User(
                 id=1, username="manager", email="manager@example.test",
-                hashed_password="test", role="admin", disabled=False
+                hashed_password="test", role="admin", disabled=False, mfa_enabled=True
             ),
             models.User(
                 id=2, username="developer", email="developer@example.test",
