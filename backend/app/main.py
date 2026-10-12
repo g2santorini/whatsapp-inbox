@@ -2213,6 +2213,14 @@ async def get_current_user(
     elif token_auth_version != current_auth_version:
         raise credentials_exception
 
+    # Staging shares its users with production. Project-only identities must never
+    # authenticate against this legacy messaging-only production backend.
+    if user.role in {"developer", "project_viewer"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account may only access the Projects workspace on staging",
+        )
+
     return user
 
 
@@ -4405,7 +4413,10 @@ async def login_for_access_token(
     user = get_user(db, form_data.username)
     password_hash = user.hashed_password if user else DUMMY_PASSWORD_HASH
     password_matches = verify_password(form_data.password, password_hash)
-    login_allowed = bool(user and password_matches and not user.disabled)
+    login_allowed = bool(
+        user and password_matches and not user.disabled
+        and user.role not in {"developer", "project_viewer"}
+    )
 
     if not login_allowed:
         retry_after_seconds = record_login_failure(
@@ -4482,7 +4493,10 @@ def complete_mfa_login(
 
     user = db.query(models.User).filter(models.User.id == challenge.user_id).first()
 
-    if not user or user.disabled or not user.mfa_enabled:
+    if (
+        not user or user.disabled or not user.mfa_enabled
+        or user.role in {"developer", "project_viewer"}
+    ):
         challenge.consumed_at = now
         db.commit()
         raise HTTPException(
