@@ -41,6 +41,7 @@ from .whatsapp_sender import (
     send_whatsapp_template_message as send_meta_template_message,
 )
 from .reporting_service import get_template_report_items_data
+from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 
 load_dotenv()
 
@@ -2746,6 +2747,25 @@ async def receive_whatsapp_message(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # Staging-safe opt-in: do not enforce without the actual Meta App Secret.
+    # This flag must be enabled explicitly after verifying the real webhook
+    # integration, before it is promoted to production.
+    if os.getenv("WHATSAPP_WEBHOOK_SIGNATURE_REQUIRED", "false").lower() == "true":
+        app_secret = os.getenv("WHATSAPP_APP_SECRET", "")
+        if not app_secret:
+            raise HTTPException(
+                status_code=503,
+                detail="Webhook signature verification is not configured",
+            )
+        raw_body = await request.body()
+        if not is_valid_meta_webhook_signature(
+            raw_body, request.headers.get("X-Hub-Signature-256"), app_secret
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid WhatsApp webhook signature",
+            )
+
     data = await request.json()
 
     try:
@@ -2866,6 +2886,22 @@ async def receive_whatsapp_message(
 
         whatsapp_message_id = message.get("id")
         message_type = message.get("type", "unknown")
+
+        # Meta can retry already acknowledged deliveries. A previously
+        # persisted inbound message must not be saved (or counted) twice.
+        # This protects sequential retries; concurrent requests still need
+        # a database uniqueness constraint in a future controlled migration.
+        if whatsapp_message_id and message_type != "reaction":
+            already_saved = (
+                db.query(models.Message.id)
+                .filter(
+                    models.Message.whatsapp_message_id == whatsapp_message_id,
+                    models.Message.direction == "inbound",
+                )
+                .first()
+            )
+            if already_saved is not None:
+                return {"status": "ok", "duplicate": True}
 
         media_id = None
         media_mime_type = None
@@ -3120,8 +3156,16 @@ async def receive_whatsapp_message(
         print("Media filename:", media_filename, flush=True)
         print("Text:", text, flush=True)
 
-    except Exception as e:
-        print("❌ Error saving WhatsApp message:", e, flush=True)
+    except Exception:
+        db.rollback()
+        # A successful 200 response would prevent Meta from retrying after
+        # a transient database failure. Never acknowledge an unsaved message.
+        import logging
+        logging.getLogger(__name__).exception("WhatsApp webhook processing failed")
+        raise HTTPException(
+            status_code=500,
+            detail="WhatsApp webhook processing failed",
+        )
 
     return {"status": "ok"}
 
