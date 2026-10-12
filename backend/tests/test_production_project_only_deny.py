@@ -8,6 +8,8 @@ from fastapi import HTTPException
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./unused_production_role_test.sqlite")
 os.environ.setdefault("SECRET_KEY", "test-only-production-role-guard-secret")
+os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test-not-a-real-whatsapp-token")
+os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "123456789")
 
 from backend.app import main
 
