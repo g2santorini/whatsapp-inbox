@@ -151,3 +151,62 @@
 .pm-import-backlog { padding:10px 13px; color:#fff; background:#166cba; border:0; border-radius:8px; font-size:12px; font-weight:800; white-space:normal; text-align:center; cursor:pointer; }
 .pm-import-backlog:hover { background:#10528e; }
 .pm-import-backlog:disabled { opacity:.6; cursor:not-allowed; }
+
+
+/* Project Manager has its own scroll containers.
+   The WhatsApp Inbox intentionally locks document scrolling globally in App.css,
+   so the Projects workspace must not rely on html/body scrolling. */
+.pm-shell {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pm-sidebar {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.pm-main {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Keep the application switcher available while browsing a long task list. */
+.pm-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f3f7fc;
+}
+
+@media (max-width: 820px) {
+  /* On mobile the navigation stacks above a separately scrollable workspace. */
+  .pm-shell {
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .pm-sidebar {
+    height: auto;
+    min-height: 0;
+    max-height: 40dvh;
+    flex: 0 0 auto;
+    overflow-y: auto;
+  }
+
+  .pm-main {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+}
