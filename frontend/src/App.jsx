@@ -3,6 +3,7 @@ import './App.css';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import SettingsPanel from './components/SettingsPanel';
 import ProjectWorkspace from './ProjectWorkspace';
+import WorkspaceTabs from './WorkspaceTabs';
 import {
   getToken,
   login,
@@ -2997,6 +2998,42 @@ function App() {
     }
   }
 
+  function goToProjects() {
+    setError('');
+    setIsMobileChatOpen(false);
+    setIsMobileSearchOpen(false);
+    setMobileDrawerMode(null);
+    setActivePage(APP_PAGES.PROJECTS);
+    window.location.hash = '#/projects';
+  }
+
+  function goToWhatsAppInbox() {
+    if (user?.role === 'developer' || user?.role === 'project_viewer') return;
+    setError('');
+    setIsMobileChatOpen(false);
+    setIsMobileSearchOpen(false);
+    setMobileDrawerMode(null);
+    setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+    setActivePage(APP_PAGES.INBOX);
+    window.location.hash = '#/inbox';
+  }
+
+  async function openConversationFromProjectPanel(item) {
+    if (!item?.id || !item?.contact_phone || user?.role === 'developer' || user?.role === 'project_viewer') return;
+    goToWhatsAppInbox();
+    try {
+      const matches = await getConversations({ searchQuery: item.contact_phone, limit: 30 });
+      const selected = matches.find((entry) => entry.id === item.id);
+      if (selected) {
+        await handleSelectConversation(selected);
+      } else {
+        setError('The conversation is no longer available in the Inbox.');
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not open WhatsApp conversation.'));
+    }
+  }
+
   async function handleSelectConversation(conversation) {
     setError('');
     setActivePage(APP_PAGES.INBOX);
@@ -4603,10 +4640,8 @@ function App() {
       <ProjectWorkspace
         currentUser={user}
         onLogout={handleLogout}
-        onBack={user.role === 'developer' || user.role === 'project_viewer' ? null : () => {
-          window.location.hash = '#/inbox';
-          setActivePage(APP_PAGES.INBOX);
-        }}
+        onBack={user.role === 'developer' || user.role === 'project_viewer' ? null : goToWhatsAppInbox}
+        onOpenConversation={user.role === 'developer' || user.role === 'project_viewer' ? null : openConversationFromProjectPanel}
       />
     );
   }
@@ -4650,6 +4685,16 @@ function App() {
           </button>
         </div>
       </header>
+      <div className="sendro-inbox-top-tabs">
+        <WorkspaceTabs
+          active="inbox"
+          showInbox
+          showProjects
+          unreadCount={inboxUnreadCount}
+          onInbox={goToWhatsAppInbox}
+          onProjects={goToProjects}
+        />
+      </div>
 
       <aside className={`blue-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="blue-sidebar-top">
@@ -4726,15 +4771,6 @@ function App() {
 
           <div className="blue-section-title blue-section-spaced">Tools</div>
 
-          <button
-            type="button"
-            className="blue-settings-button"
-            title="Projects"
-            onClick={() => { window.location.hash = '#/projects'; setActivePage(APP_PAGES.PROJECTS); }}
-          >
-            <span aria-hidden="true">▦</span><span className="blue-tool-label">Projects</span>
-          </button>
-
           {canCurrentUserViewReports && (
             <button
               type="button"
@@ -4792,16 +4828,19 @@ function App() {
 
       <div className="sendro-workspace">
         <header className="workspace-topbar">
-          <div className="workspace-account">
-            <strong>Sunset Oia</strong>
-            <Icon name="chevron" size={16} />
+          <WorkspaceTabs
+            active="inbox"
+            showInbox
+            showProjects
+            unreadCount={inboxUnreadCount}
+            onInbox={goToWhatsAppInbox}
+            onProjects={goToProjects}
+          />
+          <div className="workspace-tools">
+            <strong className="sendro-company-label">Sunset Oia</strong>
             <span className={`workspace-online ${systemStatus === 'live' ? 'live' : 'issue'}`}>
               <i />{systemStatus === 'live' ? 'Online' : 'Connection issue'}
             </span>
-          </div>
-          <div className="workspace-tools">
-            <span title="Team"><Icon name="users" /></span>
-            <span aria-hidden="true"><Icon name="more" /></span>
           </div>
         </header>
 
@@ -5620,11 +5659,6 @@ function App() {
               </>
             ) : (
               <div className="mobile-menu-list">
-                <button type="button" onClick={() => {
-                  window.location.hash = '#/projects';
-                  setActivePage(APP_PAGES.PROJECTS);
-                  setMobileDrawerMode(null);
-                }}>▦ Projects</button>
                 <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}>
                   <Icon name="user" />Mine <span>{mineCount || ''}</span>
                 </button>
