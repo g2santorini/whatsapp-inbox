@@ -30,7 +30,7 @@ class InstagramMessageEvent:
 
 
 def _required_id(source: Any, path: str) -> str:
-    if not isinstance(source, str) and not isinstance(source, int):
+    if isinstance(source, bool) or not isinstance(source, (str, int)):
         raise InvalidInstagramWebhook(f"Missing/invalid {path}")
     result = str(source).strip()
     if not result:
