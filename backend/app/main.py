@@ -42,10 +42,12 @@ from .whatsapp_sender import (
 )
 from .reporting_service import get_template_report_items_data
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
+from .instagram_webhook import router as instagram_webhook_router
 
 load_dotenv()
 
 app = FastAPI(title="WhatsApp Inbox")
+app.include_router(instagram_webhook_router)
 APP_VERSION = "sendro-performance-phase1-2026-08-01"
 
 CORS_ALLOWED_ORIGINS = os.getenv(
