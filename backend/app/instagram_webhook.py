@@ -10,7 +10,13 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from starlette.concurrency import run_in_threadpool
+from sqlalchemy.exc import SQLAlchemyError
 
+from .instagram_ingestion import (
+    MAX_INSTAGRAM_WEBHOOK_BODY_BYTES,
+    persist_instagram_webhook,
+)
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 
 
@@ -42,10 +48,10 @@ def verify_instagram_webhook(
 
 @router.post("")
 async def receive_instagram_webhook(request: Request):
-    """Reject actual notifications until we can safely persist every message.
+    """Verify Meta's signed payload. Store only when deliberately enabled.
 
-    A 2xx response here would tell Meta delivery succeeded when the
-    current Sendro backend has nowhere to store Instagram messages.
+    No worker is running yet. Keep the ingestion flag OFF and Instagram
+    webhook subscription OFF until tenant-safe message processing is ready.
     """
     app_secret = os.getenv("INSTAGRAM_APP_SECRET", "")
     if not app_secret:
@@ -54,13 +60,49 @@ async def receive_instagram_webhook(request: Request):
             detail="Instagram webhook signature verification is not configured",
         )
 
-    payload = await request.body()
+    # Bound input before reading it all into memory. Meta's genuine payload
+    # signature is computed against these exact, unmodified bytes.
+    chunks = []
+    total_bytes = 0
+    async for chunk in request.stream():
+        total_bytes += len(chunk)
+        if total_bytes > MAX_INSTAGRAM_WEBHOOK_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Instagram webhook body too large")
+        chunks.append(chunk)
+    payload = b"".join(chunks)
+
     if not is_valid_meta_webhook_signature(
         payload, request.headers.get("X-Hub-Signature-256"), app_secret
     ):
         raise HTTPException(status_code=403, detail="Invalid Instagram webhook signature")
 
-    raise HTTPException(
-        status_code=503,
-        detail="Instagram messaging ingestion is not enabled",
-    )
+    if os.getenv("INSTAGRAM_WEBHOOK_INGESTION_ENABLED", "").lower() != "true":
+        raise HTTPException(
+            status_code=503,
+            detail="Instagram messaging ingestion is not enabled",
+        )
+
+    encryption_key = os.getenv("INSTAGRAM_WEBHOOK_ENCRYPTION_KEY", "")
+    if not encryption_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Instagram webhook encryption is not configured",
+        )
+
+    # Import the database only after explicit opt-in. Standalone webhook
+    # verification tests must not require a connection to production DB.
+    from .database import engine
+
+    try:
+        await run_in_threadpool(
+            persist_instagram_webhook, payload, encryption_key, engine
+        )
+    except (ValueError, TypeError, UnicodeError):
+        # A bad server-side key or an unexpected signed payload must not
+        # receive a success acknowledgment (and should be investigated).
+        raise HTTPException(status_code=503, detail="Instagram webhook cannot be stored")
+    except SQLAlchemyError:
+        # A 5xx tells Meta to retry instead of dropping a guest message.
+        raise HTTPException(status_code=503, detail="Instagram webhook storage unavailable")
+
+    return {"status": "stored"}
