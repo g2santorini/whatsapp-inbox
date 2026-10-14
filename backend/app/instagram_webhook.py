@@ -98,7 +98,9 @@ async def receive_instagram_webhook(request: Request):
             persist_instagram_webhook, payload, encryption_key, engine
         )
     except (ValueError, TypeError, UnicodeError):
-        raise HTTPException(status_code=400, detail="Invalid Instagram webhook payload or encryption key")
+        # A bad server-side key or an unexpected signed payload must not
+        # receive a success acknowledgment (and should be investigated).
+        raise HTTPException(status_code=503, detail="Instagram webhook cannot be stored")
     except SQLAlchemyError:
         # A 5xx tells Meta to retry instead of dropping a guest message.
         raise HTTPException(status_code=503, detail="Instagram webhook storage unavailable")
