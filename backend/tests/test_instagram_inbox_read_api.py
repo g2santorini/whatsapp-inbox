@@ -19,7 +19,7 @@ from backend.app.instagram_inbox_api import create_instagram_inbox_router
 bearer = HTTPBearer()
 
 
-def test_user_auth(
+def fake_authenticated_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ):
     users = {"user-a": 1, "user-b": 2, "outsider": 3, "inactive-member": 4}
@@ -131,7 +131,7 @@ def client():
             yield session
 
     app = FastAPI()
-    app.include_router(create_instagram_inbox_router(test_user_auth))
+    app.include_router(create_instagram_inbox_router(fake_authenticated_user))
     app.dependency_overrides[get_db] = override_db
     with TestClient(app) as test_client:
         yield test_client
