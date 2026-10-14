@@ -141,7 +141,7 @@ export default function InstagramInboxPage({
           showInstagram
           showProjects
           onInbox={onWhatsApp}
-          onInstagram={() => {}}
+          onInstagram={() => setRefreshId((value) => value + 1)}
           onProjects={onProjects}
         />
         <div className="ig-user-controls">
@@ -216,7 +216,7 @@ export default function InstagramInboxPage({
                 <span className="ig-empty-icon" aria-hidden="true">✉</span>
                 <strong>No Instagram conversations yet</strong>
                 <small>
-                  @{company?.slug === 'sunset-oia' ? 'sunsetoiasailing' : 'your-business'} is in testing.
+                  {company?.display_name || 'This account'} is in testing.
                   Real Instagram DMs have not been enabled.
                 </small>
               </div>
