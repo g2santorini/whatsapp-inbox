@@ -3,13 +3,15 @@ import './WorkspaceNavigation.css';
 export default function WorkspaceTabs({
   active = 'inbox',
   showInbox = true,
+  showInstagram = false,
   showProjects = true,
   unreadCount = 0,
   onInbox,
+  onInstagram,
   onProjects,
 }) {
   return (
-    <nav className="sendro-global-tabs" aria-label="Sendro applications">
+    <nav className={`sendro-global-tabs ${showInstagram ? 'has-instagram' : '' }`} aria-label="Sendro applications">
       {showInbox && (
         <button
           type="button"
@@ -24,6 +26,17 @@ export default function WorkspaceTabs({
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
+        </button>
+      )}
+      {showInstagram && (
+        <button
+          type="button"
+          className={`sendro-global-tab ${active === 'instagram' ? 'is-active' : ''}`}
+          aria-current={active === 'instagram' ? 'page' : undefined}
+          onClick={onInstagram}
+        >
+          <span className="sendro-global-tab-symbol instagram" aria-hidden="true">◎</span>
+          <span>Instagram</span>
         </button>
       )}
       {showProjects && (

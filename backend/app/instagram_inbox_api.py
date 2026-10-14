@@ -17,6 +17,13 @@ from .database import get_db
 from .models import User
 
 
+class InstagramTenantOut(BaseModel):
+    id: int
+    slug: str
+    display_name: str
+    account_count: int
+
+
 class InstagramConversationOut(BaseModel):
     id: int
     tenant_id: int
@@ -60,6 +67,30 @@ def _require_tenant_membership(db: Session, *, tenant_id: int, user_id: int) -> 
 
 def create_instagram_inbox_router(get_current_active_user: Callable):
     router = APIRouter(prefix="/channels/instagram", tags=["Instagram Inbox"])
+
+    @router.get("/tenants", response_model=list[InstagramTenantOut])
+    def list_my_instagram_tenants(
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_active_user),
+    ):
+        """Discover only companies with an active membership and IG account."""
+        rows = db.execute(text("""
+            SELECT t.id, t.slug, t.display_name,
+                   COUNT(a.id) AS account_count
+            FROM public.sendro_tenant_users tu
+            JOIN public.sendro_tenants t
+              ON t.id = tu.tenant_id
+            JOIN public.sendro_channel_accounts a
+              ON a.tenant_id = t.id
+             AND a.platform = 'instagram'
+             AND a.status IN ('testing', 'active')
+            WHERE tu.user_id = :user_id
+              AND tu.is_active = TRUE
+              AND tu.member_role IN ('owner', 'admin', 'operator', 'viewer')
+            GROUP BY t.id, t.slug, t.display_name
+            ORDER BY t.display_name, t.id
+        """), {"user_id": current_user.id}).mappings().all()
+        return [dict(row) for row in rows]
 
     @router.get("/conversations", response_model=list[InstagramConversationOut])
     def list_instagram_conversations(
