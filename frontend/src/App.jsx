@@ -4,6 +4,7 @@ import sendroLogo from './assets/sendro_logo_reversed.png';
 import SettingsPanel from './components/SettingsPanel';
 import ProjectWorkspace from './ProjectWorkspace';
 import WorkspaceTabs from './WorkspaceTabs';
+import InstagramInboxPage from './InstagramInboxPage';
 import {
   getToken,
   login,
@@ -91,6 +92,7 @@ const CONVERSATION_VIEWS = {
 const APP_PAGES = {
   PROJECTS: 'projects',
   INBOX: 'inbox',
+  INSTAGRAM: 'instagram',
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
@@ -946,7 +948,11 @@ function App() {
   const [conversationSummary, setConversationSummary] = useState(null);
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false);
-  const [activePage, setActivePage] = useState(() => window.location.hash === '#/projects' ? APP_PAGES.PROJECTS : APP_PAGES.INBOX);
+  const [activePage, setActivePage] = useState(() => {
+    if (window.location.hash === '#/projects') return APP_PAGES.PROJECTS;
+    if (window.location.hash === '#/instagram') return APP_PAGES.INSTAGRAM;
+    return APP_PAGES.INBOX;
+  });
   const [isPageVisible, setIsPageVisible] = useState(
     () => document.visibilityState !== 'hidden'
   );
@@ -3007,6 +3013,18 @@ function App() {
     window.location.hash = '#/projects';
   }
 
+  function goToInstagramInbox() {
+    if (user?.role === 'developer' || user?.role === 'project_viewer') return;
+    setError('');
+    setIsMobileChatOpen(false);
+    setIsMobileSearchOpen(false);
+    setMobileDrawerMode(null);
+    setShowNewConversationForm(false);
+    setSelectedConversation(null);
+    setActivePage(APP_PAGES.INSTAGRAM);
+    window.location.hash = '#/instagram';
+  }
+
   function goToWhatsAppInbox() {
     if (user?.role === 'developer' || user?.role === 'project_viewer') return;
     setError('');
@@ -4646,6 +4664,17 @@ function App() {
     );
   }
 
+  if (activePage === APP_PAGES.INSTAGRAM) {
+    return (
+      <InstagramInboxPage
+        currentUser={user}
+        onWhatsApp={goToWhatsAppInbox}
+        onProjects={goToProjects}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <div
       className={`app sendro-shell ${activePage === APP_PAGES.REPORTS ? 'reports-mode' : ''
@@ -4689,9 +4718,11 @@ function App() {
         <WorkspaceTabs
           active="inbox"
           showInbox
+          showInstagram
           showProjects
           unreadCount={inboxUnreadCount}
           onInbox={goToWhatsAppInbox}
+          onInstagram={goToInstagramInbox}
           onProjects={goToProjects}
         />
       </div>
@@ -4769,6 +4800,16 @@ function App() {
             {browserUnreadCount > 0 && <strong>{browserUnreadCount}</strong>}
           </div>
 
+          <button
+            type="button"
+            className="blue-settings-button sendro-instagram-channel-button"
+            title="Instagram Inbox (read only)"
+            onClick={goToInstagramInbox}
+          >
+            <span className="sendro-instagram-channel-mark" aria-hidden="true">◎</span>
+            <span className="blue-tool-label">Instagram <small>Preview</small></span>
+          </button>
+
           <div className="blue-section-title blue-section-spaced">Tools</div>
 
           {canCurrentUserViewReports && (
@@ -4831,10 +4872,12 @@ function App() {
           <WorkspaceTabs
             active="inbox"
             showInbox
-            showProjects
+            showInstagram
+          showProjects
             unreadCount={inboxUnreadCount}
             onInbox={goToWhatsAppInbox}
-            onProjects={goToProjects}
+            onInstagram={goToInstagramInbox}
+          onProjects={goToProjects}
           />
           <div className="workspace-tools">
             <strong className="sendro-company-label">Sunset Oia</strong>
@@ -5659,6 +5702,9 @@ function App() {
               </>
             ) : (
               <div className="mobile-menu-list">
+                <button type="button" onClick={goToInstagramInbox}>
+                  <Icon name="chat" />Instagram <span>Preview</span>
+                </button>
                 <button type="button" onClick={() => openConversationView(CONVERSATION_VIEWS.MINE)}>
                   <Icon name="user" />Mine <span>{mineCount || ''}</span>
                 </button>
