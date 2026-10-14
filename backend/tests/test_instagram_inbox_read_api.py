@@ -39,6 +39,18 @@ def client():
     with engine.begin() as db:
         db.exec_driver_sql("ATTACH DATABASE ':memory:' AS public")
         db.exec_driver_sql("""
+            CREATE TABLE public.sendro_tenants (
+                id INTEGER PRIMARY KEY,
+                slug TEXT NOT NULL,
+                display_name TEXT NOT NULL
+            )
+        """)
+        db.exec_driver_sql("""
+            INSERT INTO public.sendro_tenants (id, slug, display_name) VALUES
+                (1, 'sunset-oia', 'Sunset Oia'),
+                (2, 'another-company', 'Another Company')
+        """)
+        db.exec_driver_sql("""
             CREATE TABLE public.sendro_tenant_users (
                 tenant_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -193,3 +205,25 @@ def test_message_history_pagination_and_query_limits(client):
     assert [m["id"] for m in result.json()] == [1001]
     assert client.get("/channels/instagram/conversations/100/messages?tenant_id=1&limit=101", headers=auth()).status_code == 422
     assert client.get("/channels/instagram/conversations?tenant_id=1&limit=101", headers=auth()).status_code == 422
+
+
+def test_tenant_discovery_only_shows_authorized_active_instagram_companies(client):
+    a = client.get("/channels/instagram/tenants", headers=auth("user-a"))
+    assert a.status_code == 200
+    assert a.json() == [
+        {"id": 1, "slug": "sunset-oia", "display_name": "Sunset Oia", "account_count": 1}
+    ]
+
+    b = client.get("/channels/instagram/tenants", headers=auth("user-b"))
+    assert b.status_code == 200
+    assert b.json() == [
+        {"id": 2, "slug": "another-company", "display_name": "Another Company", "account_count": 1}
+    ]
+
+
+def test_tenant_discovery_denies_anonymous_and_hides_nonmembers(client):
+    assert client.get("/channels/instagram/tenants").status_code in (401, 403)
+    outsider = client.get("/channels/instagram/tenants", headers=auth("outsider"))
+    inactive = client.get("/channels/instagram/tenants", headers=auth("inactive-member"))
+    assert outsider.status_code == 200 and outsider.json() == []
+    assert inactive.status_code == 200 and inactive.json() == []
