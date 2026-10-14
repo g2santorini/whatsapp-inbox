@@ -283,6 +283,36 @@ export async function getConversations(options = {}) {
   });
 }
 
+// Instagram uses separate tenant-scoped, GET-only APIs. The WhatsApp polling
+// and send paths remain unchanged. Do not add automatic Instagram polling yet.
+export async function getInstagramTenants(options = {}) {
+  return apiRequest('/channels/instagram/tenants', {
+    signal: options.signal,
+  });
+}
+
+export async function getInstagramConversations(tenantId, options = {}) {
+  const params = new URLSearchParams({
+    tenant_id: String(tenantId),
+    limit: String(options.limit || 50),
+  });
+  return apiRequest(`/channels/instagram/conversations?${params}`, {
+    signal: options.signal,
+  });
+}
+
+export async function getInstagramMessages(tenantId, conversationId, options = {}) {
+  const params = new URLSearchParams({
+    tenant_id: String(tenantId),
+    limit: String(options.limit || 50),
+  });
+  if (options.beforeId) params.set('before_id', String(options.beforeId));
+  return apiRequest(
+    `/channels/instagram/conversations/${encodeURIComponent(conversationId)}/messages?${params}`,
+    { signal: options.signal }
+  );
+}
+
 export async function getWhatsAppLivePanel(options = {}) {
   return apiRequest('/conversations/live-panel/', { signal: options.signal });
 }
