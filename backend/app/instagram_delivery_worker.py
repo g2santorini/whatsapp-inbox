@@ -109,6 +109,50 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
                 return InstagramProcessingResult(delivery_id, "quarantined")
             accounts[business_id] = account
 
+        # Before writing any conversations, reject provider-ID collisions
+        # that point at another customer or direction. This prevents ghost
+        # conversations from inconsistent or spoofed replays.
+        seen_message_owners = {}
+        for event in events:
+            key = (event.business_account_id, event.message_id)
+            owner = (event.instagram_scoped_customer_id, event.direction)
+            if key in seen_message_owners and seen_message_owners[key] != owner:
+                db.execute(text("""
+                    UPDATE public.sendro_channel_webhook_deliveries
+                    SET processing_state = 'quarantined',
+                        attempts = attempts + 1,
+                        last_error_code = 'message_identity_conflict',
+                        processed_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """), {"id": delivery_id})
+                return InstagramProcessingResult(delivery_id, "quarantined")
+            seen_message_owners[key] = owner
+
+            account_id = accounts[event.business_account_id]["id"]
+            previous = db.execute(text("""
+                SELECT c.external_customer_id, m.direction
+                FROM public.sendro_channel_messages m
+                JOIN public.sendro_channel_conversations c
+                  ON c.id = m.conversation_id
+                 AND c.tenant_id = m.tenant_id
+                 AND c.channel_account_id = m.channel_account_id
+                WHERE m.channel_account_id = :account_id
+                  AND m.provider_message_id = :message_id
+            """), {"account_id": account_id, "message_id": event.message_id}).mappings().first()
+            if previous is not None and (
+                previous["external_customer_id"] != owner[0]
+                or previous["direction"] != owner[1]
+            ):
+                db.execute(text("""
+                    UPDATE public.sendro_channel_webhook_deliveries
+                    SET processing_state = 'quarantined',
+                        attempts = attempts + 1,
+                        last_error_code = 'message_identity_conflict',
+                        processed_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """), {"id": delivery_id})
+                return InstagramProcessingResult(delivery_id, "quarantined")
+
         # The account's row lock serializes thread creation for one business.
         # Unique constraints also protect against replay from other batches.
         inserted_count = 0
@@ -121,6 +165,15 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
             account = accounts[event.business_account_id]
             account_id = account["id"]
             tenant_id = account["tenant_id"]
+            # Already persisted provider messages cannot create a new thread
+            # or count as unread again, even when a duplicate delivery differs.
+            already_saved = db.execute(text("""
+                SELECT 1 FROM public.sendro_channel_messages
+                WHERE channel_account_id = :account_id
+                  AND provider_message_id = :message_id
+            """), {"account_id": account_id, "message_id": event.message_id}).scalar()
+            if already_saved:
+                continue
             args = {
                 "tenant_id": tenant_id,
                 "account_id": account_id,
