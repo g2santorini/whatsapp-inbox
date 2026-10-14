@@ -43,6 +43,7 @@ from .whatsapp_sender import (
 from .reporting_service import get_template_report_items_data
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 from .instagram_webhook import router as instagram_webhook_router
+from . import instagram_inbox_api
 
 load_dotenv()
 
@@ -2253,6 +2254,7 @@ async def get_current_active_user(
 
 app.include_router(project_api.create_project_router(get_current_active_user))
 app.include_router(tasks_api.create_tasks_router(get_current_active_user))
+app.include_router(instagram_inbox_api.create_instagram_inbox_router(get_current_active_user))
 
 
 @app.post(
