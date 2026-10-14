@@ -252,3 +252,40 @@ def test_database_error_rolls_back_conversation_and_delivery_status(setup_worker
         process_one_pending_instagram_delivery(engine, key)
     assert rows(engine, "sendro_channel_conversations") == []
     assert rows(engine, "sendro_channel_webhook_deliveries")[0]["processing_state"] == "pending"
+
+
+def test_same_message_id_for_different_customer_in_one_batch_quarantines(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(
+        dm("m-shared", sender="guest-123"),
+        dm("m-shared", sender="guest-456"),
+    ))
+    result = process_one_pending_instagram_delivery(engine, key)
+    assert result.status == "quarantined"
+    assert rows(engine, "sendro_channel_conversations") == []
+    assert rows(engine, "sendro_channel_messages") == []
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["last_error_code"] == "message_identity_conflict"
+
+
+def test_existing_message_id_cannot_be_replayed_as_another_customer(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("m-original", sender="guest-123")))
+    assert process_one_pending_instagram_delivery(engine, key).inserted_messages == 1
+    store(engine, key, envelope(dm("m-original", sender="guest-456")))
+    result = process_one_pending_instagram_delivery(engine, key)
+    assert result.status == "quarantined"
+    assert len(rows(engine, "sendro_channel_conversations")) == 1
+    assert len(rows(engine, "sendro_channel_messages")) == 1
+    assert rows(engine, "sendro_channel_conversations")[0]["unread_count"] == 1
+
+
+def test_duplicate_message_in_different_envelope_never_creates_other_threads(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("m-1")))
+    assert process_one_pending_instagram_delivery(engine, key).inserted_messages == 1
+    retry = envelope(dm("m-1"))
+    retry["entry"][0]["time"] = 1792000000003
+    store(engine, key, retry)
+    assert process_one_pending_instagram_delivery(engine, key).inserted_messages == 0
+    assert len(rows(engine, "sendro_channel_conversations")) == 1
+    assert rows(engine, "sendro_channel_conversations")[0]["unread_count"] == 1
