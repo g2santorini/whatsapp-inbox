@@ -41,3 +41,36 @@ jobs:
       - run: npm ci
       - run: node --test src/unifiedInboxRows.test.js
       - run: npm run build
+
+  instagram-postgres-integration:
+    name: Instagram isolated PostgreSQL transaction tests
+    runs-on: ubuntu-latest
+    # The database exists only inside this ephemeral GitHub Actions job.
+    # Never reuse a Render/staging/production DATABASE_URL or repository secret.
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sendro_ci
+          POSTGRES_PASSWORD: disposable-ci-password
+          POSTGRES_DB: sendro_ig_ci
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U sendro_ci -d sendro_ig_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SENDRO_INSTAGRAM_PG_CI_APPROVAL: ephemeral-local-service-only
+      SENDRO_INSTAGRAM_PG_CI_URL: postgresql+psycopg://sendro_ci:disposable-ci-password@127.0.0.1:55439/sendro_ig_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt 'pytest>=8.0'
+      - name: PostgreSQL only — Instagram synthetic delivery tests
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_isolation.py -q
