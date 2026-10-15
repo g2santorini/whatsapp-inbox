@@ -31,7 +31,11 @@ export function buildUnifiedInboxRows({
       rowKey: `ig:${item.tenant_id}:${item.channel_account_id}:${item.id}`,
     }));
 
-  // Newest first, with a stable tie order. Do not mutate API state.
+  // The existing WhatsApp backend ordering is part of the live workflow.
+  // Preserve it exactly when there are no Instagram rows in this view.
+  if (!safeInstagram.length) return safeWhatsApp;
+
+  // Mixed channels show newest first, with stable ties. Do not mutate API state.
   return [...safeWhatsApp, ...safeInstagram].sort((left, right) => {
     const time = (item) => {
       const parsed = Date.parse(item.last_message_at || item.updated_at || '');
