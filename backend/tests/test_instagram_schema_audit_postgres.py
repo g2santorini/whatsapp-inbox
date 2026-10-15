@@ -175,3 +175,12 @@ def test_metadata_audit_can_be_reused_without_touching_db(catalog_rows):
     snapshot = deepcopy(catalog_rows)
     assert compare_instagram_catalog_rows(snapshot)["status"] == "compatible"
     assert snapshot == catalog_rows
+
+
+
+def test_catalog_reader_rejects_non_readonly_connection_before_catalog_query(replay_engine):
+    with replay_engine.connect() as conn:
+        with conn.begin():
+            assert conn.execute(text("SHOW transaction_read_only")).scalar_one() == "off"
+            with pytest.raises(PermissionError, match="server read-only transaction"):
+                read_catalog_only(conn)
