@@ -73,9 +73,16 @@ def normalize_instagram_messages(payload: Any) -> list[InstagramMessageEvent]:
             if not isinstance(message, dict):
                 raise UnsupportedInstagramEvent("Instagram event is not a DM message")
 
-            # Edits, unsends and other variants need their own logic.
-            if message.get("is_deleted") or "message_edit" in item or "unsend" in item:
-                raise UnsupportedInstagramEvent("Instagram DM edit or unsend")
+            # Do not silently convert other webhook kinds into new DMs when
+            # Meta includes message-like fields alongside them.
+            if (
+                message.get("is_deleted")
+                or message.get("is_unsupported") is True
+                or any(key in item for key in (
+                    "message_edit", "unsend", "reaction", "read", "postback",
+                ))
+            ):
+                raise UnsupportedInstagramEvent("Unsupported Instagram message event")
 
             message_id = _required_id(message.get("mid"), "message.mid")
             sender = item.get("sender")
@@ -86,7 +93,10 @@ def normalize_instagram_messages(payload: Any) -> list[InstagramMessageEvent]:
             recipient_id = _required_id(recipient.get("id"), "recipient.id")
             is_echo = message.get("is_echo") is True
 
-            if sender_id == business_id and recipient_id != business_id:
+            if sender_id == business_id and recipient_id != business_id and is_echo:
+                # Only the explicitly flagged business echo can represent
+                # outbound traffic. Never infer an outgoing message from IDs
+                # alone if Meta sent an unexpected event variant.
                 direction = "outbound"
                 customer_id = recipient_id
             elif recipient_id == business_id and sender_id != business_id and not is_echo:
