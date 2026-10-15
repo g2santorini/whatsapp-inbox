@@ -1457,7 +1457,7 @@ function App() {
 
   function openConversationView(view) {
     const showConversationList = () => {
-      if (view !== CONVERSATION_VIEWS.INBOX) setChannelFilter('all');
+      setChannelFilter('all');
       setActivePage(APP_PAGES.INBOX);
       setActiveConversationView(view);
       setIsMobileChatOpen(false);
@@ -3077,7 +3077,7 @@ function App() {
 
   function selectUnifiedChannel(nextChannel) {
     setChannelFilter(nextChannel);
-    if (nextChannel === 'instagram') setActiveConversationView(CONVERSATION_VIEWS.INBOX);
+    setActiveConversationView(CONVERSATION_VIEWS.INBOX);
     setSelectedConversation(null);
     setSelectedInstagramConversation(null);
     setIsMobileChatOpen(false);
@@ -4897,17 +4897,24 @@ function App() {
           </div>
 
           <div className="blue-section-title blue-section-spaced">Channel</div>
-          <div className="blue-channel-row">
+          <button
+            type="button"
+            className={`blue-channel-row sendro-channel-sidebar-choice ${channelFilter === 'whatsapp' ? 'active' : ''}`}
+            aria-pressed={channelFilter === 'whatsapp'}
+            title="Show WhatsApp conversations"
+            onClick={() => selectUnifiedChannel('whatsapp')}
+          >
             <span className="whatsapp-mark">W</span>
             <span className="blue-channel-label">WhatsApp</span>
             {browserUnreadCount > 0 && <strong>{browserUnreadCount}</strong>}
-          </div>
+          </button>
 
           <button
             type="button"
-            className="blue-settings-button sendro-instagram-channel-button"
-            title="Instagram Inbox (read only)"
-            onClick={goToInstagramInbox}
+            className={`blue-settings-button sendro-instagram-channel-button ${channelFilter === 'instagram' ? 'active' : ''}`}
+            aria-pressed={channelFilter === 'instagram'}
+            title="Show Instagram conversations in Unified Inbox (read only)"
+            onClick={() => selectUnifiedChannel('instagram')}
           >
             <span className="sendro-instagram-channel-mark" aria-hidden="true">◎</span>
             <span className="blue-tool-label">Instagram <small>Preview</small></span>
@@ -5050,30 +5057,6 @@ function App() {
             </button>
           </div>
 
-          <div className="unified-channel-filters" role="group" aria-label="Message channels">
-            {[
-              ['all', 'All'], ['whatsapp', 'WhatsApp'], ['instagram', 'Instagram'],
-            ].map(([channel, label]) => (
-              <button
-                type="button"
-                key={channel}
-                className={channelFilter === channel ? 'active' : ''}
-                aria-pressed={channelFilter === channel}
-                onClick={() => selectUnifiedChannel(channel)}
-              >
-                {channel === 'instagram' && <span className="unified-filter-ig-mark">◎</span>}
-                {label}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="unified-channel-refresh"
-              disabled={instagramLoading}
-              onClick={() => setInstagramRefresh((value) => value + 1)}
-              title="Refresh Instagram conversations manually"
-              aria-label="Refresh Instagram conversations"
-            >↻</button>
-          </div>
           {instagramError && (
             <div className="unified-ig-refresh-error" role="alert">{instagramError}</div>
           )}
