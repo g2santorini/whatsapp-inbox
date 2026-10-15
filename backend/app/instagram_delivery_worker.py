@@ -56,6 +56,7 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
             FROM public.sendro_channel_webhook_deliveries
             WHERE provider = 'instagram'
               AND processing_state = 'pending'
+              AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
             ORDER BY id ASC
             LIMIT 1
         """

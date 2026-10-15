@@ -289,3 +289,29 @@ def test_duplicate_message_in_different_envelope_never_creates_other_threads(set
     assert process_one_pending_instagram_delivery(engine, key).inserted_messages == 0
     assert len(rows(engine, "sendro_channel_conversations")) == 1
     assert rows(engine, "sendro_channel_conversations")[0]["unread_count"] == 1
+
+
+
+def test_deferred_delivery_is_not_claimed_before_retry_due_time(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("m-deferred")))
+    with engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET next_attempt_at = '2999-01-01 00:00:00'
+            WHERE provider = 'instagram'
+        """))
+    assert process_one_pending_instagram_delivery(engine, key).status == "idle"
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["processing_state"] == "pending"
+    assert rows(engine, "sendro_channel_messages") == []
+
+    with engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET next_attempt_at = NULL
+            WHERE provider = 'instagram'
+        """))
+    ready = process_one_pending_instagram_delivery(engine, key)
+    assert ready.status == "processed"
+    assert ready.inserted_messages == 1
+    assert len(rows(engine, "sendro_channel_messages")) == 1
