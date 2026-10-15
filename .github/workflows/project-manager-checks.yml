@@ -74,3 +74,5 @@ jobs:
       - run: pip install -r backend/requirements.txt 'pytest>=8.0'
       - name: PostgreSQL only — Instagram synthetic delivery tests
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_isolation.py -q
+      - name: PostgreSQL only — replay six pinned manual Instagram migrations
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_manual_migrations_postgres.py -q
