@@ -5047,6 +5047,33 @@ function App() {
             </button>
           </div>
 
+          <div className="unified-channel-filters" role="group" aria-label="Message channels">
+            {[
+              ['all', 'All'], ['whatsapp', 'WhatsApp'], ['instagram', 'Instagram'],
+            ].map(([channel, label]) => (
+              <button
+                type="button"
+                key={channel}
+                className={channelFilter === channel ? 'active' : ''}
+                aria-pressed={channelFilter === channel}
+                onClick={() => selectUnifiedChannel(channel)}
+              >
+                {channel === 'instagram' && <span className="unified-filter-ig-mark">◎</span>}
+                {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="unified-channel-refresh"
+              disabled={instagramLoading}
+              onClick={() => setInstagramRefresh((value) => value + 1)}
+              title="Refresh Instagram conversations manually"
+              aria-label="Refresh Instagram conversations"
+            >↻</button>
+          </div>
+          {instagramError && (
+            <div className="unified-ig-refresh-error" role="alert">{instagramError}</div>
+          )}
           <div className="conversation-view-tabs" role="tablist" aria-label="Conversation views">
             <button
               type="button"
@@ -5152,7 +5179,7 @@ function App() {
         )}
 
         <div className="conversation-list">
-          {filteredConversations.length === 0 ? (
+          {unifiedInboxRows.length === 0 ? (
             <div className="empty-state">
               {inboxSearchQuery
                 ? `No conversations found for "${inboxSearchQuery}".`
@@ -5165,7 +5192,41 @@ function App() {
                       : 'No conversations in Inbox.'}
             </div>
           ) : (
-            filteredConversations.map((conversation) => {
+            unifiedInboxRows.map((conversation) => {
+              if (conversation.channel === 'instagram') {
+                const selected = selectedInstagramConversation?.id === conversation.id &&
+                  selectedInstagramConversation?.tenant_id === conversation.tenant_id &&
+                  selectedInstagramConversation?.channel_account_id === conversation.channel_account_id;
+                const name = conversation.contact_name || 'Instagram guest';
+                return (
+                  <button
+                    key={conversation.rowKey}
+                    type="button"
+                    className={`conversation unified-ig-conversation ${selected ? 'active' : ''}`}
+                    onClick={() => handleSelectInstagramConversation(conversation)}
+                  >
+                    <span className="conversation-avatar unified-ig-avatar" aria-hidden="true">
+                      {getInitials(name)}<i>◎</i>
+                    </span>
+                    <span className="conversation-copy">
+                      <span className="conversation-title-row">
+                        <strong>{name}</strong>
+                        <small className="conversation-time">
+                          {formatMessageTime(conversation.last_message_at)}
+                        </small>
+                      </span>
+                      <span className="conversation-preview-row">
+                        <span className="conversation-preview">
+                          Instagram · {conversation.account_name || 'DM'}
+                        </span>
+                        {Number(conversation.unread_count) > 0 &&
+                          <span className="unread-badge">{conversation.unread_count}</span>}
+                      </span>
+                      <small className="unified-ig-preview-tag">Instagram · Read only</small>
+                    </span>
+                  </button>
+                );
+              }
               const isActive = selectedConversation?.id === conversation.id;
               const label = conversation.contact_name || conversation.contact_phone;
               const unreadCount = Number(conversation.unread_count || 0);
@@ -5237,7 +5298,7 @@ function App() {
             })
           )}
 
-          {filteredConversations.length > 0 && hasMoreConversations && (
+          {channelFilter !== 'instagram' && filteredConversations.length > 0 && hasMoreConversations && (
             <button
               type="button"
               className="load-more-conversations-button"
@@ -5257,6 +5318,15 @@ function App() {
           <SettingsPanel
             onUsersChanged={handleSettingsUsersChanged}
             onQuickRepliesChanged={handleSettingsQuickRepliesChanged}
+          />
+        ) : selectedInstagramConversation ? (
+          <InstagramThreadPreview
+            key={`${selectedInstagramConversation.tenant_id}:${selectedInstagramConversation.channel_account_id}:${selectedInstagramConversation.id}`}
+            conversation={selectedInstagramConversation}
+            onBack={() => {
+              setSelectedInstagramConversation(null);
+              if (isMobileChatOpen) handleMobileChatBack();
+            }}
           />
         ) : selectedConversation ? (
           <>
