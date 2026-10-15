@@ -7,6 +7,25 @@ a separately approved, isolated runner and a rolled-back transient failure.
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
+
+def is_transient_database_failure(error):
+    """Only retry well-identified transient SQL errors, never all DB errors.
+
+    PostgreSQL SQLSTATE 08xxx (connection), 40001 (serialization),
+    40P01 (deadlock), 55P03 (lock not available). SQL syntax/schema and
+    customer-data failures must not trigger automatic retries.
+    """
+    if not isinstance(error, DBAPIError):
+        return False
+    if error.connection_invalidated:
+        return True
+    orig = getattr(error, "orig", None)
+    state = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return isinstance(state, str) and (
+        state.startswith("08") or state in {"40001", "40P01", "55P03"}
+    )
 
 
 MAX_RETRY_ATTEMPTS = 5
