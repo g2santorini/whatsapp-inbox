@@ -3076,6 +3076,9 @@ function App() {
   }
 
   function selectUnifiedChannel(nextChannel) {
+    // Close the WhatsApp detail immediately when switching channels.
+    // React effects must not reselect a WhatsApp chat on Instagram-only view.
+    selectedConversationIdRef.current = null;
     setChannelFilter(nextChannel);
     setActiveConversationView(CONVERSATION_VIEWS.INBOX);
     setSelectedConversation(null);
@@ -4019,7 +4022,9 @@ function App() {
   useEffect(() => {
     if (activePage !== APP_PAGES.INBOX) return;
 
-    if (filteredConversations.length === 0) {
+    // The WhatsApp list is independent of the active unified channel.
+    // Never auto-select a WhatsApp chat while Instagram-only is displayed.
+    if (channelFilter === 'instagram' || filteredConversations.length === 0) {
       selectedConversationIdRef.current = null;
       setSelectedConversation(null);
       return;
@@ -4041,6 +4046,7 @@ function App() {
     }
   }, [
     activeConversationView,
+    channelFilter,
     conversations,
     user?.id,
     activePage,
@@ -5318,7 +5324,7 @@ function App() {
               if (isMobileChatOpen) handleMobileChatBack();
             }}
           />
-        ) : selectedConversation ? (
+        ) : selectedConversation && channelFilter !== 'instagram' ? (
           <>
             <header className="chat-header">
               <button
@@ -5654,7 +5660,11 @@ function App() {
             </div>
           </>
         ) : (
-          <div className="no-chat-selected">Select a conversation to start.</div>
+          <div className="no-chat-selected">
+            {channelFilter === 'instagram'
+              ? 'No Instagram conversation selected.'
+              : 'Select a conversation to start.'}
+          </div>
         )}
       </main>
 
