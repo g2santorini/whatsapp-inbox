@@ -20,7 +20,7 @@ export default function WorkspaceTabs({
           onClick={onInbox}
         >
           <span className="sendro-global-tab-symbol whatsapp" aria-hidden="true">✆</span>
-          <span>WhatsApp Inbox</span>
+          <span>{showInstagram ? 'Unified Inbox' : 'WhatsApp Inbox'}</span>
           {unreadCount > 0 && (
             <span className="sendro-global-unread" aria-label={`${unreadCount} unread conversations`}>
               {unreadCount > 99 ? '99+' : unreadCount}
