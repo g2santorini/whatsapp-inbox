@@ -1,45 +1,5 @@
 /* Incremental Instagram read-only integration into the existing inbox.
    Legacy WhatsApp message rendering, actions and polling CSS are untouched. */
-.unified-channel-filters {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 9px 11px;
-  border-top: 1px solid #e7edf6;
-  border-bottom: 1px solid #e7edf6;
-  background: #f8fbff;
-}
-.unified-channel-filters button {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  gap: 3px;
-  background: transparent;
-  color: #426081;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  font-size: 11px;
-  padding: 7px 9px;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.unified-channel-filters button:hover { background: #eaf0fa; }
-.unified-channel-filters button.active {
-  color: #0b5ab3;
-  border-color: #b3d3ef;
-  background: #e5f1ff;
-}
-.unified-channel-filters .unified-channel-refresh {
-  margin-left: auto;
-  border-color: #deebf8;
-  background: #fff;
-  min-width: 30px;
-  font-size: 17px;
-  padding: 4px 7px;
-}
-.unified-channel-refresh:disabled { opacity: .45; cursor: default; }
-.unified-filter-ig-mark { color: #d241a0; font-weight: 900; }
 .unified-ig-refresh-error {
   padding: 9px 14px;
   font-size: 11px;
@@ -169,8 +129,6 @@
   font-weight: 400;
 }
 @media(max-width: 820px) {
-  .unified-channel-filters { padding: 7px; gap: 2px; }
-  .unified-channel-filters button { font-size: 10px; padding: 6px 7px; }
   .unified-ig-back {
     display: inline-flex;
     background: transparent;
