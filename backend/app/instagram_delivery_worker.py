@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 
 from cryptography.fernet import Fernet
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
+from .instagram_queue_reliability import is_transient_database_failure
 
 from .instagram_event_normalizer import (
     InvalidInstagramWebhook,
@@ -39,7 +42,29 @@ def _decode_events(payload_ciphertext: bytes, key: str):
     return normalize_instagram_messages(envelope)
 
 
+class InstagramTransientDeliveryFailure(RuntimeError):
+    """Sanitized retry signal emitted only AFTER a worker transaction rolls back."""
+
+    def __init__(self, delivery_id: int, expected_attempts: int):
+        super().__init__("Retryable Instagram database transaction failed")
+        self.delivery_id = delivery_id
+        self.expected_attempts = expected_attempts
+
+
 def process_one_pending_instagram_delivery(engine, encryption_key: str):
+    """Preserve existing API and emit retry context after rollback only."""
+    tracked = {}
+    try:
+        return _process_one_pending_instagram_delivery(engine, encryption_key, tracked)
+    except DBAPIError as error:
+        if tracked and is_transient_database_failure(error):
+            raise InstagramTransientDeliveryFailure(
+                tracked["id"], tracked["attempts"]
+            ) from None
+        raise
+
+
+def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked):
     """Process at most one queued envelope. NEVER invoke on public requests.
 
     Invalid/unsupported payloads and unregistered business IDs are quarantined
@@ -52,7 +77,7 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
 
     with engine.begin() as db:
         select_sql = """
-            SELECT id, payload_ciphertext
+            SELECT id, payload_ciphertext, attempts
             FROM public.sendro_channel_webhook_deliveries
             WHERE provider = 'instagram'
               AND processing_state = 'pending'
@@ -67,6 +92,9 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
             return InstagramProcessingResult(None, "idle")
 
         delivery_id = delivery["id"]
+        # Only emit retry context for this locked row if its DB transaction
+        # fails. The outer wrapper runs *after* rollback is completed.
+        tracked.update(id=int(delivery_id), attempts=int(delivery["attempts"]))
         try:
             events = _decode_events(delivery["payload_ciphertext"], encryption_key)
         except (InvalidInstagramWebhook, UnsupportedInstagramEvent,
