@@ -315,3 +315,201 @@ def test_deferred_delivery_is_not_claimed_before_retry_due_time(setup_worker):
     assert ready.status == "processed"
     assert ready.inserted_messages == 1
     assert len(rows(engine, "sendro_channel_messages")) == 1
+
+
+
+# Phase 2K-B: supervisor tests use this module's isolated SQLite fixture only.
+from types import SimpleNamespace
+from sqlalchemy.exc import OperationalError, ProgrammingError
+
+from backend.app import instagram_delivery_worker as worker_module
+from backend.app.instagram_queue_reliability import is_transient_database_failure
+from backend.app.instagram_supervision import (
+    InstagramSupervisorDisabled,
+    InstagramSupervisorFailure,
+    run_isolated_supervised_batch,
+)
+
+
+def isolated_supervisor_flags():
+    return {
+        "INSTAGRAM_SUPERVISOR_TEST_ENABLED": "true",
+        "INSTAGRAM_ISOLATED_DB_APPROVED": "true",
+    }
+
+
+def test_supervision_is_default_locked_even_with_queued_messages(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("locked")))
+    with pytest.raises(InstagramSupervisorDisabled):
+        run_isolated_supervised_batch(
+            engine, key, environ={}, on_alert=lambda event: None,
+        )
+    assert len(rows(engine, "sendro_channel_messages")) == 0
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["processing_state"] == "pending"
+
+
+def test_supervisor_rejects_shared_postgres_even_when_explicitly_enabled(setup_worker):
+    _, key = setup_worker
+    fake_postgres = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    with pytest.raises(InstagramSupervisorDisabled):
+        run_isolated_supervised_batch(
+            fake_postgres, key, environ=isolated_supervisor_flags(),
+            on_alert=lambda event: None,
+        )
+
+
+@pytest.mark.parametrize("max_deliveries", [0, 26, True, 1.5])
+def test_supervisor_rejects_invalid_batch_bounds(setup_worker, max_deliveries):
+    engine, key = setup_worker
+    with pytest.raises(InstagramSupervisorDisabled):
+        run_isolated_supervised_batch(
+            engine, key, environ=isolated_supervisor_flags(),
+            max_deliveries=max_deliveries, on_alert=lambda event: None,
+        )
+
+
+def test_supervisor_requires_alert_sink(setup_worker):
+    engine, key = setup_worker
+    with pytest.raises(InstagramSupervisorDisabled):
+        run_isolated_supervised_batch(
+            engine, key, environ=isolated_supervisor_flags(),
+        )
+
+
+def test_bounded_supervisor_processes_only_max_messages(setup_worker):
+    engine, key = setup_worker
+    for mid in ("bounded-a", "bounded-b", "bounded-c"):
+        store(engine, key, envelope(dm(mid)))
+    outcome = run_isolated_supervised_batch(
+        engine, key, environ=isolated_supervisor_flags(),
+        max_deliveries=2, on_alert=lambda event: None,
+    )
+    assert outcome["processed"] == 2
+    assert outcome["messages"] == 2
+    assert len(rows(engine, "sendro_channel_messages")) == 2
+    assert [x["processing_state"] for x in rows(engine, "sendro_channel_webhook_deliveries")].count("pending") == 1
+
+
+def test_quarantine_alert_contains_no_customer_ids_or_text(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("do-not-leak", sender="private-customer-id",
+                                    business="unknown-business"), business="unknown-business"))
+    alerts = []
+    outcome = run_isolated_supervised_batch(
+        engine, key, environ=isolated_supervisor_flags(),
+        on_alert=alerts.append,
+    )
+    assert outcome["quarantined"] == 1
+    assert len(rows(engine, "sendro_channel_messages")) == 0
+    assert alerts[0]["codes"] == ("quarantined_deliveries",)
+    assert "private-customer-id" not in str(alerts)
+    assert "unknown-business" not in str(alerts)
+
+
+def make_sql_error(cls, state):
+    class SyntheticDBFailure(Exception):
+        sqlstate = state
+
+    return cls("synthetic database error", {}, SyntheticDBFailure("sanitized"))
+
+
+def test_transient_classifier_explicitly_whitelists_retryable_sqlstates():
+    for state in ("40001", "40P01", "55P03", "08006"):
+        assert is_transient_database_failure(
+            make_sql_error(OperationalError, state)
+        )
+    for state in ("42P01", "23505", None):
+        assert not is_transient_database_failure(
+            make_sql_error(ProgrammingError, state)
+        )
+    assert not is_transient_database_failure(ValueError("not a DB exception"))
+
+
+def test_supervision_retries_only_after_rollback_and_can_recover(setup_worker, monkeypatch):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("retry-case")))
+    original = worker_module._decode_events
+
+    def fail_once(*args):
+        raise make_sql_error(OperationalError, "40001")
+
+    monkeypatch.setattr(worker_module, "_decode_events", fail_once)
+    outcome = run_isolated_supervised_batch(
+        engine, key, environ=isolated_supervisor_flags(),
+        on_alert=lambda event: None,
+    )
+    assert outcome["deferred"] == 1
+    assert len(rows(engine, "sendro_channel_messages")) == 0
+    row = rows(engine, "sendro_channel_webhook_deliveries")[0]
+    assert row["attempts"] == 1
+    assert row["next_attempt_at"] is not None
+    assert row["processing_state"] == "pending"
+
+    # Simulate retry becoming due, then verify exactly one guest DM persists.
+    monkeypatch.setattr(worker_module, "_decode_events", original)
+    with engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET next_attempt_at = NULL WHERE provider = 'instagram'
+        """))
+    second = run_isolated_supervised_batch(
+        engine, key, environ=isolated_supervisor_flags(),
+        on_alert=lambda event: None,
+    )
+    assert second["processed"] == 1
+    assert second["messages"] == 1
+    assert len(rows(engine, "sendro_channel_messages")) == 1
+    assert rows(engine, "sendro_channel_conversations")[0]["unread_count"] == 1
+
+
+def test_last_retry_fails_terminally_and_emits_aggregate_alert(setup_worker, monkeypatch):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("final-attempt")))
+    with engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET attempts = 4 WHERE provider = 'instagram'
+        """))
+    monkeypatch.setattr(worker_module, "_decode_events",
+        lambda *args: (_ for _ in ()).throw(make_sql_error(OperationalError, "40P01")))
+    alerts = []
+    result = run_isolated_supervised_batch(
+        engine, key, environ=isolated_supervisor_flags(), on_alert=alerts.append,
+    )
+    assert result["failed"] == 1
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["attempts"] == 5
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["processing_state"] == "failed"
+    assert "failed_deliveries" in alerts[0]["codes"]
+    assert len(rows(engine, "sendro_channel_messages")) == 0
+
+
+def test_nontransient_db_error_is_never_scheduled_for_retry(setup_worker, monkeypatch):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("syntax-failure")))
+    monkeypatch.setattr(worker_module, "_decode_events",
+        lambda *args: (_ for _ in ()).throw(make_sql_error(ProgrammingError, "42P01")))
+    with pytest.raises(InstagramSupervisorFailure, match="operator review"):
+        run_isolated_supervised_batch(
+            engine, key, environ=isolated_supervisor_flags(),
+            on_alert=lambda event: None,
+        )
+    row = rows(engine, "sendro_channel_webhook_deliveries")[0]
+    assert row["attempts"] == 0
+    assert row["next_attempt_at"] is None
+    assert row["processing_state"] == "pending"
+
+
+def test_alert_callback_failure_is_not_silenced(setup_worker):
+    engine, key = setup_worker
+    store(engine, key, envelope(dm("quarantine", business="unknown"), business="unknown"))
+
+    def broken_sink(_event):
+        raise RuntimeError("test-only alert endpoint unavailable")
+
+    with pytest.raises(InstagramSupervisorFailure, match="alert callback failed"):
+        run_isolated_supervised_batch(
+            engine, key, environ=isolated_supervisor_flags(),
+            on_alert=broken_sink,
+        )
+    assert rows(engine, "sendro_channel_webhook_deliveries")[0]["processing_state"] == "quarantined"
