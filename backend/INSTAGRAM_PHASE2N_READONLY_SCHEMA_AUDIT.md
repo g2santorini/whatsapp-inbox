@@ -21,8 +21,10 @@ migration executor, background job or production deployment.
   contact identifiers, tokens, DB sessions or secret values.
 - `read_catalog_only(connection)`: read-only SELECT via an **already-open**
   connection supplied by the caller. It never opens its own connection.
-  Any future real database caller must first be explicitly authorized and
-  enforce a least-privilege role and **server-side read-only transaction**.
+  It checks `SHOW transaction_read_only` and **refuses execution unless
+  PostgreSQL confirms the current transaction is READ ONLY**. Any future
+  real database caller must first be explicitly authorized, start a server-
+  side read-only transaction, and use a least-privilege role.
 - `compare_instagram_catalog_rows(rows)`: deterministic, **offline** drift
   comparison against a reviewed manifest of expected column names/types/
   nullability and required named keys, checks, and explicit indexes.
