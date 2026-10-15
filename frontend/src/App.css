@@ -5904,3 +5904,30 @@ body {
   color: #ffd0ea;
   font-weight: 600;
 }
+
+/* Channel selection lives in the main sidebar, not in a duplicated strip
+   above the conversation list. The Inbox sidebar entry resets to All. */
+button.sendro-channel-sidebar-choice {
+  width: calc(100% - 6px);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+button.sendro-channel-sidebar-choice:hover {
+  background: rgba(255,255,255,0.09);
+  color: #fff;
+}
+button.sendro-channel-sidebar-choice.active {
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--sendro-mint);
+}
+button.sendro-channel-sidebar-choice:focus-visible,
+button.sendro-instagram-channel-button:focus-visible {
+  outline: 2px solid #6be9cd;
+  outline-offset: 2px;
+}
+.blue-sidebar.collapsed button.sendro-channel-sidebar-choice { width: 100%; }
