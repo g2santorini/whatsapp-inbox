@@ -202,8 +202,11 @@ def read_catalog_only(connection):
     """Use an ALREADY-OPEN authorized PostgreSQL connection. No engine creation.
 
     Caller must ensure an isolated CI database or obtain separate approval
-    for any future production read-only schema audit. Selects pg_catalog only.
+    for any future production read-only schema audit. Refuses execution
+    unless PostgreSQL confirms the *current transaction* is READ ONLY.
     """
+    if connection.execute(text("SHOW transaction_read_only")).scalar_one() != "on":
+        raise PermissionError("Instagram schema audit requires a server read-only transaction")
     return [dict(row) for row in
             connection.execute(text(INSTAGRAM_CATALOG_SQL)).mappings().all()]
 
