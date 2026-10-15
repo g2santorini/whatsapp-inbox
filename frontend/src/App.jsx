@@ -5186,6 +5186,10 @@ function App() {
             <div className="empty-state">
               {inboxSearchQuery
                 ? `No conversations found for "${inboxSearchQuery}".`
+                : channelFilter === 'instagram'
+                  ? (instagramLoading
+                      ? 'Loading Instagram conversations…'
+                      : 'No Instagram conversations yet. Refresh after test messaging is enabled.')
                 : activeConversationView === CONVERSATION_VIEWS.MINE
                   ? 'No conversations assigned to you.'
                   : activeConversationView === CONVERSATION_VIEWS.FOLLOW_UP
