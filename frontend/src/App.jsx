@@ -1457,6 +1457,7 @@ function App() {
 
   function openConversationView(view) {
     const showConversationList = () => {
+      if (view !== CONVERSATION_VIEWS.INBOX) setChannelFilter('all');
       setActivePage(APP_PAGES.INBOX);
       setActiveConversationView(view);
       setIsMobileChatOpen(false);
@@ -3723,6 +3724,8 @@ function App() {
         ));
       } catch (err) {
         if (!alive || err?.name === 'AbortError') return;
+        setInstagramConversations([]);
+        setSelectedInstagramConversation(null);
         setInstagramError(
           err?.status === 403
             ? 'You are not authorized to view Instagram conversations.'
