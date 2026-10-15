@@ -58,3 +58,14 @@ test('adapter does not change existing WhatsApp or Instagram input objects', () 
   buildUnifiedInboxRows({whatsapp,instagram});
   assert.equal(JSON.stringify({whatsapp,instagram}),before);
 });
+
+
+test('WhatsApp-only keeps server ordering even when timestamps differ', () => {
+  const items = [
+    wa(1, '2026-10-15T10:00:00Z'),
+    wa(2, '2026-10-15T13:00:00Z'),
+  ];
+  const result = buildUnifiedInboxRows({ whatsapp: items, instagram: [], channel: 'all' });
+  assert.deepEqual(result.map(item => item.id), [1, 2]);
+  assert.deepEqual(buildUnifiedInboxRows({ whatsapp: items, instagram: [], channel: 'whatsapp' }).map(item => item.id), [1, 2]);
+});
