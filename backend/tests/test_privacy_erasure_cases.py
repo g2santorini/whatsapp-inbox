@@ -197,7 +197,7 @@ def test_response_is_external_confirmation_not_erasure_or_closure():
 
 def test_rejects_backdated_audit_and_naive_timestamps():
     case = intake()
-    with pytest.raises(ValueError, match="chronological"):
+    with pytest.raises(ValueError, match="precedes request"):
         mark_identity_checked(case=case, actor=ADMIN, independently_verified=True,
                               now=NOW - timedelta(minutes=1))
     with pytest.raises(ValueError, match="timezone-aware"):
