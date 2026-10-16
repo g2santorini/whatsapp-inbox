@@ -36,6 +36,39 @@ class _UnroutableAccount(Exception):
     """Signed Instagram delivery without a registered/approved business."""
 
 
+@dataclass(frozen=True)
+class InstagramPilotScope:
+    """Explicit one-delivery, one-inbound-message, one-account pilot boundary.
+
+    Supplying a scope can only narrow which encrypted delivery is processed.
+    The public webhook, unsupervised worker, and default batch mode do not
+    construct a pilot scope. The operator entry point has additional gates.
+    """
+
+    delivery_id: int
+    tenant_id: int
+    channel_account_id: int
+    business_account_id: str
+
+
+def _validate_pilot_scope(scope):
+    if scope is None:
+        return
+    if (
+        not isinstance(scope, InstagramPilotScope)
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in (
+                scope.delivery_id, scope.tenant_id, scope.channel_account_id,
+            )
+        )
+        or not isinstance(scope.business_account_id, str)
+        or not scope.business_account_id.strip()
+        or scope.business_account_id != scope.business_account_id.strip()
+    ):
+        raise ValueError("Invalid Instagram pilot selection")
+
+
 def _decode_events(payload_ciphertext: bytes, key: str):
     raw = Fernet(key.encode("ascii")).decrypt(bytes(payload_ciphertext))
     envelope = json.loads(raw)
@@ -51,11 +84,20 @@ class InstagramTransientDeliveryFailure(RuntimeError):
         self.expected_attempts = expected_attempts
 
 
-def process_one_pending_instagram_delivery(engine, encryption_key: str):
-    """Preserve existing API and emit retry context after rollback only."""
+def process_one_pending_instagram_delivery(
+    engine, encryption_key: str, *, pilot_scope: InstagramPilotScope | None = None
+):
+    """Preserve existing worker API; optionally narrow to one approved DM.
+
+    The scoped path is intended ONLY for a future, separately authorized,
+    supervised one-off pilot. No callers enable it at application startup.
+    """
+    _validate_pilot_scope(pilot_scope)
     tracked = {}
     try:
-        return _process_one_pending_instagram_delivery(engine, encryption_key, tracked)
+        return _process_one_pending_instagram_delivery(
+            engine, encryption_key, tracked, pilot_scope=pilot_scope
+        )
     except DBAPIError as error:
         if tracked and is_transient_database_failure(error):
             raise InstagramTransientDeliveryFailure(
@@ -64,7 +106,9 @@ def process_one_pending_instagram_delivery(engine, encryption_key: str):
         raise
 
 
-def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked):
+def _process_one_pending_instagram_delivery(
+    engine, encryption_key: str, tracked, *, pilot_scope=None
+):
     """Process at most one queued envelope. NEVER invoke on public requests.
 
     Invalid/unsupported payloads and unregistered business IDs are quarantined
@@ -82,12 +126,17 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
             WHERE provider = 'instagram'
               AND processing_state = 'pending'
               AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
-            ORDER BY id ASC
-            LIMIT 1
         """
+        select_args = {}
+        if pilot_scope is not None:
+            # Bind the exact selected ID before FOR UPDATE. Never fall back
+            # to another pending envelope if this ID is missing or busy.
+            select_sql += " AND id = :pilot_delivery_id\n"
+            select_args["pilot_delivery_id"] = pilot_scope.delivery_id
+        select_sql += " ORDER BY id ASC LIMIT 1"
         if engine.dialect.name == "postgresql":
             select_sql += " FOR UPDATE SKIP LOCKED"
-        delivery = db.execute(text(select_sql)).mappings().first()
+        delivery = db.execute(text(select_sql), select_args).mappings().first()
         if delivery is None:
             return InstagramProcessingResult(None, "idle")
 
@@ -99,6 +148,10 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
             events = _decode_events(delivery["payload_ciphertext"], encryption_key)
         except (InvalidInstagramWebhook, UnsupportedInstagramEvent,
                 ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+            if pilot_scope is not None:
+                # An attended single-DM pilot must not mutate an unknown
+                # envelope. Leave it encrypted/pending for operator review.
+                return InstagramProcessingResult(delivery_id, "blocked")
             # Do not log the raw payload or even event/customer identifiers.
             db.execute(text("""
                 UPDATE public.sendro_channel_webhook_deliveries
@@ -109,6 +162,15 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
                 WHERE id = :id
             """), {"id": delivery_id})
             return InstagramProcessingResult(delivery_id, "quarantined")
+
+        if pilot_scope is not None and (
+            len(events) != 1
+            or events[0].direction != "inbound"
+            or events[0].business_account_id != pilot_scope.business_account_id
+        ):
+            # No multi-message/batch/echo processing in a single-DM pilot.
+            # This also blocks data written for unexpected subscribed accounts.
+            return InstagramProcessingResult(delivery_id, "blocked")
 
         # Resolve *every* business ID before creating any data. Fail closed
         # when an account has not been enrolled or has been disabled.
@@ -127,6 +189,8 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
                 "business_id": business_id,
             }).mappings().first()
             if account is None:
+                if pilot_scope is not None:
+                    return InstagramProcessingResult(delivery_id, "blocked")
                 db.execute(text("""
                     UPDATE public.sendro_channel_webhook_deliveries
                     SET processing_state = 'quarantined',
@@ -138,6 +202,14 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
                 return InstagramProcessingResult(delivery_id, "quarantined")
             accounts[business_id] = account
 
+        if pilot_scope is not None:
+            account = accounts[pilot_scope.business_account_id]
+            if (
+                account["id"] != pilot_scope.channel_account_id
+                or account["tenant_id"] != pilot_scope.tenant_id
+            ):
+                return InstagramProcessingResult(delivery_id, "blocked")
+
         # Before writing any conversations, reject provider-ID collisions
         # that point at another customer or direction. This prevents ghost
         # conversations from inconsistent or spoofed replays.
@@ -146,6 +218,8 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
             key = (event.business_account_id, event.message_id)
             owner = (event.instagram_scoped_customer_id, event.direction)
             if key in seen_message_owners and seen_message_owners[key] != owner:
+                if pilot_scope is not None:
+                    return InstagramProcessingResult(delivery_id, "blocked")
                 db.execute(text("""
                     UPDATE public.sendro_channel_webhook_deliveries
                     SET processing_state = 'quarantined',
@@ -172,6 +246,8 @@ def _process_one_pending_instagram_delivery(engine, encryption_key: str, tracked
                 previous["external_customer_id"] != owner[0]
                 or previous["direction"] != owner[1]
             ):
+                if pilot_scope is not None:
+                    return InstagramProcessingResult(delivery_id, "blocked")
                 db.execute(text("""
                     UPDATE public.sendro_channel_webhook_deliveries
                     SET processing_state = 'quarantined',
