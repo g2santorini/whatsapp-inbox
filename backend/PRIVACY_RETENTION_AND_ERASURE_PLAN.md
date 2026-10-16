@@ -57,3 +57,12 @@ The flags currently default to **not reviewed**. Live DB integration is not incl
 - No auto-purge or privacy API merged into WhatsApp `main` until owner explicitly approves and backup/rollback evidence is available.
 - No Meta submission of draft legal URLs until retention/erasure practices and language are accurate and approved.
 - Use CI synthetic fixtures or isolated disposable PostgreSQL only.
+
+
+## Phase 2A — synthetic PostgreSQL read-only aggregate rehearsal (16 October 2026)
+
+Implemented `app/privacy_retention_pg_preview.py` for **disposable CI PostgreSQL only** and a dedicated integration test. The code requires two explicit GitHub Actions test flags, loopback host, dedicated CI database/user/port and a server-confirmed `READ ONLY` transaction. The caller supplies the connection; there is no runtime engine, route, worker, scheduler or automatic execution. It retrieves counts only, not customer identifiers or contents.
+
+The preview counts legacy conversation age/activity, open or pending conversations, template-batch items linked by either conversation or message, and orphan batch items with neither link. It never declares deletion eligibility, because orphan records, legal holds, provider media/logs, controller responsibilities and backups are not fully reviewed. All tests create **fabricated data only on the ephemeral PostgreSQL CI service**. No live staging or production data is queried or changed.
+
+**Next gated action:** review actual schema and backup readiness, then request separate explicit authorization before **any** aggregate-only query against the shared Render database. This module intentionally refuses to run there. Production deletion/retention enforcement remains OFF.
