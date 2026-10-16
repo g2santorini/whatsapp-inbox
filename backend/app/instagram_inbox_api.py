@@ -167,7 +167,8 @@ def create_instagram_inbox_router(get_current_active_user: Callable):
             WHERE m.conversation_id = :conversation_id
               AND m.tenant_id = :tenant_id
               AND a.status IN ('testing', 'active')
-              AND (:before_id IS NULL OR m.id < :before_id)
+              AND (CAST(:before_id AS BIGINT) IS NULL
+                   OR m.id < CAST(:before_id AS BIGINT))
             ORDER BY m.id DESC
             LIMIT :limit
         """), {

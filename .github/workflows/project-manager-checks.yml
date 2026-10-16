@@ -71,10 +71,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r backend/requirements.txt 'pytest>=8.0'
+      - run: pip install -r backend/requirements.txt 'pytest>=8.0' 'httpx>=0.27'
       - name: PostgreSQL only — Instagram synthetic delivery tests
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_isolation.py -q
       - name: PostgreSQL only — replay six pinned manual Instagram migrations
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_manual_migrations_postgres.py -q
       - name: PostgreSQL only — read-only Instagram schema drift audit
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_schema_audit_postgres.py -q
+      - name: PostgreSQL only — signed Instagram HTTP to Inbox gated rehearsal
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_signed_http_postgres_e2e.py -q
