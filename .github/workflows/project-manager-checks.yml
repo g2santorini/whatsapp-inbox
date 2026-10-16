@@ -84,3 +84,5 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_supervision_ci.py -q
       - name: PostgreSQL only — exact one-DM pilot delivery and account safety
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_single_dm_pilot_postgres.py -q
+      - name: PostgreSQL only — synthetic privacy retention aggregate preview
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_privacy_retention_pg_preview.py -q
