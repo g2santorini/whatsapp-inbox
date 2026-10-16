@@ -230,6 +230,14 @@ def test_signed_ingress_to_manual_worker_to_tenant_inbox_on_real_postgres(ci_htt
     assert len(messages.json()) == 1
     assert messages.json()[0]["content"] == INBOUND_TEXT
     assert messages.json()[0]["direction"] == "inbound"
+    # PostgreSQL must accept both NULL and supplied before_id pagination.
+    older_page = client.get(
+        f'/channels/instagram/conversations/{conversation["id"]}/messages'
+        f'?tenant_id=1&before_id={messages.json()[0]["id"]}',
+        headers=auth("tenant-a"),
+    )
+    assert older_page.status_code == 200, older_page.text
+    assert older_page.json() == []
     assert "payload_ciphertext" not in str(messages.json())
     assert "provider_message_id" not in messages.json()[0]
 
