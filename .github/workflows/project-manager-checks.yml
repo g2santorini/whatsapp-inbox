@@ -80,3 +80,5 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_schema_audit_postgres.py -q
       - name: PostgreSQL only — signed Instagram HTTP to Inbox gated rehearsal
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_signed_http_postgres_e2e.py -q
+      - name: PostgreSQL only — bounded gated Instagram supervisor rehearsal
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_supervision_ci.py -q
