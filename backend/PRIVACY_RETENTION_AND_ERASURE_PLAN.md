@@ -66,3 +66,54 @@ Implemented `app/privacy_retention_pg_preview.py` for **disposable CI PostgreSQL
 The preview counts legacy conversation age/activity, open or pending conversations, template-batch items linked by either conversation or message, and orphan batch items with neither link. It never declares deletion eligibility, because orphan records, legal holds, provider media/logs, controller responsibilities and backups are not fully reviewed. All tests create **fabricated data only on the ephemeral PostgreSQL CI service**. No live staging or production data is queried or changed.
 
 **Next gated action:** review actual schema and backup readiness, then request separate explicit authorization before **any** aggregate-only query against the shared Render database. This module intentionally refuses to run there. Production deletion/retention enforcement remains OFF.
+
+
+## Phase 3 — offline GDPR request case-management core (16 October 2026)
+
+The new `backend/app/privacy_erasure_cases.py` provides a **pure, immutable
+case-review engine** for simulated data-subject requests. It does not import the
+FastAPI app, SQLAlchemy, production database, background worker or any provider.
+
+### Flow (synthetic/offline only)
+
+1. Only an explicitly supplied active admin/owner within the same tenant can
+   create/review a case; cross-tenant requests fail closed. The case reference
+   must be a random UUIDv4 (NOT a phone number, customer name, Meta ID or email).
+2. Identity-check status can be marked only after externally verified evidence;
+   this module **does not itself verify identity**.
+3. Structured scope checklist: verify controller authority, requester authority,
+   tenant boundary, WhatsApp/Instagram messages, template batch data (including
+   1,518 unlinked batch records observed in the October 16 metadata audit),
+   media, provider-held copies, application logs, backup recovery and legal
+   retention exceptions. Unknown checks always block progress. Explicit legal
+   holds block even when every other check passes.
+4. A complete checklist yields `ready_for_manual_decision` — **not** deletion
+   authorization. There is deliberately NO `delete` operation or success state.
+5. Responses can only be marked recorded after an **external** confirmation;
+   recording a response is not case closure or proof that anything was erased.
+6. Every state transition appends an immutable event with only action code,
+   internal actor user ID and UTC timestamp. No free-text notes, subject
+   identifiers, contact details, message content or media is stored in cases.
+7. The non-identifying preview always reports `erasure_enabled=False`,
+   `erasure_performed=False` and `safe_to_delete_count=0`.
+
+### CI/release and operational gaps
+
+- All tests are fabricated, offline unit tests. They exercise admin-only
+  actions, same-tenant isolation, invalid identity assertions, all missing
+  scope checks, legal holds, response tracking, immutable audit, redacted
+  previews and chronologically ordered timezone-aware timestamps.
+- **No website or actual inbox UI, no API route, no DB persistence or DDL,
+  no real customers, no schedule, no production behavior change.**
+- The actual request workflow needs *secure* persistence and identity evidence
+  storage separated from non-identifying audit events, authenticated role/tenant
+  membership from the existing app, controller instructions and access reviews.
+- Need a policy on holding/restoring backups and reapplying deletion instructions
+  before any production write feature. The live database audit was READ ONLY
+  and is not blanket permission to enable erasure.
+- GDPR response deadlines and exceptions require review by a qualified advisor
+  before sending the final legal pages to Meta. Never claim a simulated request
+  has satisfied an actual data-subject rights request.
+
+The existing live admin `DELETE /conversations/{id}/` endpoint is unchanged.
+The 12-month retention proposal remains **unenforced** in production.
