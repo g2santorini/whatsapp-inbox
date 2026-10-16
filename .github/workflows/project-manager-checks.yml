@@ -82,3 +82,5 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_signed_http_postgres_e2e.py -q
       - name: PostgreSQL only — bounded gated Instagram supervisor rehearsal
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_supervision_ci.py -q
+      - name: PostgreSQL only — exact one-DM pilot delivery and account safety
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_single_dm_pilot_postgres.py -q
