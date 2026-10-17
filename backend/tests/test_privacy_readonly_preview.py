@@ -169,7 +169,7 @@ def test_readonly_module_does_not_import_mutating_case_router():
     from pathlib import Path
     source = (Path(__file__).parents[1] / "app" /
               "privacy_readonly_preview.py").read_text()
-    assert "create_privacy_case_router" not in source
+    assert "privacy_case_api" not in source\n    assert "create_privacy_case_router" not in source
     assert "create_request(" not in source
     assert "update_request(" not in source
     assert "DELETE FROM" not in source
