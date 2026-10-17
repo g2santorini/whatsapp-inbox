@@ -117,3 +117,58 @@ FastAPI app, SQLAlchemy, production database, background worker or any provider.
 
 The existing live admin `DELETE /conversations/{id}/` endpoint is unchanged.
 The 12-month retention proposal remains **unenforced** in production.
+
+
+## Phase 4 — tenant-scoped request persistence and gated REST API (17 October 2026)
+
+**Built as reviewable source + isolated tests. NOT enabled on Sendro staging or
+production. NO live database schema changes, retention purge or message deletion.**
+
+Files:
+- `backend/app/privacy_case_store.py`: creates and updates non-identifying
+  request records, with an atomic append-only audit event per successful
+  transition. Role is derived **from active tenant membership AND the not-disabled
+  users table** on every operation. No trust in roles supplied by a client.
+- `backend/app/privacy_case_api.py`: factory for a private admin REST interface.
+  Its authentication and session dependencies must be injected. **It is
+  intentionally not imported or mounted in `main.py`.** No production route
+  exists yet.
+- `ops/db/20261017_privacy_cases_MANUAL_ONLY.sql`: proposed PostgreSQL DDL
+  creating privacy cases and audit-event tables. Includes tenant-scoped
+  foreign keys, validation, optimistic version tracking, and a DB trigger
+  blocking modifications/deletions of audit events. This is a **manual proposal
+  only**, never executed on Render.
+- `backend/tests/test_privacy_case_api.py`: in-memory SQLite synthetic tests
+  for admin/owner membership, tenant boundary, revoked/disabled operators,
+  rejected personal-data fields, state transitions, audit sequence, and
+  transaction rollback on failure.
+- `backend/tests/test_privacy_case_postgres_ci.py`: isolated GitHub Actions
+  disposable PostgreSQL test for real SQL migration and append-only protection.
+  Hard-gated to the disposable GitHub CI local Postgres host/port/account.
+
+The REST factory offers intake, list, case detail, manual verification
+attestation, structured checklist review and external-response attestation.
+It intentionally has no free-text input, subject email, phone, name, platform
+ID, message content, reservation number, export or delete endpoint. The app
+generates a random UUIDv4 server-side. Audit events contain action, internal
+actor user ID and timestamp only.
+
+**Human attestation is not an identity-proofing service.** Even when every
+checklist item is true, the engine returns `ready_for_manual_decision`, never
+an erasure approval. Every preview reports `erasure_enabled=false` and
+`erasure_performed=false`. There is no database relationship to actual
+customers at this stage, so the module cannot fulfil a GDPR subject request
+yet. A later secured evidence vault/verified identity crosswalk, controller
+instructions, legal review, customer notification process, log/provider/media
+review and backup-restore deletion replay are required.
+
+Release gates:
+1. Do not apply the migration to the shared Render database without **separate
+   owner approval**, verified backup and tested recovery/rollback procedure.
+2. Do not mount the router in `main.py` until migration, auth, RBAC, tenant
+   boundary, rate limiting, CSRF/origin protection where relevant, and operator
+   workflow have completed staging review.
+3. Do not expose real data, permit actual deletion, or promise complete
+   erasure until policy, dependencies and backups have been verified.
+4. The approved read-only aggregate inspection of the shared database on
+   October 16 did not authorize DDL, writes or direct customer reads.
