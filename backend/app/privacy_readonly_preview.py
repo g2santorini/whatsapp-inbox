@@ -9,9 +9,24 @@ from collections.abc import Callable, Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
-from .privacy_case_api import Summary
 from .privacy_case_store import CaseConflict, get_request, list_requests
+
+class PrivacyPreviewOut(BaseModel):
+    """Safe, non-identifying contract. Independent of the mutating case API."""
+    case_ref: str
+    channel: str
+    status: str
+    blockers: list[str]
+    response_recorded: bool
+    audit_events: int
+    mode: str
+    identity_verified_by_system: bool
+    erasure_enabled: bool
+    erasure_performed: bool
+    safe_to_delete_count: int
+
 
 STAGING_RENDER_SERVICE_ID = "srv-d806bq0sfn5c7399akng"
 FLAG_NAME = "SENDRO_PRIVACY_READONLY_PREVIEW"
@@ -54,7 +69,7 @@ def create_privacy_readonly_router(
     """Only GET handlers; never import or register the mutating case API."""
     router = APIRouter(prefix="/privacy/requests", tags=["Privacy read-only preview"])
 
-    @router.get("", response_model=list[Summary])
+    @router.get("", response_model=list[PrivacyPreviewOut])
     def index(
         response: Response,
         tenant_id: int = Query(gt=0),
@@ -69,7 +84,7 @@ def create_privacy_readonly_router(
             user_id=user.id, limit=limit, offset=offset,
         )
 
-    @router.get("/{ref}", response_model=Summary)
+    @router.get("/{ref}", response_model=PrivacyPreviewOut)
     def detail(
         response: Response,
         ref: str = Path(min_length=36, max_length=36),
