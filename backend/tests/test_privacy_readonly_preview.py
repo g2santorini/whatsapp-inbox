@@ -27,6 +27,7 @@ from backend.app.privacy_mfa_session import (
     add_recent_mfa_claim, create_privacy_verified_user_dependency,
     require_recent_mfa_token,
 )
+from backend.app.privacy_preview_guards import PrivacyRequestLimiter
 
 
 bearer = HTTPBearer()
@@ -296,3 +297,66 @@ def test_real_app_only_attests_completed_mfa_and_mounts_protected_dependency():
     assert "mfa_verified_at=" not in normal_login
     assert "mfa_verified_at=now.replace(tzinfo=timezone.utc)" in completed_mfa
     assert "privacy_mfa_session.create_privacy_verified_user_dependency(" in source
+
+
+def test_privacy_limiter_budget_and_window_are_bounded():
+    limiter = PrivacyRequestLimiter(max_calls=2, window_seconds=60, max_users=1)
+    limiter.check(101, now=1000)
+    limiter.check(101, now=1001)
+    with pytest.raises(HTTPException) as exc:
+        limiter.check(101, now=1002)
+    assert exc.value.status_code == 429
+    assert exc.value.headers["Retry-After"] == "58"
+    with pytest.raises(HTTPException) as exc:
+        limiter.check(202, now=1002)
+    assert exc.value.status_code == 429
+    limiter.check(202, now=1061)  # stale user budget expires and is evicted
+    with pytest.raises(HTTPException) as exc:
+        limiter.check(0, now=1061)
+    assert exc.value.status_code == 403
+
+
+def test_privacy_http_guards_noncacheable_for_denials_and_throttling(fake_database):
+    db, ref = fake_database
+    app = FastAPI()
+    assert mount_privacy_readonly_preview(
+        app, user_from_token, db, settings=_enabled_settings(),
+    ) is True
+
+    with TestClient(app) as client:
+        for url, headers in (
+            ("/privacy/requests?tenant_id=101", {}),
+            ("/privacy/requests?tenant_id=101", auth("operator-a")),
+            ("/privacy/requests?tenant_id=-1", auth()),
+            (f"/privacy/requests/{ref}?tenant_id=202", auth()),
+        ):
+            result = client.get(url, headers=headers)
+            assert result.status_code in (401, 403, 404, 422)
+            assert result.headers["cache-control"] == "no-store, private"
+            assert result.headers["pragma"] == "no-cache"
+            assert result.headers["x-robots-tag"] == "noindex, nofollow"
+
+        # The earlier authorized cross-tenant 404 also consumes one budget slot.
+        for _ in range(29):
+            response = client.get("/privacy/requests?tenant_id=101", headers=auth())
+            assert response.status_code == 200
+        result = client.get(
+            f"/privacy/requests/{ref}?tenant_id=101", headers=auth())
+        assert result.status_code == 429
+        assert int(result.headers["Retry-After"]) >= 1
+        assert result.headers["cache-control"] == "no-store, private"
+        assert result.headers["x-robots-tag"] == "noindex, nofollow"
+
+
+def test_http_guards_are_staging_flag_gated(fake_database):
+    db, _ = fake_database
+    app = FastAPI()
+    assert mount_privacy_readonly_preview(
+        app, user_from_token, db, settings={},
+    ) is False
+    assert not any(
+        entry.cls.__name__ == "PrivacyNoStoreMiddleware"
+        for entry in app.user_middleware
+    )
+    with TestClient(app) as client:
+        assert client.get("/privacy/requests?tenant_id=101").status_code == 404
