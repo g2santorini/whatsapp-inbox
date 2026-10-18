@@ -3,14 +3,16 @@
 All HTTP/tenant tests use synthetic records in in-memory SQLite. This test
 does not require or connect to Render's shared PostgreSQL database.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.routing import APIRoute
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
+from jose import JWTError, jwt
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -20,6 +22,10 @@ from backend.app.privacy_readonly_preview import (
     STAGING_RENDER_SERVICE_ID, FLAG_NAME, APPROVAL_NAME, APPROVAL_VALUE,
     create_privacy_readonly_router, mount_privacy_readonly_preview,
     preview_is_allowed,
+)
+from backend.app.privacy_mfa_session import (
+    add_recent_mfa_claim, create_privacy_verified_user_dependency,
+    require_recent_mfa_token,
 )
 
 
@@ -184,3 +190,109 @@ def test_readonly_module_does_not_import_mutating_case_router():
     assert "DELETE FROM" not in source
     assert "INSERT INTO" not in source
     assert "UPDATE public" not in source
+
+
+def test_privacy_step_up_requires_signed_recent_mfa_and_enrollment():
+    secret = "synthetic-privacy-step-up-test-secret"
+    now = int(time.time())
+    user = SimpleNamespace(username="admin-a", mfa_enabled=True)
+    base = {"sub": "admin-a", "exp": now + 3600, "ver": 1}
+    verified = add_recent_mfa_claim(
+        base, datetime.fromtimestamp(now - 30, tz=timezone.utc),
+    )
+    assert base.get("mfa_verified_at") is None  # non-mutating
+    token = jwt.encode(verified, secret, algorithm="HS256")
+    assert require_recent_mfa_token(
+        user, token=token, secret_key=secret, algorithm="HS256", now_epoch=now,
+    ) is user
+
+    with pytest.raises(ValueError):
+        add_recent_mfa_claim(base, datetime.utcnow())
+
+    variants = [
+        base,  # password-only or trusted-device token
+        {**verified, "mfa_verified_at": now - 601},  # stale
+        {**verified, "mfa_verified_at": now + 1},  # future time
+        {**verified, "mfa_verified_at": True},  # bool is not a timestamp
+        {**verified, "mfa_verified_at": "recent"},  # untrusted type
+        {**verified, "sub": "someone-else"},  # wrong principal
+        {**verified, "exp": now - 1},  # expired JWT
+    ]
+    for payload in variants:
+        candidate = jwt.encode(payload, secret, algorithm="HS256")
+        with pytest.raises(HTTPException) as exc:
+            require_recent_mfa_token(
+                user, token=candidate, secret_key=secret,
+                algorithm="HS256", now_epoch=now,
+            )
+        assert exc.value.status_code in (401, 403)
+
+    forged = jwt.encode(verified, "different-secret", algorithm="HS256")
+    with pytest.raises(HTTPException) as exc:
+        require_recent_mfa_token(
+            user, token=forged, secret_key=secret, algorithm="HS256",
+            now_epoch=now,
+        )
+    assert exc.value.status_code == 401
+
+    user_without_mfa = SimpleNamespace(username="admin-a", mfa_enabled=False)
+    with pytest.raises(HTTPException) as exc:
+        require_recent_mfa_token(
+            user_without_mfa, token=token, secret_key=secret,
+            algorithm="HS256", now_epoch=now,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_step_up_dependency_in_real_http_flow():
+    """Use synthetic signed JWTs, never live Sendro users or the shared database."""
+    secret = "synthetic-private-route-signing-secret"
+    scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+    def synthetic_active_user(token: str = Depends(scheme)):
+        try:
+            claims = jwt.decode(token, secret, algorithms=["HS256"])
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return SimpleNamespace(username=claims["sub"], mfa_enabled=True)
+
+    guarded = create_privacy_verified_user_dependency(
+        synthetic_active_user, scheme, secret_key=secret, algorithm="HS256",
+    )
+    app = FastAPI()
+
+    @app.get("/synthetic-privacy-probe")
+    def probe(user=Depends(guarded)):
+        return {"username": user.username}
+
+    now = int(time.time())
+
+    def headers(proof):
+        payload = {"sub": "synthetic-admin", "exp": now + 3600, "ver": 1}
+        if proof is not None:
+            payload["mfa_verified_at"] = proof
+        return {"Authorization": "Bearer " + jwt.encode(
+            payload, secret, algorithm="HS256",
+        )}
+
+    with TestClient(app) as client:
+        good = client.get("/synthetic-privacy-probe", headers=headers(now - 10))
+        assert good.status_code == 200
+        assert good.json()["username"] == "synthetic-admin"
+        assert client.get("/synthetic-privacy-probe", headers=headers(None)).status_code == 403
+        assert client.get("/synthetic-privacy-probe", headers=headers(now - 900)).status_code == 403
+        assert client.get("/synthetic-privacy-probe").status_code in (401, 403)
+
+
+def test_real_app_only_attests_completed_mfa_and_mounts_protected_dependency():
+    from pathlib import Path
+    source = (Path(__file__).parents[1] / "app" / "main.py").read_text()
+    normal_login = source.split('@app.post("/token",', 1)[1].split(
+        '@app.post("/token/mfa",', 1,
+    )[0]
+    completed_mfa = source.split('@app.post("/token/mfa",', 1)[1].split(
+        '@app.get("/users/me/",', 1,
+    )[0]
+    assert "mfa_verified_at=" not in normal_login
+    assert "mfa_verified_at=now.replace(tzinfo=timezone.utc)" in completed_mfa
+    assert "privacy_mfa_session.create_privacy_verified_user_dependency(" in source
