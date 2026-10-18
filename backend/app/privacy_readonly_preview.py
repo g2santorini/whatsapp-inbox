@@ -62,6 +62,14 @@ def _no_store(response: Response) -> None:
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
 
 
+def _require_mfa(user) -> None:
+    """All privacy reviewers must have MFA enabled, regardless of tenant role."""
+    if not getattr(user, "mfa_enabled", False):
+        raise HTTPException(
+            status_code=403, detail="Authenticator required for privacy access",
+        )
+
+
 def create_privacy_readonly_router(
     get_current_active_user: Callable,
     get_case_db: Callable,
@@ -79,6 +87,7 @@ def create_privacy_readonly_router(
         user=Depends(get_current_active_user),
     ):
         _no_store(response)
+        _require_mfa(user)
         return _read_safe(
             list_requests, db=db, tenant_id=tenant_id,
             user_id=user.id, limit=limit, offset=offset,
@@ -93,6 +102,7 @@ def create_privacy_readonly_router(
         user=Depends(get_current_active_user),
     ):
         _no_store(response)
+        _require_mfa(user)
         return _read_safe(
             get_request, db=db, tenant_id=tenant_id,
             user_id=user.id, ref=ref,
