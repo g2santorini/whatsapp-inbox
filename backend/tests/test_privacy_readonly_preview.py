@@ -336,7 +336,8 @@ def test_privacy_http_guards_noncacheable_for_denials_and_throttling(fake_databa
             assert result.headers["pragma"] == "no-cache"
             assert result.headers["x-robots-tag"] == "noindex, nofollow"
 
-        for _ in range(30):
+        # The earlier authorized cross-tenant 404 also consumes one budget slot.
+        for _ in range(29):
             response = client.get("/privacy/requests?tenant_id=101", headers=auth())
             assert response.status_code == 200
         result = client.get(
