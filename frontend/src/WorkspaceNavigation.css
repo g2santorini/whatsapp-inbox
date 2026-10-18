@@ -39,3 +39,14 @@
     display: none;
   }
 }
+
+.sendro-global-tab-symbol.privacy {color:#347eaf;}
+.sendro-global-tab.is-active .sendro-global-tab-symbol.privacy {color:#fff;}
+@media(max-width:1000px) {
+  .sendro-inbox-top-tabs .sendro-global-tabs.has-privacy {
+    display:flex;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;gap:6px;
+  }
+  .sendro-inbox-top-tabs .sendro-global-tabs.has-privacy .sendro-global-tab {
+    flex:0 0 auto;min-width:max-content;font-size:11px;padding:8px 10px;
+  }
+}
