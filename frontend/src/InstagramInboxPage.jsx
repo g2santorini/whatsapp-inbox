@@ -24,6 +24,8 @@ export default function InstagramInboxPage({
   currentUser,
   onWhatsApp,
   onProjects,
+  onPrivacy,
+  showPrivacy = false,
   onLogout,
 }) {
   const [tenants, setTenants] = useState([]);
@@ -140,9 +142,11 @@ export default function InstagramInboxPage({
           showInbox
           showInstagram
           showProjects
+          showPrivacy={showPrivacy}
           onInbox={onWhatsApp}
           onInstagram={() => setRefreshId((value) => value + 1)}
           onProjects={onProjects}
+          onPrivacy={onPrivacy}
         />
         <div className="ig-user-controls">
           <span>{currentUser?.username}</span>
