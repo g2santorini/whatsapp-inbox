@@ -5,6 +5,7 @@ does not require or connect to Render's shared PostgreSQL database.
 """
 from datetime import datetime, timedelta, timezone
 import time
+import logging
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -28,6 +29,9 @@ from backend.app.privacy_mfa_session import (
     require_recent_mfa_token,
 )
 from backend.app.privacy_preview_guards import PrivacyRequestLimiter
+from backend.app.privacy_access_log import (
+    PrivacyAccessLogFilter, install_privacy_access_log_filter,
+)
 
 
 bearer = HTTPBearer()
@@ -360,3 +364,49 @@ def test_http_guards_are_staging_flag_gated(fake_database):
     )
     with TestClient(app) as client:
         assert client.get("/privacy/requests?tenant_id=101").status_code == 404
+
+
+def test_privacy_log_filter_removes_case_ref_and_tenant_query_only():
+    path = "/privacy/requests/11111111-2222-3333-4444-555555555555?tenant_id=101"
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "synthetic.py", 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "GET", path, "1.1", 200), None,
+    )
+    assert PrivacyAccessLogFilter().filter(record) is True
+    rendered = record.getMessage()
+    assert '/privacy/requests/[redacted]' in rendered
+    assert "tenant_id" not in rendered
+    assert "11111111-2222-3333-4444-555555555555" not in rendered
+    assert '"GET ' in rendered
+    assert "200" in rendered
+
+    other = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "synthetic.py", 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "GET", "/conversations?limit=50", "1.1", 200), None,
+    )
+    expected = other.getMessage()
+    assert PrivacyAccessLogFilter().filter(other) is True
+    assert other.getMessage() == expected
+
+    direct = logging.LogRecord(
+        "uvicorn.access", logging.INFO, "synthetic.py", 1,
+        '127.0.0.1 - "GET /privacy/requests?tenant_id=202 HTTP/1.1" 403',
+        (), None,
+    )
+    assert PrivacyAccessLogFilter().filter(direct) is True
+    assert 'tenant_id' not in direct.getMessage()
+    assert '/privacy/requests/[redacted]' in direct.getMessage()
+
+
+def test_privacy_log_filter_installation_is_idempotent():
+    logger = logging.getLogger("sendro.synthetic.privacy-logging")
+    before = list(logger.filters)
+    try:
+        install_privacy_access_log_filter(logger)
+        install_privacy_access_log_filter(logger)
+        assert sum(isinstance(f, PrivacyAccessLogFilter)
+                   for f in logger.filters) == 1
+    finally:
+        logger.filters[:] = before
