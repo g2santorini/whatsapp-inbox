@@ -113,3 +113,20 @@ certified secure erasure operation; storage encryption/access policy matters.
 - Keep the feature OFF until the remaining review is explicitly approved;
   production remains OFF, and no database changes or GDPR mutation routes
   are authorized.
+
+
+## Additional follow-up (18 Oct 2026): Uvicorn access URL redaction
+
+- Read-only Render log sampling found application access logs that include URL
+  query strings. Even an opaque case reference and tenant ID should not be
+  recorded in routine application access logs when preview is enabled.
+- An optional, privacy-preview-gated Uvicorn access-log filter redacts the
+  entire \`/privacy/requests\` path/query segment while retaining HTTP method,
+  status and ordinary application logs. Installation is idempotent.
+- **Important limitation:** this filter covers only \`uvicorn.access\`
+  application log records. Render edge/proxy logs, ingress telemetry, third-party
+  monitoring, and log retention controls are not modified by this code. Those
+  must still be verified independently before enabling the preview.
+- The filter does not remove client IP addresses or timestamps. Treat request
+  logs as access-controlled metadata subject to a retention policy.
+- No output containing live customer/request data was used in synthetic tests.
