@@ -12,7 +12,7 @@ import qrcode
 import qrcode.image.svg
 import requests
 from cryptography.fernet import Fernet, InvalidToken
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from dotenv import load_dotenv
@@ -44,7 +44,7 @@ from .reporting_service import get_template_report_items_data
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 from .instagram_webhook import router as instagram_webhook_router
 from . import instagram_inbox_api
-from . import privacy_readonly_preview
+from . import privacy_readonly_preview, privacy_mfa_session
 
 load_dotenv()
 
@@ -1755,12 +1755,16 @@ def verify_and_consume_mfa_code(user: models.User, code: str) -> bool:
     return False
 
 
-def issue_access_token_for_user(user: models.User) -> Token:
+def issue_access_token_for_user(
+    user: models.User, *, mfa_verified_at: datetime | None = None,
+) -> Token:
+    token_data = {"sub": user.username, "ver": user.auth_version or 1}
+    if mfa_verified_at is not None:
+        token_data = privacy_mfa_session.add_recent_mfa_claim(
+            token_data, mfa_verified_at,
+        )
     access_token = create_access_token(
-        data={
-            "sub": user.username,
-            "ver": user.auth_version or 1,
-        },
+        data=token_data,
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return Token(access_token=access_token, token_type="bearer")
@@ -2260,7 +2264,12 @@ app.include_router(instagram_inbox_api.create_instagram_inbox_router(get_current
 # A staging instance may mount after separately-reviewed environment flags.
 # Staging and production share the live PostgreSQL: no privacy mutations here.
 privacy_readonly_preview.mount_privacy_readonly_preview(
-    app, get_current_active_user, get_db,
+    app,
+    privacy_mfa_session.create_privacy_verified_user_dependency(
+        get_current_active_user, oauth2_scheme,
+        secret_key=SECRET_KEY, algorithm=ALGORITHM,
+    ),
+    get_db,
 )
 
 
@@ -4591,7 +4600,9 @@ def complete_mfa_login(
     else:
         db.commit()
 
-    return issue_access_token_for_user(user)
+    return issue_access_token_for_user(
+        user, mfa_verified_at=now.replace(tzinfo=timezone.utc),
+    )
 
 
 @app.get("/users/me/", response_model=schemas.UserOut)
