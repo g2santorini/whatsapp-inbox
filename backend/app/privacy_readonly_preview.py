@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from .privacy_case_store import CaseConflict, get_request, list_requests
+from .privacy_preview_guards import PrivacyRequestLimiter, PrivacyNoStoreMiddleware
 
 class PrivacyPreviewOut(BaseModel):
     """Safe, non-identifying contract. Independent of the mutating case API."""
@@ -76,6 +77,7 @@ def create_privacy_readonly_router(
 ) -> APIRouter:
     """Only GET handlers; never import or register the mutating case API."""
     router = APIRouter(prefix="/privacy/requests", tags=["Privacy read-only preview"])
+    limiter = PrivacyRequestLimiter(max_calls=30, window_seconds=60)
 
     @router.get("", response_model=list[PrivacyPreviewOut])
     def index(
@@ -88,6 +90,7 @@ def create_privacy_readonly_router(
     ):
         _no_store(response)
         _require_mfa(user)
+        limiter.check(user.id)
         return _read_safe(
             list_requests, db=db, tenant_id=tenant_id,
             user_id=user.id, limit=limit, offset=offset,
@@ -103,6 +106,7 @@ def create_privacy_readonly_router(
     ):
         _no_store(response)
         _require_mfa(user)
+        limiter.check(user.id)
         return _read_safe(
             get_request, db=db, tenant_id=tenant_id,
             user_id=user.id, ref=ref,
@@ -122,4 +126,5 @@ def mount_privacy_readonly_preview(
     app.include_router(create_privacy_readonly_router(
         get_current_active_user, get_case_db,
     ))
+    app.add_middleware(PrivacyNoStoreMiddleware)
     return True
