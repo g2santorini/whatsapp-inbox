@@ -30,10 +30,14 @@ def user_from_token(token: HTTPAuthorizationCredentials = Depends(bearer)):
     identities = {
         "admin-a": 11, "owner-b": 22, "operator-a": 33,
         "admin-b": 44, "inactive-a": 55, "disabled-a": 66,
+        "no-mfa-admin-a": 77,
     }
     if token.credentials not in identities:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return SimpleNamespace(id=identities[token.credentials])
+    return SimpleNamespace(
+        id=identities[token.credentials],
+        mfa_enabled=token.credentials != "no-mfa-admin-a",
+    )
 
 
 def auth(value="admin-a"):
@@ -59,10 +63,11 @@ def fake_database():
             seq INTEGER, actor_user_id INTEGER, action TEXT, recorded_at TEXT,
             UNIQUE(case_ref, seq))""")
         con.exec_driver_sql("""INSERT INTO public.users VALUES
-            (11,0),(22,0),(33,0),(44,0),(55,0),(66,1)""")
+            (11,0),(22,0),(33,0),(44,0),(55,0),(66,1),(77,0)""")
         con.exec_driver_sql("""INSERT INTO public.sendro_tenant_users VALUES
             (101,11,'admin',1),(202,22,'owner',1),(101,33,'operator',1),
-            (202,44,'admin',1),(101,55,'admin',0),(101,66,'admin',1)""")
+            (202,44,'admin',1),(101,55,'admin',0),(101,66,'admin',1),
+            (101,77,'admin',1)""")
         ref = str(uuid4())
         when = datetime.now(timezone.utc).isoformat()
         con.execute(text("""INSERT INTO public.sendro_privacy_cases
@@ -143,9 +148,12 @@ def test_enabled_preview_get_only_tenant_scoped_and_non_cacheable(fake_database)
         assert client.get(f"/privacy/requests/{ref}?tenant_id=101",
             headers=auth()).json() == listing.json()[0]
 
-        for token in ("operator-a", "inactive-a", "disabled-a", "owner-b"):
+        for token in ("operator-a", "inactive-a", "disabled-a", "owner-b",
+                      "no-mfa-admin-a"):
             assert client.get("/privacy/requests?tenant_id=101",
                 headers=auth(token)).status_code == 403
+        assert client.get(f"/privacy/requests/{ref}?tenant_id=101",
+            headers=auth("no-mfa-admin-a")).status_code == 403
         assert client.get("/privacy/requests?tenant_id=202",
             headers=auth("owner-b")).json() == []
         assert client.get(f"/privacy/requests/{ref}?tenant_id=202",
