@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from .privacy_case_store import CaseConflict, get_request, list_requests
 from .privacy_preview_guards import PrivacyRequestLimiter, PrivacyNoStoreMiddleware
+from .privacy_access_log import install_privacy_access_log_filter
 
 class PrivacyPreviewOut(BaseModel):
     """Safe, non-identifying contract. Independent of the mutating case API."""
@@ -127,4 +128,5 @@ def mount_privacy_readonly_preview(
         get_current_active_user, get_case_db,
     ))
     app.add_middleware(PrivacyNoStoreMiddleware)
+    install_privacy_access_log_filter()
     return True
