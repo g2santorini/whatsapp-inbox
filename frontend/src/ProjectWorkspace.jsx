@@ -34,7 +34,7 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function ProjectWorkspace({ currentUser, onBack, onOpenConversation, onLogout }) {
+export default function ProjectWorkspace({ currentUser, onBack, onOpenConversation, onLogout, showPrivacy = false, onPrivacy }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [whatsappUnreadCount, setWhatsappUnreadCount] = useState(0);
   const canAccessWhatsApp = !['developer', 'project_viewer'].includes(currentUser.role);
@@ -299,8 +299,10 @@ export default function ProjectWorkspace({ currentUser, onBack, onOpenConversati
             active="projects"
             showInbox={canAccessWhatsApp}
             showProjects
+            showPrivacy={showPrivacy}
             unreadCount={whatsappUnreadCount}
             onInbox={onBack}
+            onPrivacy={onPrivacy}
           />
           <span className="pm-topbar-role">{currentUser.role === 'project_viewer' ? 'Read only' : activeSection === 'pool' ? 'Open Pool' : activeSection === 'projects' ? 'Projects' : activeSection === 'team' ? 'Team' : activeSection === 'tasks' ? 'Tasks' : 'Overview'}</span>
         </header>
