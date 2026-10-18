@@ -87,3 +87,29 @@ the exact paths** is it appropriate to remove the two temporary copies.
 Do not delete any `C:\Program Files\PostgreSQL` directory or the original
 downloaded archive during cleanup. Ordinary file deletion on SSD is not a
 certified secure erasure operation; storage encryption/access policy matters.
+
+
+## Follow-up review (18 Oct 2026): rate limiting, CORS, and logging
+
+- A separate hardening PR proposes an **in-memory** budget of **30 GET requests
+  per minute per active reviewer** across both preview routes. Exceeding it
+  returns HTTP 429 with `Retry-After`. This is intentionally a lightweight
+  single-instance staging mitigation; multiple replicas/worker processes would
+  require a shared distributed limiter before real SaaS rollout.
+- The hardening adds `Cache-Control: no-store, private`, `Pragma: no-cache`,
+  `Expires: 0`, and `X-Robots-Tag` to all privacy HTTP responses, including
+  authentication/validation/rate-limit denials. Intermediary CDN/proxy
+  behavior still needs verification.
+- The existing backend uses `CORS_ALLOWED_ORIGINS` as an origin allowlist,
+  with broad allowed methods and headers. Its **effective value on Render is
+  not exposed by the read-only service API**: inspect staging manually
+  before approving flags. Do not broadly change the global CORS settings
+  as part of this GDPR-only feature. CORS does **not** replace JWT and
+  tenant authorization.
+- Render request access logs might contain privacy URL paths (including opaque
+  `case_ref`) and the `tenant_id` query parameter; verify retention, access
+  and proxy behavior without dumping live logs or customer data. Do not put
+  names, emails, phone numbers, user secrets or tokens into privacy URLs.
+- Keep the feature OFF until the remaining review is explicitly approved;
+  production remains OFF, and no database changes or GDPR mutation routes
+  are authorized.
