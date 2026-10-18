@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from .privacy_case_store import CaseConflict, get_request, list_requests
+from .privacy_case_store import CaseConflict, get_request, list_requests, list_review_tenants
 from .privacy_preview_guards import PrivacyRequestLimiter, PrivacyNoStoreMiddleware
 from .privacy_access_log import install_privacy_access_log_filter
 
@@ -28,6 +28,12 @@ class PrivacyPreviewOut(BaseModel):
     erasure_enabled: bool
     erasure_performed: bool
     safe_to_delete_count: int
+
+
+class PrivacyTenantOut(BaseModel):
+    """Minimal tenant discovery for an already-authorized GDPR reviewer."""
+    id: int
+    display_name: str
 
 
 STAGING_RENDER_SERVICE_ID = "srv-d806bq0sfn5c7399akng"
@@ -96,6 +102,17 @@ def create_privacy_readonly_router(
             list_requests, db=db, tenant_id=tenant_id,
             user_id=user.id, limit=limit, offset=offset,
         )
+
+    @router.get("/tenants", response_model=list[PrivacyTenantOut])
+    def my_review_tenants(
+        response: Response,
+        db: Session = Depends(get_case_db),
+        user=Depends(get_current_active_user),
+    ):
+        _no_store(response)
+        _require_mfa(user)
+        limiter.check(user.id)
+        return _read_safe(list_review_tenants, db=db, user_id=user.id)
 
     @router.get("/{ref}", response_model=PrivacyPreviewOut)
     def detail(

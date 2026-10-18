@@ -5,9 +5,10 @@ import SettingsPanel from './components/SettingsPanel';
 import ProjectWorkspace from './ProjectWorkspace';
 import WorkspaceTabs from './WorkspaceTabs';
 import InstagramInboxPage from './InstagramInboxPage';
+import PrivacyManager from './PrivacyManager';
 import InstagramThreadPreview from './InstagramThreadPreview';
 import { buildUnifiedInboxRows } from './unifiedInboxRows';
-import { getInstagramTenants, getInstagramConversations } from './api';
+import { getInstagramTenants, getInstagramConversations, getPrivacyTenants } from './api';
 import './UnifiedInbox.css';
 import {
   getToken,
@@ -97,9 +98,12 @@ const APP_PAGES = {
   PROJECTS: 'projects',
   INBOX: 'inbox',
   INSTAGRAM: 'instagram',
+  PRIVACY: 'privacy',
   REPORTS: 'reports',
   SETTINGS: 'settings',
 };
+
+const GDPR_STAGING_FRONTEND = window.location.hostname === 'sendro-frontend-staging.onrender.com' || import.meta.env.DEV;
 
 const EMPTY_REQUIRED_PASSWORD_CHANGE = {
   currentPassword: '',
@@ -927,6 +931,24 @@ function App() {
   const [token, setToken] = useState(getToken());
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
+  const [privacyTenants, setPrivacyTenants] = useState([]);
+
+  useEffect(() => {
+    if (!GDPR_STAGING_FRONTEND || !token || !user?.id || !user.mfa_enabled ||
+        user.must_change_password || user.mfa_setup_required ||
+        ['developer', 'project_viewer'].includes(user.role)) return undefined;
+    const controller = new AbortController();
+    let active = true;
+    getPrivacyTenants({ signal: controller.signal })
+      .then((items) => {
+        if (active) setPrivacyTenants(Array.isArray(items) ? items : []);
+      })
+      .catch(() => {
+        if (active) setPrivacyTenants([]);
+      });
+    return () => { active = false; controller.abort(); };
+  }, [token, user?.id, user?.mfa_enabled, user?.role,
+    user?.must_change_password, user?.mfa_setup_required]);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -961,6 +983,7 @@ function App() {
   const [activePage, setActivePage] = useState(() => {
     if (window.location.hash === '#/projects') return APP_PAGES.PROJECTS;
     if (window.location.hash === '#/instagram') return APP_PAGES.INSTAGRAM;
+    if (window.location.hash === '#/privacy') return APP_PAGES.PRIVACY;
     return APP_PAGES.INBOX;
   });
   const [isPageVisible, setIsPageVisible] = useState(
@@ -1122,6 +1145,10 @@ function App() {
       user.role === 'power_user' ||
       Boolean(user.can_view_reports)
     );
+
+  const canOpenPrivacy = GDPR_STAGING_FRONTEND && privacyTenants.length > 0 &&
+    user?.mfa_enabled && !user?.must_change_password && !user?.mfa_setup_required &&
+    !['developer', 'project_viewer'].includes(user?.role);
 
   function isDoneConversation(conversation) {
     return conversation.status === 'closed';
@@ -2747,6 +2774,7 @@ function App() {
     setToken(null);
     setUser(null);
     setUsers([]);
+    setPrivacyTenants([]);
     setConversations([]);
     setConversationSummary(null);
     setInstagramConversations([]);
@@ -3046,6 +3074,18 @@ function App() {
     setSelectedConversation(null);
     setActivePage(APP_PAGES.INSTAGRAM);
     window.location.hash = '#/instagram';
+  }
+
+  function goToPrivacyManager() {
+    if (!canOpenPrivacy) return;
+    setError('');
+    setIsMobileChatOpen(false);
+    setIsMobileSearchOpen(false);
+    setMobileDrawerMode(null);
+    setShowNewConversationForm(false);
+    setSelectedConversation(null);
+    setActivePage(APP_PAGES.PRIVACY);
+    window.location.hash = '#/privacy';
   }
 
   function goToWhatsAppInbox() {
@@ -4767,6 +4807,8 @@ function App() {
       <ProjectWorkspace
         currentUser={user}
         onLogout={handleLogout}
+        showPrivacy={canOpenPrivacy}
+        onPrivacy={goToPrivacyManager}
         onBack={user.role === 'developer' || user.role === 'project_viewer' ? null : goToWhatsAppInbox}
         onOpenConversation={user.role === 'developer' || user.role === 'project_viewer' ? null : openConversationFromProjectPanel}
       />
@@ -4778,6 +4820,21 @@ function App() {
       <InstagramInboxPage
         currentUser={user}
         onWhatsApp={goToWhatsAppInbox}
+        onProjects={goToProjects}
+        onPrivacy={goToPrivacyManager}
+        showPrivacy={canOpenPrivacy}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (activePage === APP_PAGES.PRIVACY && canOpenPrivacy) {
+    return (
+      <PrivacyManager
+        currentUser={user}
+        tenants={privacyTenants}
+        onWhatsApp={goToWhatsAppInbox}
+        onInstagram={goToInstagramInbox}
         onProjects={goToProjects}
         onLogout={handleLogout}
       />
@@ -4829,10 +4886,12 @@ function App() {
           showInbox
           showInstagram
           showProjects
+          showPrivacy={canOpenPrivacy}
           unreadCount={inboxUnreadCount}
           onInbox={goToWhatsAppInbox}
           onInstagram={goToInstagramInbox}
           onProjects={goToProjects}
+          onPrivacy={goToPrivacyManager}
         />
       </div>
 
@@ -4990,10 +5049,12 @@ function App() {
             showInbox
             showInstagram
           showProjects
+          showPrivacy={canOpenPrivacy}
             unreadCount={inboxUnreadCount}
             onInbox={goToWhatsAppInbox}
             onInstagram={goToInstagramInbox}
           onProjects={goToProjects}
+          onPrivacy={goToPrivacyManager}
           />
           <div className="workspace-tools">
             <strong className="sendro-company-label">Sunset Oia</strong>

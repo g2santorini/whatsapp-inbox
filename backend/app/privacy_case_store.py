@@ -176,3 +176,27 @@ def update_request(db, *, tenant_id, user_id, ref, action,
     except Exception:
         db.rollback()
         raise
+
+
+def list_review_tenants(db, *, user_id):
+    """List only tenants with an active owner/admin membership for this user.
+
+    Do not reuse Instagram tenant discovery; those memberships have
+    different privacy roles and depend on Instagram account configuration.
+    """
+    if type(user_id) is not int or user_id < 1:
+        raise PermissionError("Denied")
+    try:
+        rows = db.execute(text("""
+            SELECT t.id, t.display_name
+            FROM public.sendro_tenant_users tu
+            INNER JOIN public.sendro_tenants t ON t.id = tu.tenant_id
+            INNER JOIN public.users u ON u.id = tu.user_id
+            WHERE tu.user_id = :uid AND tu.is_active = TRUE
+              AND u.disabled = FALSE
+              AND tu.member_role IN ('owner', 'admin')
+            ORDER BY t.display_name, t.id
+        """), {"uid": user_id}).mappings().all()
+        return [dict(row) for row in rows]
+    finally:
+        db.rollback()

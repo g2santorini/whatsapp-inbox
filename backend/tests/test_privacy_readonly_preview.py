@@ -62,6 +62,10 @@ def fake_database():
     with engine.begin() as con:
         con.exec_driver_sql("ATTACH DATABASE ':memory:' AS public")
         con.exec_driver_sql("CREATE TABLE public.users(id INTEGER PRIMARY KEY, disabled BOOLEAN)")
+        con.exec_driver_sql("""CREATE TABLE public.sendro_tenants(
+            id INTEGER PRIMARY KEY, display_name TEXT NOT NULL)""")
+        con.exec_driver_sql("""INSERT INTO public.sendro_tenants VALUES
+            (101,'Company A'),(202,'Company B'),(303,'No membership')""")
         con.exec_driver_sql("""CREATE TABLE public.sendro_tenant_users(
             tenant_id INTEGER, user_id INTEGER, member_role TEXT, is_active BOOLEAN,
             PRIMARY KEY (tenant_id, user_id))""")
@@ -141,7 +145,7 @@ def test_enabled_preview_get_only_tenant_scoped_and_non_cacheable(fake_database)
         route for route in app.routes if isinstance(route, APIRoute)
         and route.path.startswith("/privacy/requests")
     ]
-    assert len(privacy_routes) == 2
+    assert len(privacy_routes) == 3
     assert set.union(*(route.methods for route in privacy_routes)) == {"GET"}
     for route in privacy_routes:
         assert user_from_token in {
@@ -410,3 +414,48 @@ def test_privacy_log_filter_installation_is_idempotent():
                    for f in logger.filters) == 1
     finally:
         logger.filters[:] = before
+
+
+def test_privacy_reviewer_tenant_discovery_is_mfa_guarded_and_scoped(fake_database):
+    """Synthetic identities only: no Render database reads or writes."""
+    db, _ = fake_database
+    app = FastAPI()
+    assert mount_privacy_readonly_preview(
+        app, user_from_token, db, settings=_enabled_settings(),
+    ) is True
+
+    with TestClient(app) as client:
+        a = client.get("/privacy/requests/tenants", headers=auth("admin-a"))
+        assert a.status_code == 200
+        assert a.json() == [{"id": 101, "display_name": "Company A"}]
+        assert a.headers["cache-control"] == "no-store, private"
+
+        b = client.get("/privacy/requests/tenants", headers=auth("owner-b"))
+        assert b.status_code == 200
+        assert b.json() == [{"id": 202, "display_name": "Company B"}]
+
+        op = client.get("/privacy/requests/tenants", headers=auth("operator-a"))
+        assert op.status_code == 200
+        assert op.json() == []  # Not an owner/admin: no GDPR tab.
+
+        for identity in ("inactive-a", "disabled-a", "no-mfa-admin-a"):
+            denied = client.get("/privacy/requests/tenants", headers=auth(identity))
+            if identity == "no-mfa-admin-a":
+                assert denied.status_code == 403
+            else:
+                assert denied.status_code == 200
+                assert denied.json() == []
+            assert denied.headers["cache-control"] == "no-store, private"
+
+        missing = client.get("/privacy/requests/tenants")
+        assert missing.status_code in (401, 403)
+        assert missing.headers["cache-control"] == "no-store, private"
+
+        assert client.post("/privacy/requests/tenants", headers=auth(), json={}).status_code in (404, 405)
+
+    off = FastAPI()
+    assert mount_privacy_readonly_preview(
+        off, user_from_token, db, settings={},
+    ) is False
+    with TestClient(off) as client:
+        assert client.get("/privacy/requests/tenants", headers=auth()).status_code == 404

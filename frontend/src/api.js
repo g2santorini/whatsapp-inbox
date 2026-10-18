@@ -504,3 +504,21 @@ export async function getTemplateReportItems(filters = {}) {
 
   return apiRequest(`/template-report-items/?${queryString}`);
 }
+
+
+// GET-only staging GDPR preview. The server enforces MFA and tenant isolation.
+export async function getPrivacyTenants(options = {}) {
+  return apiRequest('/privacy/requests/tenants', { signal: options.signal });
+}
+
+export async function getPrivacyCases(tenantId, options = {}) {
+  const query = new URLSearchParams({ tenant_id: String(tenantId), limit: '50', offset: '0' });
+  return apiRequest(`/privacy/requests?${query}`, { signal: options.signal });
+}
+
+export async function getPrivacyCase(tenantId, caseRef, options = {}) {
+  const query = new URLSearchParams({ tenant_id: String(tenantId) });
+  return apiRequest(`/privacy/requests/${encodeURIComponent(caseRef)}?${query}`, {
+    signal: options.signal,
+  });
+}

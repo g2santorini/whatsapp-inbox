@@ -5,13 +5,15 @@ export default function WorkspaceTabs({
   showInbox = true,
   showInstagram = false,
   showProjects = true,
+  showPrivacy = false,
   unreadCount = 0,
   onInbox,
   onInstagram,
   onProjects,
+  onPrivacy,
 }) {
   return (
-    <nav className={`sendro-global-tabs ${showInstagram ? 'has-instagram' : '' }`} aria-label="Sendro applications">
+    <nav className={`sendro-global-tabs ${showInstagram ? 'has-instagram' : ''} ${showPrivacy ? 'has-privacy' : ''}`} aria-label="Sendro applications">
       {showInbox && (
         <button
           type="button"
@@ -48,6 +50,15 @@ export default function WorkspaceTabs({
         >
           <span className="sendro-global-tab-symbol projects" aria-hidden="true">▦</span>
           <span>Projects &amp; Tasks</span>
+        </button>
+      )}
+      {showPrivacy && (
+        <button type="button"
+          className={`sendro-global-tab ${active === 'privacy' ? 'is-active' : ''}`}
+          aria-current={active === 'privacy' ? 'page' : undefined}
+          onClick={onPrivacy}>
+          <span className="sendro-global-tab-symbol privacy" aria-hidden="true">◇</span>
+          <span>GDPR Manager</span>
         </button>
       )}
     </nav>
