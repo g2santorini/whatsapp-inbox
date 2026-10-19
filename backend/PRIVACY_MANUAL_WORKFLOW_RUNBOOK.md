@@ -25,3 +25,13 @@
 
 ### Non-code compliance work
 Privacy notice/contact per business; processor/controller agreement and provider retention policy; customer access/rectification/export/erasure fulfillment outside Sendro; legal review of actual case handling; full audit and disaster-restore tests required before general SaaS rollout. This is case *tracking*, not complete automatic GDPR compliance.
+
+### Optional Phase A: subject metadata preview (separate staging gate)
+- `SENDRO_PRIVACY_SUBJECT_PREVIEW=reviewed-staging-metadata-only` is a **third independent opt-in**. Do not set it without review of the PR and separate owner approval. Production cannot mount this route.
+- When enabled, a tenant owner/admin with recent verified MFA and a previously manually identity-reviewed case may send an exact **Instagram conversation ID** in the JSON body of a POST to the read-only `/privacy/requests/{ref}/subject-preview` endpoint.
+- The body-based lookup avoids customer IDs in the request URL. Exact company membership, GDPR case tenant and Instagram account tenant are checked independently. Every lookup is rate-limited.
+- Returns counts of rows in `sendro_channel_messages` and of rows with `media_json`, **never** names, phone numbers, external platform IDs, media bytes, or message text.
+- Searches of legacy `conversations` (WhatsApp) are **blocked**; that table has no trusted tenant ID. Do not infer company from staff IDs, telephone number, or the request's stated source.
+- The preview is **partial**: it excludes template batches, detached media, raw ingestion data, provider-held copies, logs and backups. It does not authorize or perform erasure. `safe_to_delete_count=0` is invariant.
+- The UI's "Related to Sendro?" answer and selected conversation are currently **ephemeral and not persisted**. A permanent GDPR-to-subject link would introduce identifying personal data into the privacy workflow; design a separately restricted relation, purpose, retention policy, audit and migration before requesting approval for a shared-production DB change.
+- Never use real identifiers or actual customer records for test requests. Run synthetic isolated SQLite/PostgreSQL tests before enabling on live staging.

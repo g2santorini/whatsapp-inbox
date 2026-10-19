@@ -520,7 +520,8 @@ def test_manual_workflow_complete_email_case_without_unsafe_erasure(fake_databas
         cap = client.get("/privacy/workflow", headers=auth())
         assert cap.status_code == 200
         assert cap.json() == {
-            "manual_workflow_enabled": True, "erasure_enabled": False
+            "manual_workflow_enabled": True, "erasure_enabled": False,
+            "subject_preview_enabled": False,
         }
         assert cap.headers["cache-control"] == "no-store, private"
 
@@ -591,3 +592,110 @@ def test_manual_workflow_complete_email_case_without_unsafe_erasure(fake_databas
         assert client.get(
             f"/privacy/requests/{ref}?tenant_id=101",
             headers=auth()).json()["response_recorded"] is True
+
+
+def test_subject_metadata_preview_is_independent_gated_tenant_scoped_and_non_mutating(fake_database):
+    """Synthetic records only; no Render DB, no deletion, no message text returned."""
+    from backend.app.privacy_subject_preview import (
+        SUBJECT_FLAG, SUBJECT_VALUE, subject_preview_is_allowed,
+        mount_subject_preview,
+    )
+    from backend.app.privacy_workflow_preview import (
+        WORKFLOW_FLAG, WORKFLOW_VALUE, SCHEMA_FLAG, SCHEMA_VALUE,
+    )
+
+    get_db, ref = fake_database
+    flags = {**_enabled_settings(),
+        WORKFLOW_FLAG: WORKFLOW_VALUE,
+        SCHEMA_FLAG: SCHEMA_VALUE,
+        SUBJECT_FLAG: SUBJECT_VALUE}
+    assert subject_preview_is_allowed({}) is False
+    assert subject_preview_is_allowed(_enabled_settings()) is False
+    assert subject_preview_is_allowed(flags) is True
+    for denied in (
+        {**flags, SUBJECT_FLAG: "enabled"},
+        {**flags, "RENDER_SERVICE_ID": "production"},
+        {**flags, WORKFLOW_FLAG: ""},
+    ):
+        assert subject_preview_is_allowed(denied) is False
+
+    connection = get_db()
+    session = next(connection)
+    try:
+        session.execute(text("""CREATE TABLE public.sendro_channel_accounts (
+            id INTEGER PRIMARY KEY, tenant_id INTEGER, platform TEXT)"""))
+        session.execute(text("""CREATE TABLE public.sendro_channel_conversations (
+            id INTEGER PRIMARY KEY, tenant_id INTEGER, channel_account_id INTEGER)"""))
+        session.execute(text("""CREATE TABLE public.sendro_channel_messages (
+            id INTEGER PRIMARY KEY, tenant_id INTEGER, conversation_id INTEGER,
+            media_json TEXT, content TEXT)"""))
+        session.execute(text("""INSERT INTO public.sendro_channel_accounts VALUES
+            (1,101,'instagram'),(2,202,'instagram'),(3,101,'whatsapp')"""))
+        session.execute(text("""INSERT INTO public.sendro_channel_conversations VALUES
+            (1011,101,1),(2022,202,2),(3033,101,3)"""))
+        session.execute(text("""INSERT INTO public.sendro_channel_messages VALUES
+            (1,101,1011,NULL,'synthetic private text'),
+            (2,101,1011,'{}','synthetic media text'),
+            (3,202,2022,NULL,'other tenant secret')"""))
+        session.commit()
+    finally:
+        connection.close()
+
+    endpoint = f"/privacy/requests/{ref}/subject-preview"
+    def request(tenant=101, platform="instagram", cid=1011):
+        return {"tenant_id": tenant, "platform":platform, "conversation_id": cid}
+    off = FastAPI()
+    assert mount_subject_preview(off, user_from_token, get_db, settings={}) is False
+    with TestClient(off) as client:
+        assert client.post(endpoint, json=request(), headers=auth()).status_code == 404
+
+    app = FastAPI()
+    assert mount_privacy_readonly_preview(
+        app, user_from_token, get_db, settings=_enabled_settings()) is True
+    assert mount_subject_preview(
+        app, user_from_token, get_db, settings=flags) is True
+
+    with TestClient(app) as client:
+        unverified = client.post(endpoint, headers=auth(), json=request())
+        assert unverified.status_code == 409
+        assert unverified.headers["cache-control"] == "no-store, private"
+        missing_token = client.post(endpoint, json=request())
+        assert missing_token.status_code in (401, 403)
+        other_tenant = client.post(endpoint, headers=auth("owner-b"),
+                                   json=request(202, "instagram", 2022))
+        assert other_tenant.status_code == 404
+
+        # Mark a purely synthetic case as reviewed; no real identity data.
+        connection = get_db()
+        session = next(connection)
+        try:
+            session.execute(text("""
+                UPDATE public.sendro_privacy_cases SET status='identity_checked'
+                WHERE case_ref=:ref AND tenant_id=101
+            """), {"ref":ref})
+            session.commit()
+        finally:
+            connection.close()
+
+        forbidden = client.post(endpoint, headers=auth("operator-a"), json=request())
+        assert forbidden.status_code == 403
+        cross = client.post(endpoint, headers=auth(), json=request(cid=2022))
+        assert cross.status_code == 404
+        wa = client.post(endpoint, headers=auth(), json=request(platform="whatsapp",cid=3033))
+        assert wa.status_code == 409
+        good = client.post(endpoint, headers=auth(), json=request())
+        assert good.status_code == 200, good.text
+        assert good.json() == {
+            "platform": "instagram",
+            "conversation_id": 1011,
+            "messages": 2,
+            "messages_with_media_metadata": 1,
+            "partial_inventory": True,
+            "linked_to_case": False,
+            "erasure_enabled": False,
+            "safe_to_delete_count": 0,
+        }
+        assert "synthetic private text" not in good.text
+        assert "other tenant secret" not in good.text
+        assert good.headers["cache-control"] == "no-store, private"
+        assert client.delete(endpoint, headers=auth()).status_code == 405

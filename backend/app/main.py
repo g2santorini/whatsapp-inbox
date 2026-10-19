@@ -44,7 +44,7 @@ from .reporting_service import get_template_report_items_data
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 from .instagram_webhook import router as instagram_webhook_router
 from . import instagram_inbox_api
-from . import privacy_readonly_preview, privacy_workflow_preview, privacy_mfa_session
+from . import privacy_readonly_preview, privacy_workflow_preview, privacy_mfa_session, privacy_subject_preview
 
 load_dotenv()
 
@@ -2272,6 +2272,10 @@ privacy_readonly_preview.mount_privacy_readonly_preview(
     app, privacy_verified_user, get_db,
 )
 privacy_workflow_preview.mount_privacy_workflow_preview(
+    app, privacy_verified_user, get_db,
+)
+# Separate third gate: metadata-only subject preview, no deletion or case-link writes.
+privacy_subject_preview.mount_subject_preview(
     app, privacy_verified_user, get_db,
 )
 

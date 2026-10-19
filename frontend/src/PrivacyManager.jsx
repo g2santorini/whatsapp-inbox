@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import WorkspaceTabs from './WorkspaceTabs';
+import PrivacySubjectPreview from './PrivacySubjectPreview';
 import {
   getPrivacyCases, getPrivacyCase, getPrivacyWorkflowStatus,
   createPrivacyRequest, verifyPrivacyIdentity, reviewPrivacyScope,
@@ -61,6 +62,7 @@ export default function PrivacyManager({
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
   const [workflowEnabled, setWorkflowEnabled] = useState(false);
+  const [subjectPreviewEnabled, setSubjectPreviewEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [requestSource, setRequestSource] = useState('email');
   const [working, setWorking] = useState(false);
@@ -76,11 +78,13 @@ export default function PrivacyManager({
     let active = true;
     getPrivacyWorkflowStatus({ signal: controller.signal })
       .then((status) => {
-        if (active) setWorkflowEnabled(status?.manual_workflow_enabled === true &&
-          status?.erasure_enabled === false);
+        if (active) {
+          setWorkflowEnabled(status?.manual_workflow_enabled === true && status?.erasure_enabled === false);
+          setSubjectPreviewEnabled(status?.subject_preview_enabled === true && status?.erasure_enabled === false);
+        }
       })
       .catch(() => {
-        if (active) setWorkflowEnabled(false);
+        if (active) { setWorkflowEnabled(false); setSubjectPreviewEnabled(false); }
       });
     return () => { active = false; controller.abort(); };
   }, []);
@@ -379,6 +383,10 @@ export default function PrivacyManager({
                     ? <ul>{details.blockers.map((entry, index) => <li key={index}>{entry}</li>)}</ul>
                     : <p>None recorded</p>}
                 </section>
+                {workflowEnabled && subjectPreviewEnabled && (
+                  <PrivacySubjectPreview key={`${tenantId}:${details.case_ref}`}
+                    tenantId={tenantId} caseRef={details.case_ref} status={details.status} />
+                )}
                 {workflowEnabled && (
                   <section className="gdpr-workflow-actions" aria-label="Manual case workflow">
                     <h3>Manual review steps</h3>
