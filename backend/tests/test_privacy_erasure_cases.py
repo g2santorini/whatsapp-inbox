@@ -76,7 +76,7 @@ def test_rejects_identifying_and_nonrandom_case_references(bad_ref):
                     channel="whatsapp", now=NOW)
 
 
-@pytest.mark.parametrize("channel", ["email", "tiktok", "", None])
+@pytest.mark.parametrize("channel", ["tiktok", "", None])
 def test_unknown_channels_cannot_be_invented(channel):
     with pytest.raises(ValueError):
         intake(channel=channel)
@@ -233,3 +233,9 @@ def test_offline_engine_contains_no_storage_or_delete_entrypoint():
         "os.environ", "schedule.", "apscheduler", "celery",
     ):
         assert prohibited not in source
+
+
+def test_email_channel_is_accepted_as_nonidentifying_intake():
+    case = intake(channel="email")
+    assert case.channel == "email"
+    assert case.status == "received"
