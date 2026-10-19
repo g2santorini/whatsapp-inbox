@@ -903,3 +903,64 @@ def test_legacy_whatsapp_dry_run_is_aggregate_only_and_never_authorizes_mapping(
     # The application must never automatically equate a snapshot with approval.
     assert not hasattr(dry, "apply_mappings")
     assert not hasattr(dry, "perform_backfill")
+
+
+def test_legacy_whatsapp_backfill_plan_is_never_executable_and_requires_evidence():
+    """Pure synthetic planning; no production DB connection or write access."""
+    from ops.privacy_whatsapp_backfill_plan import build_plan
+
+    base = {
+        "mode": "DRY_RUN_READ_ONLY",
+        "writes_performed": 0,
+        "company": "Sunset Oia Sailing Cruises",
+        "snapshot_high_water_conversation_id": 9001,
+        "counts": {
+            "conversations": 1001,
+            "unmapped_conversations": 1001,
+            "existing_links": 0,
+            "orphan_messages": 0,
+            "duplicate_phone_groups": 0,
+            "invalid_e164_phones": 0,
+            "invalid_verified_links": 0,
+            "mapped_other_tenant": 0,
+            "revoked_links": 0,
+            "unlinked_template_batch_items": 17,
+            "tenant_whatsapp_accounts": 0,
+        },
+    }
+    result = build_plan(base)
+    assert result["mode"] == "PLAN_ONLY_NO_WRITES"
+    assert result["estimated_planning_batches"] == 3
+    assert result["planning_batch_size"] == 500
+    assert result["candidate_conversations_not_verified"] == 1001
+    assert result["estimated_verified_links_to_insert"] == 0
+    assert result["outside_conversation_scope_batch_items"] == 17
+    assert result["can_execute"] is False
+    assert result["independently_verified_historical_scope"] is False
+    assert result["sql_mutations_available"] is False
+    assert result["writes_performed"] == 0
+    assert result["erasure_enabled"] is False
+    assert "independent" in " ".join(result["blockers"]).lower()
+
+    conflict = {
+        **base,
+        "counts": {
+            **base["counts"],
+            "unmapped_conversations": 1000,
+            "existing_links": 1,
+            "mapped_other_tenant": 1,
+        },
+    }
+    conflict_result = build_plan(conflict)
+    assert conflict_result["can_execute"] is False
+    assert any("tenant" in item.lower() for item in conflict_result["blockers"])
+
+    for invalid in (
+        {**base, "writes_performed": 1},
+        {**base, "mode": "WRITE"},
+        {**base, "counts": {**base["counts"], "conversations": 1002}},
+        {**base, "counts": {**base["counts"], "existing_links": -1}},
+        {**base, "snapshot_high_water_conversation_id": -1},
+    ):
+        with pytest.raises(ValueError):
+            build_plan(invalid)
