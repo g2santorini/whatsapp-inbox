@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .privacy_case_store import CaseConflict, _actor, _read
 from .privacy_preview_guards import PrivacyRequestLimiter
 from .privacy_readonly_preview import preview_is_allowed
+from .privacy_whatsapp_tenant_links import inspect_mapped_whatsapp, whatsapp_links_enabled
 
 SUBJECT_FLAG = "SENDRO_PRIVACY_SUBJECT_PREVIEW"
 SUBJECT_VALUE = "reviewed-staging-metadata-only"
@@ -60,8 +61,12 @@ def inspect_subject(db: Session, *, tenant_id: int, user_id: int,
             raise HTTPException(status_code=409,
                                 detail="Independent identity review required before preview")
         if platform == "whatsapp":
-            raise HTTPException(status_code=409,
-                detail="Legacy WhatsApp data cannot yet be safely tenant-matched")
+            if not whatsapp_links_enabled(os.environ):
+                raise HTTPException(status_code=409,
+                    detail="Verified WhatsApp mapping is not enabled")
+            return inspect_mapped_whatsapp(
+                db, tenant_id=tenant_id, conversation_id=conversation_id,
+            )
         if platform != "instagram":
             raise HTTPException(status_code=422, detail="Unsupported platform")
 
