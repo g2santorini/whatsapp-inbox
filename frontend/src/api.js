@@ -530,6 +530,15 @@ export async function getPrivacyWorkflowStatus(options = {}) {
   return apiRequest('/privacy/workflow', { signal: options.signal });
 }
 
+// Non-mutating subject count inspection. POST keeps IDs out of URL logs.
+// This does not save a case link, reveal message text or delete any records.
+export async function previewPrivacyConversation(tenantId, ref, platform, conversationId) {
+  return apiRequest(`/privacy/requests/${encodeURIComponent(ref)}/subject-preview`, {
+    method: 'POST',
+    body: JSON.stringify({ tenant_id: tenantId, platform, conversation_id: conversationId }),
+  });
+}
+
 export async function createPrivacyRequest(tenantId, channel) {
   return apiRequest('/privacy/requests', {
     method: 'POST',
