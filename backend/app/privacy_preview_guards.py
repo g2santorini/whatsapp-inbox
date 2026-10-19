@@ -11,6 +11,7 @@ from threading import Lock
 from fastapi import HTTPException
 
 PRIVACY_ROUTE_PREFIX = "/privacy/requests"
+PRIVACY_WORKFLOW_PREFIX = "/privacy/workflow"
 
 
 class PrivacyRequestLimiter:
@@ -67,6 +68,8 @@ class PrivacyNoStoreMiddleware:
         if (scope.get("type") != "http" or not (
             path == PRIVACY_ROUTE_PREFIX
             or path.startswith(PRIVACY_ROUTE_PREFIX + "/")
+            or path == PRIVACY_WORKFLOW_PREFIX
+            or path.startswith(PRIVACY_WORKFLOW_PREFIX + "/")
         )):
             await self.app(scope, receive, send)
             return
