@@ -68,3 +68,47 @@
   .gdpr-cards article strong {font-size:20px;}
   .gdpr-panel-heading {padding:17px;}
 }
+
+/* Optional manual GDPR workflow: straightforward, accessible, no heavy UI chrome. */
+.gdpr-toolbar .gdpr-primary-btn,.gdpr-intake-form button,.gdpr-workflow-actions .gdpr-step button:not(.gdpr-secondary-btn) {
+  color:#fff;background:#1358a0;border:1px solid #1358a0;
+  border-radius:9px;padding:11px 15px;font-size:12px;font-weight:800;
+  cursor:pointer;
+}
+.gdpr-toolbar .gdpr-primary-btn:hover,.gdpr-intake-form button:hover,.gdpr-workflow-actions .gdpr-step button:hover:not(.gdpr-secondary-btn) {background:#0c457e;}
+.gdpr-intake-form button:disabled,.gdpr-workflow-actions button:disabled {opacity:.5;cursor:not-allowed;}
+.gdpr-intake-form {
+  display:flex;flex-wrap:wrap;align-items:center;gap:13px;
+  padding:20px;margin-bottom:16px;border:1px solid #d1dfed;border-radius:12px;
+  background:#fff;
+}
+.gdpr-intake-form>div {flex:1 1 100%;}
+.gdpr-intake-form strong {font-size:15px;color:#193c61;}
+.gdpr-intake-form p {max-width:750px;line-height:1.6;margin:6px 0 0;font-size:12px;color:#6b859f;}
+.gdpr-intake-form label {font-size:12px;font-weight:700;color:#496987;}
+.gdpr-intake-form select,.gdpr-checklist select {
+  min-width:170px;max-width:100%;padding:10px;border:1px solid #cddcea;
+  border-radius:8px;background:#f8fbff;color:#244665;font-size:13px;
+}
+.gdpr-notice {margin:0 0 15px;padding:12px 15px;color:#2a6663;
+  background:#effaf7;border:1px solid #c7e6dc;border-radius:9px;font-size:12px;line-height:1.6;}
+.gdpr-workflow-actions {border-top:1px solid #e8eef5;margin-top:21px;padding-top:18px;}
+.gdpr-workflow-actions h3 {font-size:15px;margin:0 0 15px;color:#204c76;}
+.gdpr-step {border:1px solid #e2eaf4;border-radius:9px;margin:12px 0;padding:14px;}
+.gdpr-step strong {font-size:12px;color:#295070;}
+.gdpr-step p {font-size:12px;color:#69839c;line-height:1.6;margin:7px 0 13px;}
+.gdpr-workflow-actions .gdpr-step .gdpr-secondary-btn {border:1px solid #bed2e7;border-radius:9px;
+  padding:10px 14px;color:#27639b;background:#eff5fc;font-weight:800;cursor:pointer;font-size:12px;}
+.gdpr-checklist {margin:14px 0 0;padding:14px;border-radius:9px;background:#f4f8fd;}
+.gdpr-checklist label:not(.gdpr-hold-label) {display:flex;align-items:flex-start;gap:9px;padding:7px 0;
+  color:#456985;font-size:12px;line-height:1.4;}
+.gdpr-checklist input {margin-top:2px;width:16px;height:16px;flex:0 0 auto;}
+.gdpr-checklist .gdpr-hold-label {display:block;font-size:12px;font-weight:800;margin:15px 0 8px;}
+.gdpr-checklist select {display:block;width:100%;margin:0 0 14px;}
+.gdpr-complete {padding:13px;border:1px solid #cce4da;border-radius:9px;
+  background:#f0f9f5;color:#2b685b;font-size:12px;line-height:1.5;}
+@media(max-width:640px) {
+  .gdpr-intake-form {align-items:stretch;flex-direction:column;}
+  .gdpr-intake-form>div,.gdpr-intake-form select,.gdpr-intake-form button {width:100%;}
+  .gdpr-intake-form label {width:100%;}
+}
