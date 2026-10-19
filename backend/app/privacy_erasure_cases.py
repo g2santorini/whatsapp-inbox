@@ -13,7 +13,7 @@ from uuid import UUID
 
 
 AUTHORIZED_ROLES = frozenset({"admin", "owner"})
-SUPPORTED_CHANNELS = frozenset({"whatsapp", "instagram"})
+SUPPORTED_CHANNELS = frozenset({"whatsapp", "instagram", "email"})
 BLOCKER_FIELDS = (
     "controller_authority_confirmed",
     "identity_authority_verified",
@@ -185,6 +185,7 @@ def case_preview(*, case: PrivacyCase, actor: PrivacyActor) -> dict:
     _authorized(actor, case.tenant_id)
     return {
         "case_ref": case.case_ref,
+        "received_at": case.received_at.isoformat(),
         "channel": case.channel,
         "status": case.status,
         "blockers": list(case.scope_blockers),
