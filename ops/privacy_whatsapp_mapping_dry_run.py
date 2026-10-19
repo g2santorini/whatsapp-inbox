@@ -66,7 +66,7 @@ SELECT
        WHERE number_of_conversations > 1) AS duplicate_phone_groups,
     (SELECT COUNT(*) FROM public.conversations
        WHERE contact_phone IS NULL
-          OR contact_phone !~ '^[+][1-9][0-9]{6,14}
+          OR contact_phone !~ '^[+][1-9][0-9]{6,14}$') AS invalid_e164_phones,
     (SELECT COUNT(*) FROM public.sendro_privacy_legacy_whatsapp_links
        WHERE verification_method <> 'manual-owner-review'
           OR evidence_ref IS NULL OR verified_at IS NULL) AS invalid_verified_links,
