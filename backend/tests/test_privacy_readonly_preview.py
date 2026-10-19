@@ -809,3 +809,97 @@ def test_legacy_whatsapp_subject_preview_requires_exact_verified_tenant_link(fak
         assert db.execute(text("SELECT COUNT(*) FROM public.conversations")).scalar() == 3
     finally:
         gen.close()
+
+
+def test_legacy_whatsapp_dry_run_is_aggregate_only_and_never_authorizes_mapping(monkeypatch):
+    """Synthetic input and DB stand-in, with no real network or database use."""
+    from ops import privacy_whatsapp_mapping_dry_run as dry
+    import re
+
+    totals = {
+        "conversations": 3,
+        "unmapped_conversations": 2,
+        "existing_links": 1,
+        "mapped_active_to_tenant": 1,
+        "mapped_other_tenant": 0,
+        "revoked_links": 0,
+        "messages": 6,
+        "orphan_messages": 0,
+        "template_batch_items": 2,
+        "unlinked_template_batch_items": 1,
+        "duplicate_phone_groups": 0,
+        "invalid_e164_phones": 0,
+        "invalid_verified_links": 0,
+        "tenant_whatsapp_accounts": 0,
+        "registered_tenants": 1,
+        "high_water_conversation_id": 987,
+    }
+    report = dry.make_report(totals)
+    assert report["mode"] == "DRY_RUN_READ_ONLY"
+    assert report["unverified_candidate_conversations"] == 2
+    assert report["verified_ready_for_backfill"] == 0
+    assert report["writes_performed"] == 0
+    assert report["erasure_enabled"] is False
+    assert report["automatic_mapping_supported"] is False
+    assert report["next_step_requires_separate_approval"] is True
+    assert "contact_phone" not in str(report)
+    assert "customer" not in str(report).lower()
+
+    # Neither this aggregate SQL nor the test can mutate records.
+    assert re.search(r"\\b(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|DROP|ALTER)\\b",
+                     dry.COUNTS_SQL, re.IGNORECASE) is None
+    assert "contact_phone" in dry.COUNTS_SQL  # aggregated, never selected as a field
+    assert "^[+][1-9][0-9]{6,14}$" in dry.COUNTS_SQL
+
+    class SyntheticCursor:
+        def __init__(self):
+            self.statements = []
+            self.latest = ""
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def execute(self, sql, params=None):
+            self.latest = sql
+            self.statements.append((sql, params))
+        def fetchone(self):
+            if "current_database()" in self.latest:
+                return {"db_name": "sendro", "read_only": "on", "mapping_exists": True}
+            if "SELECT display_name" in self.latest:
+                return {"display_name": "Sunset Oia Sailing Cruises"}
+            return totals
+
+    class SyntheticConnection:
+        def __init__(self):
+            self.cursor_object = SyntheticCursor()
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def transaction(self):
+            return self
+        def cursor(self):
+            return self.cursor_object
+
+    mock_db = SyntheticConnection()
+    monkeypatch.setattr(dry.psycopg, "connect", lambda *_args, **_kw: mock_db)
+    from_db = dry.read_snapshot("synthetic-connection-string")
+    assert from_db["writes_performed"] == 0
+    statements = mock_db.cursor_object.statements
+    assert statements[0][0] == (
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+    )
+    assert statements[-1][0] == dry.COUNTS_SQL
+    assert statements[-1][1] == {"tid": 1}
+
+    for broken in (
+        {**totals, "existing_links": 5},
+        {**totals, "conversations": -1},
+        {**totals, "messages": "unknown"},
+    ):
+        with pytest.raises(ValueError):
+            dry.make_report(broken)
+
+    # The application must never automatically equate a snapshot with approval.
+    assert not hasattr(dry, "apply_mappings")
+    assert not hasattr(dry, "perform_backfill")
