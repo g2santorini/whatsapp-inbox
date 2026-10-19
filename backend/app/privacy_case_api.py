@@ -20,7 +20,7 @@ class _Strict(BaseModel):
 
 class Intake(_Strict):
     tenant_id: int = Field(gt=0)
-    channel: Literal["whatsapp", "instagram"]
+    channel: Literal["whatsapp", "instagram", "email"]
 
 
 class Attestation(_Strict):
@@ -45,6 +45,7 @@ class Scope(_Strict):
 
 class Summary(BaseModel):
     case_ref: str
+    received_at: str
     channel: str
     status: str
     blockers: list[str]
