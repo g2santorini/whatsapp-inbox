@@ -3,7 +3,7 @@ import { previewPrivacyConversation } from './api';
 import './PrivacySubjectPreview.css';
 
 /** Ephemeral, non-identifying staging preview — no case linkage or deletion. */
-export default function PrivacySubjectPreview({ tenantId, caseRef, status }) {
+export default function PrivacySubjectPreview({ tenantId, caseRef, status, whatsappEnabled = false }) {
   const [relation, setRelation] = useState('unknown');
   const [platform, setPlatform] = useState('instagram');
   const [conversationId, setConversationId] = useState('');
@@ -32,7 +32,7 @@ export default function PrivacySubjectPreview({ tenantId, caseRef, status }) {
       if (cause?.status === 403) {
         setError('Recent Authenticator login and company owner/admin permission required.');
       } else if (cause?.status === 404) {
-        setError('No Instagram conversation found for this company and ID.');
+        setError('No independently verified conversation found for this company and ID.');
       } else if (cause?.status === 409) {
         setError('Identity review is required, or this channel is not yet safely supported.');
       } else if (cause?.status === 429) {
@@ -62,13 +62,13 @@ export default function PrivacySubjectPreview({ tenantId, caseRef, status }) {
           <select id="gdpr-subject-platform" value={platform}
             onChange={(event) => { setPlatform(event.target.value); reset(); }}>
             <option value="instagram">Instagram</option>
-            <option value="whatsapp">WhatsApp (tenant mapping pending)</option>
+            <option value="whatsapp">{whatsappEnabled ? "WhatsApp (verified links only)" : "WhatsApp (tenant mapping pending)"}</option>
           </select>
-          {platform === 'whatsapp' ? (
+          {platform === 'whatsapp' && !whatsappEnabled ? (
             <p role="status">WhatsApp preview is disabled until we can prove the exact company owns the conversation. No phone-based lookup is allowed.</p>
           ) : (
             <>
-              <label htmlFor="gdpr-subject-id">Instagram conversation ID (not the customer name)</label>
+              <label htmlFor="gdpr-subject-id">{platform === "instagram" ? "Instagram" : "Verified WhatsApp"} conversation ID (not the customer name)</label>
               <input id="gdpr-subject-id" type="number" min="1" step="1"
                 value={conversationId} onChange={(event) => { setConversationId(event.target.value); reset(); }}
                 placeholder="Exact conversation ID" autoComplete="off" />
@@ -85,7 +85,7 @@ export default function PrivacySubjectPreview({ tenantId, caseRef, status }) {
       {error && <p role="alert" className="gdpr-subject-error">{error}</p>}
       {relation === 'yes' && preview && (
         <div className="gdpr-subject-result" role="status">
-          <strong>Instagram conversation #{preview.conversation_id}</strong>
+          <strong>{preview.platform === 'whatsapp' ? 'WhatsApp' : 'Instagram'} conversation #{preview.conversation_id}</strong>
           <p>Messages in Sendro: <strong>{preview.messages}</strong></p>
           <p>Messages with media metadata: <strong>{preview.messages_with_media_metadata}</strong></p>
           <p><strong>Partial inventory only.</strong> Template batches, provider copies, media storage, logs, and backups are not assessed. This is not a complete deletion plan.</p>
