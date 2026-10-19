@@ -50,6 +50,7 @@ def test_intake_has_opaque_reference_and_no_subject_identity():
     assert case.events[0].action == "received"
     assert case_preview(case=case, actor=ADMIN) == {
         "case_ref": REF,
+        "received_at": NOW.isoformat(),
         "channel": "whatsapp",
         "status": "received",
         "blockers": [],
