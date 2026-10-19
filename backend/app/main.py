@@ -44,7 +44,7 @@ from .reporting_service import get_template_report_items_data
 from .whatsapp_webhook_security import is_valid_meta_webhook_signature
 from .instagram_webhook import router as instagram_webhook_router
 from . import instagram_inbox_api
-from . import privacy_readonly_preview, privacy_mfa_session
+from . import privacy_readonly_preview, privacy_workflow_preview, privacy_mfa_session
 
 load_dotenv()
 
@@ -2260,16 +2260,19 @@ async def get_current_active_user(
 app.include_router(project_api.create_project_router(get_current_active_user))
 app.include_router(tasks_api.create_tasks_router(get_current_active_user))
 app.include_router(instagram_inbox_api.create_instagram_inbox_router(get_current_active_user))
-# Opt-in GET-only GDPR preview. By default no /privacy/requests routes exist.
-# A staging instance may mount after separately-reviewed environment flags.
-# Staging and production share the live PostgreSQL: no privacy mutations here.
+# Opt-in GDPR preview. Production never mounts these routes.
+# Staging and production share live PostgreSQL. The manual workflow is a
+# SECOND separately approved gate, disabled by default; do not enable it
+# without verified backup and the manually reviewed email-channel check.
+privacy_verified_user = privacy_mfa_session.create_privacy_verified_user_dependency(
+    get_current_active_user, oauth2_scheme,
+    secret_key=SECRET_KEY, algorithm=ALGORITHM,
+)
 privacy_readonly_preview.mount_privacy_readonly_preview(
-    app,
-    privacy_mfa_session.create_privacy_verified_user_dependency(
-        get_current_active_user, oauth2_scheme,
-        secret_key=SECRET_KEY, algorithm=ALGORITHM,
-    ),
-    get_db,
+    app, privacy_verified_user, get_db,
+)
+privacy_workflow_preview.mount_privacy_workflow_preview(
+    app, privacy_verified_user, get_db,
 )
 
 

@@ -1,8 +1,38 @@
 import { useEffect, useState } from 'react';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import WorkspaceTabs from './WorkspaceTabs';
-import { getPrivacyCases, getPrivacyCase } from './api';
+import {
+  getPrivacyCases, getPrivacyCase, getPrivacyWorkflowStatus,
+  createPrivacyRequest, verifyPrivacyIdentity, reviewPrivacyScope,
+  recordPrivacyResponse,
+} from './api';
 import './PrivacyManager.css';
+
+const REVIEW_FIELDS = [
+  ['controller_authority_confirmed', 'Company authority confirmed'],
+  ['identity_authority_verified', 'Identity or authority independently checked'],
+  ['tenant_scope_checked', 'Correct company and request scope'],
+  ['whatsapp_records_checked', 'WhatsApp conversations reviewed'],
+  ['instagram_records_checked', 'Instagram conversations reviewed'],
+  ['template_batches_checked', 'Outbound templates and batches reviewed'],
+  ['unlinked_batch_items_checked', 'Unlinked booking/template items reviewed'],
+  ['media_checked', 'Attachments and media reviewed'],
+  ['provider_copies_checked', 'Meta / provider copies reviewed'],
+  ['application_logs_checked', 'Application logs reviewed'],
+  ['backup_restore_plan_checked', 'Backup and restore plan reviewed'],
+  ['retention_exceptions_checked', 'Legal retention exceptions reviewed'],
+];
+
+function oneMonthTarget(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const maxDay = new Date(Date.UTC(y, m + 2, 0)).getUTCDate();
+  const next = new Date(Date.UTC(y, m + 1, Math.min(day, maxDay)));
+  return next.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
 
 function privacyError(error) {
   if (error?.status === 403) {
@@ -30,8 +60,30 @@ export default function PrivacyManager({
   const [details, setDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
+  const [workflowEnabled, setWorkflowEnabled] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [requestSource, setRequestSource] = useState('email');
+  const [working, setWorking] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [scopeChecks, setScopeChecks] = useState({});
+  const [legalHold, setLegalHold] = useState('unknown');
+  const [scopeOpen, setScopeOpen] = useState(false);
 
   const allowedTenant = tenants.some((tenant) => tenant.id === tenantId);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    getPrivacyWorkflowStatus({ signal: controller.signal })
+      .then((status) => {
+        if (active) setWorkflowEnabled(status?.manual_workflow_enabled === true &&
+          status?.erasure_enabled === false);
+      })
+      .catch(() => {
+        if (active) setWorkflowEnabled(false);
+      });
+    return () => { active = false; controller.abort(); };
+  }, []);
 
   useEffect(() => {
     if (!allowedTenant) return undefined;
@@ -94,6 +146,11 @@ export default function PrivacyManager({
     setDetails(null);
     setError('');
     setDetailsError('');
+    setNotice('');
+    setCreating(false);
+    setScopeChecks({});
+    setLegalHold('unknown');
+    setScopeOpen(false);
     setLoading(true);
   }
 
@@ -102,6 +159,10 @@ export default function PrivacyManager({
     setDetails(null);
     setDetailsError('');
     setDetailsLoading(true);
+    setNotice('');
+    setScopeChecks({});
+    setLegalHold('unknown');
+    setScopeOpen(false);
   }
 
   function refresh() {
@@ -110,6 +171,46 @@ export default function PrivacyManager({
     setDetailsError('');
     setLoading(true);
     setRefreshId((value) => value + 1);
+  }
+
+  async function runCaseAction(action) {
+    if (!workflowEnabled || !allowedTenant || working) return;
+    setWorking(true);
+    setError('');
+    setDetailsError('');
+    setNotice('');
+    try {
+      const updated = await action();
+      setSelectedRef(updated.case_ref);
+      setDetails(updated);
+      setRefreshId((value) => value + 1);
+      setNotice('Saved with an audit event. No customer data was deleted or sent.');
+      setScopeOpen(false);
+    } catch (cause) {
+      setDetailsError(privacyError(cause));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function submitNewRequest(event) {
+    event.preventDefault();
+    if (!workflowEnabled || !allowedTenant || working) return;
+    setWorking(true);
+    setError('');
+    setNotice('');
+    try {
+      const created = await createPrivacyRequest(tenantId, requestSource);
+      setCreating(false);
+      setSelectedRef(created.case_ref);
+      setDetails(created);
+      setRefreshId((value) => value + 1);
+      setNotice('Case created. Keep the customer request in the company’s restricted inbox, using this reference to link it.');
+    } catch (cause) {
+      setError(privacyError(cause));
+    } finally {
+      setWorking(false);
+    }
   }
 
   return (
@@ -138,15 +239,17 @@ export default function PrivacyManager({
       <main className="gdpr-main">
         <div className="gdpr-page-heading">
           <div>
-            <span className="gdpr-eyebrow">Governance / Read-only preview</span>
+            <span className="gdpr-eyebrow">Governance / Privacy requests</span>
             <h1>GDPR Manager</h1>
-            <p>Review request status, scope blockers and audit progress without changing any records.</p>
+            <p>Track customer privacy requests from your company’s email or messaging channels.</p>
           </div>
-          <span className="gdpr-preview-pill">STAGING · READ ONLY</span>
+          <span className="gdpr-preview-pill">STAGING · GDPR PILOT</span>
         </div>
         <div className="gdpr-warning" role="note">
-          <strong>Privacy-first mode.</strong> No creation, edits, erasure, downloads or customer lookup.
-          Reviewer access requires recent Authenticator verification and active company membership.
+          <strong>Privacy-first mode.</strong> Customers contact their business directly.
+          Staff register the request here, not the customer's name or message.
+          No automatic customer lookup, outbound reply, export or deletion.
+          Access requires recent Authenticator verification and company owner/admin membership.
         </div>
 
         <div className="gdpr-toolbar">
@@ -159,9 +262,33 @@ export default function PrivacyManager({
           <button type="button" onClick={refresh} disabled={!allowedTenant || loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
+          {workflowEnabled && (
+            <button type="button" className="gdpr-primary-btn" onClick={() => setCreating((old) => !old)}
+              disabled={!allowedTenant || working}>
+              {creating ? 'Cancel' : '+ New request'}
+            </button>
+          )}
           <span className="gdpr-pagination-note">First 50 requests · manual refresh only</span>
         </div>
 
+        {workflowEnabled && creating && (
+          <form className="gdpr-intake-form" onSubmit={submitNewRequest}>
+            <div>
+              <strong>Register a customer request</strong>
+              <p>Use the company’s existing email or WhatsApp to communicate with the person. Do not enter any personal details in this register.</p>
+            </div>
+            <label htmlFor="gdpr-source">How did the customer contact the business?</label>
+            <select id="gdpr-source" value={requestSource} onChange={(event) => setRequestSource(event.target.value)}>
+              <option value="email">Email</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="instagram">Instagram</option>
+            </select>
+            <button type="submit" disabled={working || !allowedTenant}>
+              {working ? 'Saving…' : 'Create case'}
+            </button>
+          </form>
+        )}
+        {notice && <div className="gdpr-notice" role="status">{notice}</div>}
         {error && <div className="gdpr-alert" role="alert">{error}</div>}
         <div className="gdpr-cards">
           <article>
@@ -185,7 +312,7 @@ export default function PrivacyManager({
           <section className="gdpr-list" aria-label="GDPR requests">
             <div className="gdpr-panel-heading">
               <h2>Request register</h2>
-              <span>{loading ? 'Loading' : 'Read-only'}</span>
+              <span>{loading ? 'Loading' : workflowEnabled ? 'Manual workflow' : 'Read-only'}</span>
             </div>
             {loading ? (
               <div className="gdpr-empty">Loading authorized request summaries…</div>
@@ -235,26 +362,98 @@ export default function PrivacyManager({
               </div>
             ) : (
               <div className="gdpr-detail-fields">
-                <div><span>Case reference</span><strong>{formatCaseRef(details.case_ref)}</strong></div>
-                <div><span>Status</span><strong>{details.status}</strong></div>
+                <div><span>Case reference</span>
+                  <strong className="gdpr-full-ref">{details.case_ref}</strong>
+                </div>
+                <div><span>Received (UTC)</span><strong>{details.received_at ? new Date(details.received_at).toLocaleString('en-GB', { timeZone: 'UTC' }) : '—'}</strong></div>
+                <div><span>One-month response target*</span><strong>{oneMonthTarget(details.received_at)}</strong></div>
+                <div><span>Status</span><strong>{details.status.replaceAll('_', ' ')}</strong></div>
                 <div><span>Channel</span><strong>{details.channel}</strong></div>
                 <div><span>Audit events</span><strong>{details.audit_events}</strong></div>
                 <div><span>Response recorded</span><strong>{details.response_recorded ? 'Yes' : 'No'}</strong></div>
                 <div><span>Identity verified by system</span><strong>{details.identity_verified_by_system ? 'Yes' : 'No'}</strong></div>
                 <div><span>Erasure enabled</span><strong>No</strong></div>
-                <section className="gdpr-blockers">
+                                <section className="gdpr-blockers">
                   <h3>Scope blockers</h3>
                   {details.blockers?.length
                     ? <ul>{details.blockers.map((entry, index) => <li key={index}>{entry}</li>)}</ul>
                     : <p>None recorded</p>}
                 </section>
+                {workflowEnabled && (
+                  <section className="gdpr-workflow-actions" aria-label="Manual case workflow">
+                    <h3>Manual review steps</h3>
+                    <button type="button" className="gdpr-secondary-btn" onClick={() => {
+                      navigator.clipboard.writeText(details.case_ref)
+                        .then(() => setNotice('Case reference copied. Link it in the company’s restricted email/ticket.'))
+                        .catch(() => setDetailsError('Could not copy automatically. You can select the reference above.'));
+                    }}>Copy case reference</button>
+                    {details.status === 'received' && (
+                      <div className="gdpr-step">
+                        <strong>1. Verify identity / authority</strong>
+                        <p>Check the requester's identity outside Sendro only when needed. This button records your own confirmation; Sendro cannot verify identity automatically.</p>
+                        <button type="button" disabled={working} onClick={() => {
+                          if (window.confirm('Have you independently verified the requester or their authority, where appropriate?')) {
+                            runCaseAction(() => verifyPrivacyIdentity(tenantId, details.case_ref));
+                          }
+                        }}>{working ? 'Saving…' : 'Mark independently verified'}</button>
+                      </div>
+                    )}
+                    {details.status !== 'received' && (
+                      <div className="gdpr-step">
+                        <strong>2. Review applicable data and any legal holds</strong>
+                        <p>Keep unchecked items as pending. This review does not approve or perform erasure.</p>
+                        <button type="button" className="gdpr-secondary-btn" onClick={() => setScopeOpen((old) => !old)}>
+                          {scopeOpen ? 'Hide checklist' : 'Open review checklist'}
+                        </button>
+                        {scopeOpen && (
+                          <div className="gdpr-checklist">
+                            {REVIEW_FIELDS.map(([field, label]) => (
+                              <label key={field}>
+                                <input type="checkbox" checked={scopeChecks[field] === true}
+                                  onChange={(event) => setScopeChecks((old) => ({ ...old, [field]: event.target.checked }))}/>
+                                <span>{label}</span>
+                              </label>
+                            ))}
+                            <label className="gdpr-hold-label" htmlFor="gdpr-legal-hold">Legal hold or retention exception assessed</label>
+                            <select id="gdpr-legal-hold" value={legalHold} onChange={(event) => setLegalHold(event.target.value)}>
+                              <option value="unknown">Not assessed yet</option>
+                              <option value="yes">Yes — legal hold exists</option>
+                              <option value="no">No legal hold identified</option>
+                            </select>
+                            <button type="button" disabled={working} onClick={() => runCaseAction(() =>
+                              reviewPrivacyScope(tenantId, details.case_ref, {
+                                ...Object.fromEntries(REVIEW_FIELDS.map(([field]) => [field, scopeChecks[field] === true])),
+                                legal_hold: legalHold === 'unknown' ? null : legalHold === 'yes',
+                              })
+                            )}>{working ? 'Saving…' : 'Save reviewed scope'}</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {details.status !== 'received' && !details.response_recorded && (
+                      <div className="gdpr-step">
+                        <strong>3. Record the reply after sending it</strong>
+                        <p>Reply directly through the company’s email/WhatsApp first. This records the reply only; it does not send anything or erase any data.</p>
+                        <button type="button" disabled={working} onClick={() => {
+                          if (window.confirm('Have you ALREADY sent the response to the customer outside Sendro?')) {
+                            runCaseAction(() => recordPrivacyResponse(tenantId, details.case_ref));
+                          }
+                        }}>{working ? 'Saving…' : 'I sent the response — record it'}</button>
+                      </div>
+                    )}
+                    {details.response_recorded && (
+                      <p className="gdpr-complete">Response recorded. Retention and erasure, if applicable, require independent handling.</p>
+                    )}
+                  </section>
+                )}
               </div>
             )}
           </section>
         </div>
         <p className="gdpr-footnote">
-          This is an internal staging pilot. Requests are GET-only and secured on the server;
-          hiding the tab in the browser is not a security boundary.
+          *Guidance only: the ordinary GDPR response timeframe is generally one calendar month, with exceptions.
+          This internal pilot never automatically emails, retrieves or deletes customer data.
+          Server-side MFA and tenant authorization apply to every action.
         </p>
       </main>
     </div>
