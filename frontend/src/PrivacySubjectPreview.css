@@ -1,0 +1,12 @@
+/* Isolated GDPR-only inspection panel; inbox scrolling and layout are untouched. */
+.gdpr-subject-inspection { border:1px solid #cbdbea;border-radius:11px;padding:18px;margin:24px 0 10px;background:#f7fbff;color:#284768; }
+.gdpr-subject-inspection h3 { font-size:15px;margin:0 0 8px; }
+.gdpr-subject-inspection p { font-size:12px;line-height:1.6;margin:8px 0; }
+.gdpr-subject-inspection label { display:block;font-size:12px;font-weight:800;margin:12px 0 6px; }
+.gdpr-subject-inspection select,.gdpr-subject-inspection input { min-width:0;width:100%;padding:10px;border-radius:8px;border:1px solid #c6d6e9;background:white;color:#214665; }
+.gdpr-subject-form { margin-top:12px; }
+.gdpr-subject-inspection button {cursor:pointer;border:1px solid #1358a0;background:#1358a0;color:white;padding:11px 14px;border-radius:8px;font-size:12px;font-weight:800;margin-top:12px;}
+.gdpr-subject-inspection button:disabled {opacity:.55;cursor:not-allowed;}
+.gdpr-subject-result {margin-top:16px;padding:14px;background:white;border:1px solid #d1dfeb;border-radius:10px;overflow-wrap:anywhere;}
+.gdpr-subject-result>strong {display:block;margin-bottom:10px;font-size:13px;}
+.gdpr-subject-error {color:#9b2430;}
