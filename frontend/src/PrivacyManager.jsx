@@ -362,8 +362,10 @@ export default function PrivacyManager({
               </div>
             ) : (
               <div className="gdpr-detail-fields">
-                <div><span>Case reference</span><strong>{formatCaseRef(details.case_ref)}</strong></div>
-                <div><span>Received (UTC)</span><strong>{details.received_at ? new Date(details.received_at).toLocaleString('en-GB') : '—'}</strong></div>
+                <div><span>Case reference</span>
+                  <strong className="gdpr-full-ref">{details.case_ref}</strong>
+                </div>
+                <div><span>Received (UTC)</span><strong>{details.received_at ? new Date(details.received_at).toLocaleString('en-GB', { timeZone: 'UTC' }) : '—'}</strong></div>
                 <div><span>One-month response target*</span><strong>{oneMonthTarget(details.received_at)}</strong></div>
                 <div><span>Status</span><strong>{details.status.replaceAll('_', ' ')}</strong></div>
                 <div><span>Channel</span><strong>{details.channel}</strong></div>
@@ -371,8 +373,7 @@ export default function PrivacyManager({
                 <div><span>Response recorded</span><strong>{details.response_recorded ? 'Yes' : 'No'}</strong></div>
                 <div><span>Identity verified by system</span><strong>{details.identity_verified_by_system ? 'Yes' : 'No'}</strong></div>
                 <div><span>Erasure enabled</span><strong>No</strong></div>
-                <div><span>Source request</span><strong>{details.channel}</strong></div>
-                <section className="gdpr-blockers">
+                                <section className="gdpr-blockers">
                   <h3>Scope blockers</h3>
                   {details.blockers?.length
                     ? <ul>{details.blockers.map((entry, index) => <li key={index}>{entry}</li>)}</ul>
@@ -381,6 +382,11 @@ export default function PrivacyManager({
                 {workflowEnabled && (
                   <section className="gdpr-workflow-actions" aria-label="Manual case workflow">
                     <h3>Manual review steps</h3>
+                    <button type="button" className="gdpr-secondary-btn" onClick={() => {
+                      navigator.clipboard.writeText(details.case_ref)
+                        .then(() => setNotice('Case reference copied. Link it in the company’s restricted email/ticket.'))
+                        .catch(() => setDetailsError('Could not copy automatically. You can select the reference above.'));
+                    }}>Copy case reference</button>
                     {details.status === 'received' && (
                       <div className="gdpr-step">
                         <strong>1. Verify identity / authority</strong>
