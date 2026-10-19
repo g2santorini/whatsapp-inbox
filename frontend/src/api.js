@@ -522,3 +522,41 @@ export async function getPrivacyCase(tenantId, caseRef, options = {}) {
     signal: options.signal,
   });
 }
+
+
+// Optional staging-only manual GDPR workflow. These endpoints are not mounted
+// unless a separate reviewed write gate is explicitly enabled on staging.
+export async function getPrivacyWorkflowStatus(options = {}) {
+  return apiRequest('/privacy/workflow', { signal: options.signal });
+}
+
+export async function createPrivacyRequest(tenantId, channel) {
+  return apiRequest('/privacy/requests', {
+    method: 'POST',
+    body: JSON.stringify({ tenant_id: tenantId, channel }),
+  });
+}
+
+export async function verifyPrivacyIdentity(tenantId, ref) {
+  const params = new URLSearchParams({ tenant_id: String(tenantId) });
+  return apiRequest(`/privacy/requests/${encodeURIComponent(ref)}/identity-check?${params}`, {
+    method: 'POST',
+    body: JSON.stringify({ externally_confirmed: true }),
+  });
+}
+
+export async function reviewPrivacyScope(tenantId, ref, evidence) {
+  const params = new URLSearchParams({ tenant_id: String(tenantId) });
+  return apiRequest(`/privacy/requests/${encodeURIComponent(ref)}/scope-review?${params}`, {
+    method: 'POST',
+    body: JSON.stringify(evidence),
+  });
+}
+
+export async function recordPrivacyResponse(tenantId, ref) {
+  const params = new URLSearchParams({ tenant_id: String(tenantId) });
+  return apiRequest(`/privacy/requests/${encodeURIComponent(ref)}/response?${params}`, {
+    method: 'POST',
+    body: JSON.stringify({ externally_confirmed: true }),
+  });
+}
