@@ -63,6 +63,7 @@ export default function PrivacyManager({
   const [detailsError, setDetailsError] = useState('');
   const [workflowEnabled, setWorkflowEnabled] = useState(false);
   const [subjectPreviewEnabled, setSubjectPreviewEnabled] = useState(false);
+  const [whatsappPreviewEnabled, setWhatsappPreviewEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
   const [requestSource, setRequestSource] = useState('email');
   const [working, setWorking] = useState(false);
@@ -81,10 +82,11 @@ export default function PrivacyManager({
         if (active) {
           setWorkflowEnabled(status?.manual_workflow_enabled === true && status?.erasure_enabled === false);
           setSubjectPreviewEnabled(status?.subject_preview_enabled === true && status?.erasure_enabled === false);
+          setWhatsappPreviewEnabled(status?.whatsapp_preview_enabled === true && status?.erasure_enabled === false);
         }
       })
       .catch(() => {
-        if (active) { setWorkflowEnabled(false); setSubjectPreviewEnabled(false); }
+        if (active) { setWorkflowEnabled(false); setSubjectPreviewEnabled(false); setWhatsappPreviewEnabled(false); }
       });
     return () => { active = false; controller.abort(); };
   }, []);
@@ -385,7 +387,8 @@ export default function PrivacyManager({
                 </section>
                 {workflowEnabled && subjectPreviewEnabled && (
                   <PrivacySubjectPreview key={`${tenantId}:${details.case_ref}`}
-                    tenantId={tenantId} caseRef={details.case_ref} status={details.status} />
+                    tenantId={tenantId} caseRef={details.case_ref} status={details.status}
+                    whatsappEnabled={whatsappPreviewEnabled} />
                 )}
                 {workflowEnabled && (
                   <section className="gdpr-workflow-actions" aria-label="Manual case workflow">

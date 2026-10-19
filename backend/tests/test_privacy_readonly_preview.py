@@ -522,6 +522,7 @@ def test_manual_workflow_complete_email_case_without_unsafe_erasure(fake_databas
         assert cap.json() == {
             "manual_workflow_enabled": True, "erasure_enabled": False,
             "subject_preview_enabled": False,
+            "whatsapp_preview_enabled": False,
         }
         assert cap.headers["cache-control"] == "no-store, private"
 
@@ -699,3 +700,112 @@ def test_subject_metadata_preview_is_independent_gated_tenant_scoped_and_non_mut
         assert "other tenant secret" not in good.text
         assert good.headers["cache-control"] == "no-store, private"
         assert client.delete(endpoint, headers=auth()).status_code == 405
+
+
+def test_legacy_whatsapp_subject_preview_requires_exact_verified_tenant_link(fake_database, monkeypatch):
+    """All inputs are synthetic. No live WhatsApp records are inspected."""
+    from backend.app.privacy_subject_preview import inspect_subject
+    from backend.app.privacy_whatsapp_tenant_links import (
+        inspect_mapped_whatsapp, whatsapp_links_enabled, WHATSAPP_FLAG,
+        WHATSAPP_VALUE,
+    )
+
+    get_db, ref = fake_database
+    assert whatsapp_links_enabled({}) is False
+    assert whatsapp_links_enabled({WHATSAPP_FLAG: "enabled"}) is False
+    assert whatsapp_links_enabled({WHATSAPP_FLAG: WHATSAPP_VALUE}) is True
+
+    factory_gen = get_db()
+    db = next(factory_gen)
+    try:
+        with pytest.raises(HTTPException) as exc:
+            inspect_mapped_whatsapp(db, tenant_id=101, conversation_id=9001)
+        assert exc.value.status_code == 409
+    finally:
+        factory_gen.close()
+
+    gen = get_db()
+    db = next(gen)
+    try:
+        db.execute(text("""CREATE TABLE public.conversations (
+            id INTEGER PRIMARY KEY)"""))
+        db.execute(text("""CREATE TABLE public.messages (
+            id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL,
+            media_id TEXT, content TEXT)"""))
+        db.execute(text("""CREATE TABLE public.sendro_privacy_legacy_whatsapp_links (
+            conversation_id INTEGER PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            evidence_ref TEXT NOT NULL,
+            verified_at TEXT NOT NULL,
+            revoked_at TEXT,
+            verification_method TEXT NOT NULL)"""))
+        db.execute(text("""INSERT INTO public.conversations VALUES (9001),(9002),(9003)"""))
+        db.execute(text("""INSERT INTO public.messages VALUES
+            (1,9001,NULL,'private synthetic text'),
+            (2,9001,'media-token','private synthetic media'),
+            (3,9002,NULL,'other company secret'),
+            (4,9003,NULL,'revoked link secret')"""))
+        db.execute(text("""INSERT INTO public.sendro_privacy_legacy_whatsapp_links VALUES
+            (9001,101,'synthetic-evidence-ref','2026-10-19T00:00:00Z',NULL,'manual-owner-review'),
+            (9002,202,'another-evidence','2026-10-19T00:00:00Z',NULL,'manual-owner-review'),
+            (9003,101,'third-evidence','2026-10-19T00:00:00Z','2026-10-19T01:00:00Z','manual-owner-review')"""))
+        db.execute(text("""UPDATE public.sendro_privacy_cases
+            SET status='identity_checked' WHERE case_ref=:ref"""), {"ref":ref})
+        db.commit()
+    finally:
+        gen.close()
+
+    gen = get_db()
+    db = next(gen)
+    try:
+        with pytest.raises(HTTPException) as exc:
+            inspect_subject(db, tenant_id=101, user_id=11, case_ref=ref,
+                platform="whatsapp", conversation_id=9001)
+        assert exc.value.status_code == 409
+    finally:
+        gen.close()
+
+    monkeypatch.setenv(WHATSAPP_FLAG, WHATSAPP_VALUE)
+
+    gen = get_db()
+    db = next(gen)
+    try:
+        preview = inspect_subject(db, tenant_id=101, user_id=11, case_ref=ref,
+                                  platform="whatsapp", conversation_id=9001)
+        assert preview == {
+            "platform": "whatsapp", "conversation_id": 9001,
+            "messages": 2, "messages_with_media_metadata": 1,
+            "partial_inventory": True, "linked_to_case": False,
+            "erasure_enabled": False, "safe_to_delete_count": 0,
+        }
+        assert "private synthetic text" not in str(preview)
+        assert "other company secret" not in str(preview)
+    finally:
+        gen.close()
+
+    for target in (9002, 9003, 9999):
+        gen = get_db()
+        db = next(gen)
+        try:
+            with pytest.raises(LookupError):
+                inspect_subject(db, tenant_id=101, user_id=11, case_ref=ref,
+                                platform="whatsapp", conversation_id=target)
+        finally:
+            gen.close()
+
+    gen = get_db()
+    db = next(gen)
+    try:
+        with pytest.raises(PermissionError):
+            inspect_subject(db, tenant_id=101, user_id=33, case_ref=ref,
+                            platform="whatsapp", conversation_id=9001)
+    finally:
+        gen.close()
+
+    gen = get_db()
+    db = next(gen)
+    try:
+        assert db.execute(text("SELECT COUNT(*) FROM public.messages")).scalar() == 4
+        assert db.execute(text("SELECT COUNT(*) FROM public.conversations")).scalar() == 3
+    finally:
+        gen.close()

@@ -35,3 +35,22 @@ Privacy notice/contact per business; processor/controller agreement and provider
 - The preview is **partial**: it excludes template batches, detached media, raw ingestion data, provider-held copies, logs and backups. It does not authorize or perform erasure. `safe_to_delete_count=0` is invariant.
 - The UI's "Related to Sendro?" answer and selected conversation are currently **ephemeral and not persisted**. A permanent GDPR-to-subject link would introduce identifying personal data into the privacy workflow; design a separately restricted relation, purpose, retention policy, audit and migration before requesting approval for a shared-production DB change.
 - Never use real identifiers or actual customer records for test requests. Run synthetic isolated SQLite/PostgreSQL tests before enabling on live staging.
+
+
+### Legacy WhatsApp ownership bridge — proposal only, NOT activated
+Read-only Render preflight on 2026-10-19: 25,463 legacy `conversations`, 94,978 `messages`, 27,028 `template_batch_items`; one tenant and **no WhatsApp row in** `sendro_channel_accounts`. Just 709 conversation-creating users currently have one active tenant membership; 24,754 have none. **None of this is proof of record ownership.** The existing `conversations` table has no `tenant_id` or business-account identifier.
+
+Current WhatsApp webhook matches old records by **customer contact phone alone** and writes via a global configured WhatsApp Meta sender. It does not save a verified receiving business account on each conversation. Therefore it is not multi-tenant-safe to infer an owner or bulk-assign old records from phone, user assignment, environment config, or tenant count. This is a hard blocker for turning on legacy preview/erasure generally.
+
+The `ops/db/20261019_privacy_legacy_whatsapp_ownership_MANUAL_ONLY.sql` file is an **unapplied** schema proposal. It creates an **empty** per-conversation ownership map with FK to the precise legacy conversation, tenant, and reviewer; an opaque reference to separately retained evidence; and a revocation timestamp. There are **no migrations at application startup**, no automatic backfill, no live insertion or deletion.
+
+The `SENDRO_PRIVACY_WHATSAPP_VERIFIED_LINKS=reviewed-staging-exact-links-only` environment flag is OFF by default and must remain OFF. It is independent of the staging GDPR subject preview flag. It may be enabled **only** after:
+1. Business owner identifies the historical WhatsApp business account(s), date ranges and whether conversation ownership has ever changed. Obtain actual verified operator/controller evidence. No automatic assumption that all records belong to the only current tenant.
+2. Explicit approval for the proposed schema change to the production-shared database, fresh verified backup and controlled restore/rollback readiness.
+3. Approve a separate *exact-conversation* linkage workflow with an independent evidence reference; double-check verified tenant and business account; investigate phone collisions and any cross-company conversation mixing before linking.
+4. Perform isolated synthetic PostgreSQL tests of schema constraints/joins, revoked mapping, cross-tenant access, and existing WhatsApp webhook behavior. Handle future inbound/outbound tenant provenance before general rollout.
+5. Separately approve activating the new flag on staging, never on production.
+
+The metadata inspector only counts legacy `messages` and rows with a `media_id` for an exact, separately verified and non-revoked conversation. It excludes unlinked template batches, other potentially associated guest data, provider copies, media storage, logs and backups; **never** claims that such a preview is a complete deletion inventory. All GDPR case-to-conversation relationships remain ephemeral, and `erasure_enabled=false` always.
+
+For legitimate GDPR access/erasure requests meanwhile, keep using the independent manual review and external source-of-truth evidence. Do not report "verified" or "erased" from this preview.

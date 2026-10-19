@@ -16,6 +16,7 @@ from .privacy_erasure_cases import ScopeEvidence
 from .privacy_preview_guards import PrivacyRequestLimiter
 from .privacy_readonly_preview import preview_is_allowed
 from .privacy_subject_preview import subject_preview_is_allowed
+from .privacy_whatsapp_tenant_links import whatsapp_links_enabled
 
 WORKFLOW_FLAG = "SENDRO_PRIVACY_MANUAL_WORKFLOW"
 WORKFLOW_VALUE = "reviewed-staging-manual-only"
@@ -57,7 +58,11 @@ def create_privacy_workflow_router(
         if not tenants:
             raise HTTPException(status_code=403, detail="Privacy access denied")
         return {"manual_workflow_enabled": True, "erasure_enabled": False,
-                "subject_preview_enabled": subject_preview_is_allowed(os.environ)}
+                "subject_preview_enabled": subject_preview_is_allowed(os.environ),
+                "whatsapp_preview_enabled": (
+                    subject_preview_is_allowed(os.environ)
+                    and whatsapp_links_enabled(os.environ)
+                )}
 
     @router.post("/privacy/requests", response_model=Summary, status_code=201)
     def intake(
