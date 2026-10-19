@@ -112,3 +112,6 @@
   .gdpr-intake-form>div,.gdpr-intake-form select,.gdpr-intake-form button {width:100%;}
   .gdpr-intake-form label {width:100%;}
 }
+
+.gdpr-full-ref {overflow-wrap:anywhere;user-select:text;}
+.gdpr-workflow-actions>.gdpr-secondary-btn {display:inline-flex;margin-bottom:12px;cursor:pointer;background:#eef5fc;border:1px solid #bbd2ea;border-radius:8px;padding:10px;color:#28619a;font-size:12px;font-weight:800;}
