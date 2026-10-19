@@ -18,6 +18,7 @@ from .privacy_access_log import install_privacy_access_log_filter
 class PrivacyPreviewOut(BaseModel):
     """Safe, non-identifying contract. Independent of the mutating case API."""
     case_ref: str
+    received_at: str
     channel: str
     status: str
     blockers: list[str]
