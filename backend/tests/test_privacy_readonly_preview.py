@@ -459,3 +459,135 @@ def test_privacy_reviewer_tenant_discovery_is_mfa_guarded_and_scoped(fake_databa
     ) is False
     with TestClient(off) as client:
         assert client.get("/privacy/requests/tenants", headers=auth()).status_code == 404
+
+
+def test_manual_workflow_needs_four_staging_approvals_and_fails_closed(fake_database):
+    from backend.app.privacy_workflow_preview import (
+        mount_privacy_workflow_preview, workflow_is_allowed,
+        WORKFLOW_FLAG, WORKFLOW_VALUE, SCHEMA_FLAG, SCHEMA_VALUE,
+    )
+    db, _ = fake_database
+    base = _enabled_settings()
+    approved = {
+        **base, WORKFLOW_FLAG: WORKFLOW_VALUE,
+        SCHEMA_FLAG: SCHEMA_VALUE,
+    }
+    assert workflow_is_allowed({}) is False
+    assert workflow_is_allowed(base) is False
+    assert workflow_is_allowed(approved) is True
+    for wrong in (
+        {**approved, "RENDER_SERVICE_ID": "srv-production-sendro"},
+        {**approved, WORKFLOW_FLAG: "enabled"},
+        {**approved, SCHEMA_FLAG: ""},
+        {**approved, APPROVAL_NAME: ""},
+    ):
+        assert workflow_is_allowed(wrong) is False
+
+    for settings in ({}, base, {**approved, "RENDER_SERVICE_ID": "production"}):
+        app = FastAPI()
+        assert mount_privacy_workflow_preview(
+            app, user_from_token, db, settings=settings
+        ) is False
+        with TestClient(app) as client:
+            assert client.post("/privacy/requests", headers=auth(),
+                json={"tenant_id": 101, "channel": "email"}).status_code == 404
+            assert client.get("/privacy/workflow", headers=auth()).status_code == 404
+
+
+def test_manual_workflow_complete_email_case_without_unsafe_erasure(fake_database):
+    from backend.app.privacy_workflow_preview import (
+        mount_privacy_workflow_preview, WORKFLOW_FLAG, WORKFLOW_VALUE,
+        SCHEMA_FLAG, SCHEMA_VALUE,
+    )
+    db, _ = fake_database
+
+    def synthetic_verified_user(user=Depends(user_from_token)):
+        if not user.mfa_enabled:
+            raise HTTPException(status_code=403, detail="Authenticator required")
+        return user
+
+    app = FastAPI()
+    assert mount_privacy_readonly_preview(
+        app, synthetic_verified_user, db, settings=_enabled_settings()
+    ) is True
+    assert mount_privacy_workflow_preview(
+        app, synthetic_verified_user, db,
+        settings={**_enabled_settings(),
+            WORKFLOW_FLAG: WORKFLOW_VALUE, SCHEMA_FLAG: SCHEMA_VALUE}
+    ) is True
+
+    with TestClient(app) as client:
+        cap = client.get("/privacy/workflow", headers=auth())
+        assert cap.status_code == 200
+        assert cap.json() == {
+            "manual_workflow_enabled": True, "erasure_enabled": False
+        }
+        assert cap.headers["cache-control"] == "no-store, private"
+
+        for denied in ("operator-a", "owner-b", "inactive-a", "disabled-a",
+                       "no-mfa-admin-a"):
+            attempt = client.post(
+                "/privacy/requests", headers=auth(denied),
+                json={"tenant_id": 101, "channel": "email"}
+            )
+            assert attempt.status_code == 403
+            assert attempt.headers["cache-control"] == "no-store, private"
+        assert client.post("/privacy/requests",
+            json={"tenant_id": 101, "channel": "email"}).status_code in (401, 403)
+        assert client.post("/privacy/requests", headers=auth(),
+            json={"tenant_id": 101, "channel": "email",
+                  "contact_email": "private@example.com"}).status_code == 422
+
+        received = client.post("/privacy/requests", headers=auth(),
+            json={"tenant_id": 101, "channel": "email"})
+        assert received.status_code == 201, received.text
+        ref = received.json()["case_ref"]
+        assert received.json()["status"] == "received"
+        assert received.json()["received_at"]
+        assert received.json()["erasure_enabled"] is False
+        assert received.headers["cache-control"] == "no-store, private"
+
+        before = client.post(
+            f"/privacy/requests/{ref}/response?tenant_id=101",
+            headers=auth(), json={"externally_confirmed": True})
+        assert before.status_code == 422
+        denied_tenant = client.post(
+            f"/privacy/requests/{ref}/identity-check?tenant_id=202",
+            headers=auth(), json={"externally_confirmed": True})
+        assert denied_tenant.status_code == 403
+        not_confirmed = client.post(
+            f"/privacy/requests/{ref}/identity-check?tenant_id=101",
+            headers=auth(), json={"externally_confirmed": False})
+        assert not_confirmed.status_code == 422
+
+        ok_identity = client.post(
+            f"/privacy/requests/{ref}/identity-check?tenant_id=101",
+            headers=auth(), json={"externally_confirmed": True})
+        assert ok_identity.status_code == 200
+        assert ok_identity.json()["status"] == "identity_checked"
+
+        scope = client.post(
+            f"/privacy/requests/{ref}/scope-review?tenant_id=101",
+            headers=auth(), json={})
+        assert scope.status_code == 200
+        assert scope.json()["status"] == "needs_evidence"
+        assert len(scope.json()["blockers"]) > 0
+
+        replied = client.post(
+            f"/privacy/requests/{ref}/response?tenant_id=101",
+            headers=auth(), json={"externally_confirmed": True})
+        assert replied.status_code == 200
+        assert replied.json()["response_recorded"] is True
+        assert replied.json()["audit_events"] == 4
+        assert replied.json()["erasure_performed"] is False
+
+        again = client.post(
+            f"/privacy/requests/{ref}/response?tenant_id=101",
+            headers=auth(), json={"externally_confirmed": True})
+        assert again.status_code == 422
+        assert client.delete(
+            f"/privacy/requests/{ref}?tenant_id=101",
+            headers=auth()).status_code in (404, 405)
+        assert client.get(
+            f"/privacy/requests/{ref}?tenant_id=101",
+            headers=auth()).json()["response_recorded"] is True
