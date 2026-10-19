@@ -289,7 +289,7 @@ export default function PrivacyManager({
           </form>
         )}
         {notice && <div className="gdpr-notice" role="status">{notice}</div>}
-        {error && <div className="gdpr-alert" role="alert">{error}</div>
+        {error && <div className="gdpr-alert" role="alert">{error}</div>}
         <div className="gdpr-cards">
           <article>
             <span>Requests shown</span>
