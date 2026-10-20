@@ -85,9 +85,8 @@ def dedicated_pg():
     assert "SET LOCAL ROLE sendro_whatsapp_registry_owner" in ddl
     try:
         with admin.begin() as db:
-            # Dependency subset reproduced from the REAL read-only
-            # PostgreSQL 18.3 catalog (20 Oct 2026). Real users has many
-            # unrelated columns; no user data or credential column is copied.
+            # CI-only reproduction of the Render 18.3 tenant/membership
+            # columns and constraints used by the registry; no real rows.
             db.execute(text("""
                 CREATE TABLE public.sendro_tenants (
                     id BIGINT PRIMARY KEY,
@@ -95,7 +94,33 @@ def dedicated_pg():
                     display_name VARCHAR(160) NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     CONSTRAINT ck_sendro_tenants_slug
-                        CHECK (slug ~ '^[a-z0-9][a-z0-9_-]*
+                        CHECK (slug ~ '^[a-z0-9][a-z0-9_-]*$')
+                )
+            """))
+            db.execute(text("""
+                CREATE TABLE public.users (
+                    id INTEGER PRIMARY KEY,
+                    disabled BOOLEAN NOT NULL
+                )
+            """))
+            db.execute(text("""
+                CREATE TABLE public.sendro_tenant_users (
+                    tenant_id BIGINT NOT NULL REFERENCES public.sendro_tenants(id)
+                        ON DELETE RESTRICT,
+                    user_id INTEGER NOT NULL REFERENCES public.users(id)
+                        ON DELETE RESTRICT,
+                    member_role VARCHAR(20) NOT NULL DEFAULT 'operator',
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT ck_sendro_tenant_users_role
+                        CHECK (member_role IN ('owner','admin','operator','viewer')),
+                    CONSTRAINT pk_sendro_tenant_users PRIMARY KEY (tenant_id, user_id)
+                )
+            """))
+            db.execute(text("""
+                INSERT INTO public.sendro_tenants(id,slug,display_name)
+                VALUES(71,'synthetic-a','Synthetic A'),(72,'synthetic-b','Synthetic B')
+            """))
             db.execute(text("""
                 INSERT INTO public.users(id,disabled)
                 VALUES(171,FALSE),(172,FALSE)
