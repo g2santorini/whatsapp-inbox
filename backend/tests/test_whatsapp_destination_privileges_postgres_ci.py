@@ -302,3 +302,33 @@ def test_revoker_can_only_revoke_once_and_reader_fails_closed(isolated_acl_datab
     with reader.connect() as db:
         with pytest.raises(WhatsAppRoutingPreflightError, match="Missing"):
             load_verified_whatsapp_registry(db)
+
+
+def test_readonly_role_acl_preflight_identifies_privileged_vs_reader(isolated_acl_database):
+    """Catalog audit is safe on a read-only connection and reports distinct roles."""
+    bootstrap, engines = isolated_acl_database
+    sql = (Path(__file__).parents[2] / "ops" / "db" /
+           "20261020_whatsapp_registry_ROLE_ACL_READ_ONLY.sql"
+           ).read_text(encoding="utf-8")
+    assert "SELECT" in sql.upper() and "transaction_read_only" in sql
+    for label, engine in [("bootstrap", bootstrap), (READER, engines[READER]),
+                          (ATTESTOR, engines[ATTESTOR]), (REVOKER, engines[REVOKER])]:
+        with engine.connect() as db:
+            with db.begin():
+                db.execute(text("SET TRANSACTION READ ONLY"))
+                result = db.execute(text(sql)).mappings().one()
+                assert result["transaction_read_only"] == "on"
+                assert result["registry_exists"] is True
+                assert result["registry_owner"] == OWNER
+                if label == READER:
+                    assert result["inspected_role"] == READER
+                    assert result["can_read_routing_metadata"] is True
+                    assert result["can_read_evidence_ref"] is False
+                    assert result["can_read_reviewer_id"] is False
+                    assert result["role_separation_required"] is False
+                    assert result["metadata_reader_least_privilege_pass"] is True
+                elif label == "bootstrap":
+                    assert result["role_separation_required"] is True
+                    assert result["metadata_reader_least_privilege_pass"] is False
+                else:
+                    assert result["metadata_reader_least_privilege_pass"] is False
