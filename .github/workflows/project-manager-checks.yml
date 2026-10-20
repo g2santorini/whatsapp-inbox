@@ -123,3 +123,5 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_privacy_whatsapp_ownership_postgres_ci.py -q
       - name: CI-only synthetic two-company WhatsApp ingress and outbound isolation
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_multitenant_postgres_ci.py -q
+      - name: CI-only reviewed WhatsApp destination registry and immutable revocation
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_verified_destination_postgres_ci.py -q
