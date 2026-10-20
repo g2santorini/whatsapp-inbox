@@ -85,28 +85,41 @@ def dedicated_pg():
     assert "SET LOCAL ROLE sendro_whatsapp_registry_owner" in ddl
     try:
         with admin.begin() as db:
+            # CI-only reproduction of the Render 18.3 tenant/membership
+            # columns and constraints used by the registry; no real rows.
             db.execute(text("""
                 CREATE TABLE public.sendro_tenants (
-                    id BIGINT PRIMARY KEY, display_name TEXT NOT NULL
+                    id BIGINT PRIMARY KEY,
+                    slug VARCHAR(100) NOT NULL UNIQUE,
+                    display_name VARCHAR(160) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT ck_sendro_tenants_slug
+                        CHECK (slug ~ '^[a-z0-9][a-z0-9_-]*$')
                 )
             """))
             db.execute(text("""
                 CREATE TABLE public.users (
-                    id INTEGER PRIMARY KEY, disabled BOOLEAN NOT NULL
+                    id INTEGER PRIMARY KEY,
+                    disabled BOOLEAN NOT NULL
                 )
             """))
             db.execute(text("""
                 CREATE TABLE public.sendro_tenant_users (
-                    tenant_id BIGINT NOT NULL REFERENCES public.sendro_tenants(id),
-                    user_id INTEGER NOT NULL REFERENCES public.users(id),
-                    member_role TEXT NOT NULL,
-                    is_active BOOLEAN NOT NULL,
-                    PRIMARY KEY (tenant_id, user_id)
+                    tenant_id BIGINT NOT NULL REFERENCES public.sendro_tenants(id)
+                        ON DELETE RESTRICT,
+                    user_id INTEGER NOT NULL REFERENCES public.users(id)
+                        ON DELETE RESTRICT,
+                    member_role VARCHAR(20) NOT NULL DEFAULT 'operator',
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT ck_sendro_tenant_users_role
+                        CHECK (member_role IN ('owner','admin','operator','viewer')),
+                    CONSTRAINT pk_sendro_tenant_users PRIMARY KEY (tenant_id, user_id)
                 )
             """))
             db.execute(text("""
-                INSERT INTO public.sendro_tenants(id,display_name)
-                VALUES(71,'Synthetic A'),(72,'Synthetic B')
+                INSERT INTO public.sendro_tenants(id,slug,display_name)
+                VALUES(71,'synthetic-a','Synthetic A'),(72,'synthetic-b','Synthetic B')
             """))
             db.execute(text("""
                 INSERT INTO public.users(id,disabled)
@@ -131,6 +144,50 @@ def dedicated_pg():
             )
             db.exec_driver_sql(f"GRANT CREATE ON SCHEMA public TO {LEGACY}")
 
+        # Snapshot existing synthetic business schema before any registry
+        # DDL; later assert no legacy columns, constraints, or rows change.
+        legacy_shape_sql = text("""
+            SELECT COALESCE(
+                string_agg(
+                    c.relname||':'||a.attname||':'||
+                    pg_catalog.format_type(a.atttypid,a.atttypmod)||':'||
+                    a.attnotnull::text,
+                    ',' ORDER BY c.relname,a.attnum
+                ), ''
+            ) AS column_signature
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
+            WHERE n.nspname='public'
+              AND c.relname IN ('users','sendro_tenants','sendro_tenant_users')
+              AND a.attnum>0 AND NOT a.attisdropped
+        """)
+        constraint_shape_sql = text("""
+            SELECT COALESCE(
+                string_agg(
+                    c.conrelid::regclass::text||':'||c.conname||':'||
+                    pg_catalog.pg_get_constraintdef(c.oid),
+                    ',' ORDER BY c.conrelid::regclass::text,c.conname
+                ), ''
+            ) AS constraint_signature
+            FROM pg_catalog.pg_constraint c
+            WHERE c.conrelid IN (
+                'public.users'::regclass,
+                'public.sendro_tenants'::regclass,
+                'public.sendro_tenant_users'::regclass
+            )
+        """)
+        counts_sql = text("""
+            SELECT (SELECT COUNT(*) FROM public.sendro_tenants) AS tenants,
+                   (SELECT COUNT(*) FROM public.sendro_tenant_users) AS memberships,
+                   (SELECT COUNT(*) FROM public.users) AS users
+        """)
+        with admin.connect() as db:
+            original_shapes = (
+                db.execute(legacy_shape_sql).scalar_one(),
+                db.execute(constraint_shape_sql).scalar_one(),
+                tuple(db.execute(counts_sql).one()),
+            )
         with admin.connect() as db:
             with db.begin():
                 db.execute(text("SET TRANSACTION READ ONLY"))
@@ -157,6 +214,12 @@ def dedicated_pg():
                 f"public.sendro_tenant_users TO {OWNER}"
             )
         run_manual_script(admin, ddl)
+        with admin.connect() as db:
+            assert (
+                db.execute(legacy_shape_sql).scalar_one(),
+                db.execute(constraint_shape_sql).scalar_one(),
+                tuple(db.execute(counts_sql).one()),
+            ) == original_shapes, "Registry DDL mutated legacy synthetic schema/rows"
         with admin.connect() as db:
             with db.begin():
                 db.execute(text("SET TRANSACTION READ ONLY"))
