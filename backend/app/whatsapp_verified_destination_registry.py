@@ -29,6 +29,17 @@ VERIFIED_DESTINATIONS_SQL = text("""
 """)
 
 
+# Future dedicated-schema option; remains INERT and unmounted.
+# The original public-table resolver above is retained for earlier CI/PRs.
+DEDICATED_VERIFIED_DESTINATIONS_SQL = text("""
+    SELECT waba_id, phone_number_id, tenant_id
+    FROM sendro_whatsapp.verified_destinations
+    WHERE revoked_at IS NULL
+    ORDER BY phone_number_id
+    LIMIT :limit
+""")
+
+
 def _checked_meta_id(value):
     return (isinstance(value, str)
             and value.isascii()
@@ -36,7 +47,7 @@ def _checked_meta_id(value):
             and 5 <= len(value) <= 32)
 
 
-def load_verified_whatsapp_registry(db):
+def _load_verified_whatsapp_registry(db, query):
     """Return an immutable mapping for signed-envelope routing only.
 
     Unknown and empty registry entries MUST fail closed. Bounded, aggregate-free,
@@ -44,7 +55,7 @@ def load_verified_whatsapp_registry(db):
     No implicit tenant ownership or fallback to the customer phone number.
     """
     rows = db.execute(
-        VERIFIED_DESTINATIONS_SQL,
+        query,
         {"limit": MAX_VERIFIED_DESTINATIONS + 1},
     ).mappings().all()
     if not rows or len(rows) > MAX_VERIFIED_DESTINATIONS:
@@ -67,3 +78,13 @@ def load_verified_whatsapp_registry(db):
         registry[(waba_id, phone_id)] = tenant_id
         owners_by_phone_id[phone_id] = tenant_id
     return MappingProxyType(registry)
+
+
+def load_verified_whatsapp_registry(db):
+    """Legacy inert public-table preflight; NOT connected to live webhooks."""
+    return _load_verified_whatsapp_registry(db, VERIFIED_DESTINATIONS_SQL)
+
+
+def load_dedicated_whatsapp_registry(db):
+    """Future dedicated-schema metadata read only; NOT used by live routes."""
+    return _load_verified_whatsapp_registry(db, DEDICATED_VERIFIED_DESTINATIONS_SQL)
