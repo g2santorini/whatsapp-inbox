@@ -38,18 +38,21 @@ CREATE TABLE public.sendro_whatsapp_verified_destinations (
         UNIQUE(waba_id, phone_number_id)
 );
 
--- Fail closed if attesting user lacks ACTIVE owner/admin membership.
+-- Fail closed unless the reviewer has active owner/admin membership AND an enabled user login.
 CREATE FUNCTION public.sendro_whatsapp_destination_validate_reviewer()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM public.sendro_tenant_users m
+        SELECT 1
+        FROM public.sendro_tenant_users m
+        JOIN public.users u ON u.id = m.user_id
         WHERE m.tenant_id = NEW.tenant_id
           AND m.user_id = NEW.verified_by_user_id
           AND m.is_active IS TRUE
           AND m.member_role IN ('owner', 'admin')
+          AND u.disabled IS FALSE
     ) THEN
-        RAISE EXCEPTION 'WhatsApp destination reviewer must be an active owner/admin';
+        RAISE EXCEPTION 'WhatsApp destination reviewer must be an enabled active owner/admin';
     END IF;
     RETURN NEW;
 END;
