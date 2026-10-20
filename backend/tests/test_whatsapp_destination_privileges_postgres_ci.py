@@ -369,8 +369,8 @@ def isolated_dedicated_registry(isolated_acl_database):
         db.exec_driver_sql(f"GRANT CREATE ON SCHEMA public TO {LEGACY_PRIVILEGED}")
 
     # Negative test: missing FK REFERENCES must atomically undo CREATE SCHEMA.
-    from psycopg import ClientCursor
-    with pytest.raises(DBAPIError):
+    from psycopg import ClientCursor, Error as PsycopgError
+    with pytest.raises(PsycopgError):
         raw = admin.raw_connection()
         try:
             raw.rollback()
@@ -487,11 +487,11 @@ def test_duplicate_dedicated_migration_rolls_back_without_changes(
     sql = (Path(__file__).parents[2] / "ops" / "db" /
            "20261020_whatsapp_registry_DEDICATED_SCHEMA_MANUAL_ONLY.sql"
            ).read_text(encoding="utf-8")
-    from psycopg import ClientCursor
+    from psycopg import ClientCursor, Error as PsycopgError
     raw = admin.raw_connection()
     try:
         raw.rollback()
-        with pytest.raises(DBAPIError):
+        with pytest.raises(PsycopgError):
             with ClientCursor(raw.driver_connection) as cursor:
                 cursor.execute(sql)
         raw.rollback()
