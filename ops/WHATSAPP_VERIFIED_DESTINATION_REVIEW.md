@@ -48,6 +48,43 @@ phone numbers, message bodies, provider credentials or WhatsApp access tokens.
   cross-tenant duplicate ID denial, immutability, revocation, transaction
   rollback and the inert read-only resolver.
 
+## Live read-only preflight — 2026-10-20
+
+A read-only metadata inspection of the designated Sendro workspace/database
+reported PostgreSQL 18.3, all seven expected prerequisite column types,
+the required composite tenant membership key, and **no destination registry,
+reviewer functions, or proposed index name collisions**. The proposed schema
+preflight therefore passed. This is **not** an installation/rollout approval.
+
+**Security stop gate discovered in the same read-only inspection:** the
+inspection/database role can create objects in the `public` schema and has
+broad administrative capabilities. Whoever creates the registry owns it and,
+as owner, can bypass row-level trigger safeguards (for example by TRUNCATE or
+changing the schema). No immutable-registry claim is justified merely because
+trigger-based synthetic tests passed. Confirm privately which database role
+each live backend uses; do not print connection strings or credentials.
+
+**Do not execute the manual registry DDL yet**, even with a compatible schema,
+until a concrete role/permission design has been independently reviewed:
+- A dedicated, controlled migration/ownership principal rather than an
+  ordinary webhook/API runtime principal should own the registry.
+- The live inbound/outbound runtime should have the minimum read privileges
+  actually required (not owner, DDL, TRUNCATE, UPDATE or DELETE privileges).
+- Manual attestation/revocation requires a separately authorized path,
+  with independent evidence review, auditable operator controls and a
+  demonstrated fail-closed response to privilege failures.
+- Check actual role memberships, schema/table/default ACLs, and both
+  staging and production connection roles. Default ACLs owned by another
+  grantor **do not automatically apply** to a new table made by this role.
+- Rehearse the intended role grants and negative privilege tests solely in
+  disposable PostgreSQL. Do not change existing shared database roles or
+  revoke their legacy privileges without an independent no-outage plan.
+- A fresh, restorable backup and a separate, explicit empty-table creation
+  approval remain mandatory even after the privilege design passes.
+
+No WhatsApp account was registered, no legacy mapping was created, and no
+shared-database DDL/DML was run during this inspection.
+
 ## Before *any* shared-DB step (requires NEW permission)
 
 1. Collect restricted original Meta WABA/phone ownership evidence and signed
