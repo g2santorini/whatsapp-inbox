@@ -15,8 +15,10 @@ This is a **replacement architecture** for
 Render at the last metadata-only inspection.
 
 After specifically authorized prerequisite role provisioning and grants,
-a controlled migration session can run the new SQL as a dedicated NOLOGIN
-owner. It creates ONLY:
+a trusted migration session first creates the schema **AUTHORIZATION**
+the dedicated NOLOGIN owner, then uses `SET LOCAL ROLE` to create all remaining
+objects as that owner **inside the same atomic transaction**. The restricted
+owner itself does NOT receive database-wide CREATE privileges. It creates ONLY:
 - schema `sendro_whatsapp` owned by `sendro_whatsapp_registry_owner`;
 - empty `sendro_whatsapp.verified_destinations` with FK/reviewer/immutability
   protections and an account lookup index;
@@ -40,8 +42,9 @@ read, empty mappings and duplicate/malformed data must fail closed.
 
 ## Critical role preconditions — not solved by this migration
 
-- Establish who controls a **trusted independent migration principal** and
-  can create the NOLOGIN owner and reader roles, plus restricted
+- Establish who controls a **trusted independent migration principal** with
+  database CREATE and authority to provision/set the dedicated owner role;
+  separately provision the NOLOGIN owner and reader roles, plus restricted
   `REFERENCES` grants on pre-existing tenant/membership tables.
 - Never create the registry under `sendro_user`; the inspected role has
   `CREATEROLE`, `CREATEDB` and schema creation rights and must not
