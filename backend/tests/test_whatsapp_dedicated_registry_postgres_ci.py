@@ -241,3 +241,52 @@ def test_second_install_fails_without_touching_committed_registry(dedicated_pg):
         assert db.execute(text(
             "SELECT COUNT(*) FROM sendro_whatsapp.verified_destinations"
         )).scalar_one() == 0
+
+
+def test_createrole_self_created_owner_is_not_independent(dedicated_pg):
+    """Regression: PostgreSQL CREATEROLE creator gains ADMIN of own new role.
+
+    A non-superuser that *creates* the owner role can immediately grant itself
+    SET permission later. This demonstrates why the existing privileged Sendro
+    login must NEVER provision the new owner in the real shared database.
+    """
+    admin, roles, _ = dedicated_pg
+    legacy = roles[LEGACY]
+    self_owned = "unsafe_selfcreated_registry_owner_ci"
+
+    with legacy.begin() as db:
+        db.execute(text(
+            f"CREATE ROLE {self_owned} NOLOGIN NOSUPERUSER "
+            "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+        ))
+        membership = db.execute(text("""
+            SELECT am.admin_option,am.set_option,am.inherit_option
+            FROM pg_catalog.pg_auth_members am
+            JOIN pg_catalog.pg_roles owner ON owner.oid=am.roleid
+            JOIN pg_catalog.pg_roles member ON member.oid=am.member
+            WHERE owner.rolname=:owner AND member.rolname=:member
+        """), {"owner": self_owned, "member": LEGACY}).one()
+        assert membership.admin_option is True
+        assert membership.set_option is False
+        assert membership.inherit_option is False
+
+        # Privilege escalation possible for a creator-owned role: this is
+        # intentional PostgreSQL behavior, and the reason for the STOP gate.
+        db.execute(text(
+            f"GRANT {self_owned} TO {LEGACY} WITH SET TRUE, INHERIT FALSE"
+        ))
+    with legacy.begin() as db:
+        db.execute(text(f"SET LOCAL ROLE {self_owned}"))
+        assert db.execute(text("SELECT current_user")).scalar_one() == self_owned
+
+    # In contrast, the independently-created registry OWNER remains out of
+    # reach of the legacy user; it can't gain admin or SET membership there.
+    with admin.connect() as db:
+        row = db.execute(text("""
+            SELECT COUNT(*) FROM pg_catalog.pg_auth_members am
+            JOIN pg_catalog.pg_roles owner ON owner.oid=am.roleid
+            JOIN pg_catalog.pg_roles member ON member.oid=am.member
+            WHERE owner.rolname=:owner AND member.rolname=:member
+        """), {"owner": OWNER, "member": LEGACY}).scalar_one()
+        assert row == 0
+    must_deny(legacy, f"GRANT {OWNER} TO {LEGACY} WITH SET TRUE")
