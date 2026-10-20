@@ -125,3 +125,36 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_multitenant_postgres_ci.py -q
       - name: CI-only reviewed WhatsApp destination registry and immutable revocation
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_verified_destination_postgres_ci.py -q
+
+  whatsapp-privileges-postgres-rehearsal:
+    name: WhatsApp disposable PostgreSQL role separation
+    runs-on: ubuntu-latest
+    # Dedicated, ephemeral CI-only database; never shares service/port with
+    # Render, WhatsApp staging, production, or other CI postgres jobs.
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sendro_wa_acl_ci
+          POSTGRES_PASSWORD: ci-ephemeral-role-password-only
+          POSTGRES_DB: sendro_wa_acl_ci
+        ports:
+          - 55441:5432
+        options: >-
+          --health-cmd "pg_isready -U sendro_wa_acl_ci -d sendro_wa_acl_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SENDRO_WHATSAPP_ACL_PG_CI_APPROVAL: disposable-whatsapp-acl-postgres-only
+      SENDRO_WHATSAPP_ACL_PG_CI_URL: postgresql+psycopg://sendro_wa_acl_ci:ci-ephemeral-role-password-only@127.0.0.1:55441/sendro_wa_acl_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt 'pytest>=8.0' 'httpx>=0.27'
+      - name: Disposable PostgreSQL only — separate table owner, read, attest, revoke and deny DDL
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_destination_privileges_postgres_ci.py -q
