@@ -57,8 +57,11 @@ read, empty mappings and duplicate/malformed data must fail closed.
 
 ## CI test matrix (synthetic only)
 
-The dedicated existing PostgreSQL 18.3 GitHub CI job replays exact new SQL
-under its own test-only roles with no Render network access:
+A **new, independently started** disposable PostgreSQL 18.3 GitHub CI job
+(\`sendro_wa_private_ci\`, localhost 55443) replays the exact new SQL
+under synthetic roles with no Render network access. It intentionally does
+not share the older public-registry test database, so old synthetic objects
+cannot create false-positive migration collisions:
 1. Confirm seven source column types and membership key, and no schema
    name collision via catalog-only SELECT.
 2. Attempt DDL without required REFERENCES. It must fail transactionally
