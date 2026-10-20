@@ -102,6 +102,19 @@ def isolated_registry():
                   SET member_role=EXCLUDED.member_role,
                       is_active=EXCLUDED.is_active
             """))
+        preflight_sql = (Path(__file__).parents[2] / "ops" / "db" /
+                         "20261020_whatsapp_verified_destinations_READ_ONLY_preflight.sql"
+                         ).read_text(encoding="utf-8")
+        with engine.connect() as db:
+            with db.begin():
+                db.execute(text("SET TRANSACTION READ ONLY"))
+                before = db.execute(text(preflight_sql)).mappings().one()
+                assert before["transaction_read_only"] == "on"
+                assert before["checked_columns"] == 7
+                assert before["matched_columns"] == 7
+                assert before["composite_membership_key_present"] is True
+                assert before["schema_preflight_pass"] is True
+
         sql = (Path(__file__).parents[2] / "ops" / "db" /
                "20261020_whatsapp_verified_destinations_MANUAL_ONLY.sql"
                ).read_text(encoding="utf-8")
@@ -116,6 +129,12 @@ def isolated_registry():
             raw.commit()
         finally:
             raw.close()
+        with engine.connect() as db:
+            with db.begin():
+                db.execute(text("SET TRANSACTION READ ONLY"))
+                after = db.execute(text(preflight_sql)).mappings().one()
+                assert after["table_exists"] is True
+                assert after["schema_preflight_pass"] is False
         yield engine
     finally:
         engine.dispose()
