@@ -193,9 +193,11 @@ def test_guard_needs_both_ci_approvals_and_never_reads_database_url():
                         {CI_GATE_ENV: EXPECTED_GATE}):
         with pytest.raises(RuntimeError):
             require_disposable_whatsapp_pg(sample, environment)
-    source = Path(__file__).read_text(encoding="utf-8")
-    assert 'os.environ.get("DATABASE_URL")' not in source
-    assert 'create_engine(os.environ' not in source
+    # Examine only the connection fixture, not the test assertion itself.
+    from inspect import getsource
+    fixture_source = getsource(pg_engine.__wrapped__)
+    assert "DATABASE_URL" not in fixture_source
+    assert "os.environ.get(CI_URL_ENV)" in fixture_source
 
 
 def test_exact_manual_migration_schema_and_no_automatic_owner(pg_engine):
