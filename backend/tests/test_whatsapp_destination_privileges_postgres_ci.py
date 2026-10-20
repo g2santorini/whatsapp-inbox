@@ -353,6 +353,19 @@ def isolated_dedicated_registry(isolated_acl_database):
     assert "INSERT INTO" not in sql.upper()
     assert "GRANT INSERT" not in sql.upper()
     assert "SET LOCAL ROLE sendro_whatsapp_registry_owner" in sql
+    audit_sql = (Path(__file__).parents[2] / "ops" / "db" /
+                 "20261020_whatsapp_registry_DEDICATED_READ_ONLY_preflight.sql"
+                 ).read_text(encoding="utf-8")
+    with admin.connect() as db:
+        with db.begin():
+            db.execute(text("SET TRANSACTION READ ONLY"))
+            before = db.execute(text(audit_sql)).mappings().one()
+            assert before["transaction_read_only"] == "on"
+            assert before["valid_columns"] == 7
+            assert before["membership_key_exists"] is True
+            assert before["new_schema_exists"] is False
+            assert before["schema_shape_ready"] is True
+
     with admin.begin() as db:
         db.exec_driver_sql(
             f"CREATE ROLE {DEDICATED_OWNER} NOLOGIN NOSUPERUSER NOCREATEDB "
@@ -399,6 +412,14 @@ def isolated_dedicated_registry(isolated_acl_database):
         raw.commit()
     finally:
         raw.close()
+
+    with admin.connect() as db:
+        with db.begin():
+            db.execute(text("SET TRANSACTION READ ONLY"))
+            after = db.execute(text(audit_sql)).mappings().one()
+            assert after["new_schema_exists"] is True
+            assert after["new_table_exists"] is True
+            assert after["schema_shape_ready"] is False
 
     roles = {}
     try:
