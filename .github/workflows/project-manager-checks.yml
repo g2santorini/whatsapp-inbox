@@ -158,3 +158,36 @@ jobs:
       - run: pip install -r backend/requirements.txt 'pytest>=8.0' 'httpx>=0.27'
       - name: Disposable PostgreSQL only — separate table owner, read, attest, revoke and deny DDL
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_destination_privileges_postgres_ci.py -q
+
+  whatsapp-private-registry-postgres-rehearsal:
+    name: WhatsApp empty private registry PostgreSQL 18.3
+    runs-on: ubuntu-latest
+    # A separate clean disposable service: NOT the existing public-registry job.
+    # No live Render DB URL, Meta credentials or actual customer records.
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: sendro_wa_private_ci
+          POSTGRES_PASSWORD: disposable-private-whatsapp-ci
+          POSTGRES_DB: sendro_wa_private_ci
+        ports:
+          - 55443:5432
+        options: >-
+          --health-cmd "pg_isready -U sendro_wa_private_ci -d sendro_wa_private_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SENDRO_WHATSAPP_PRIVATE_PG_CI_APPROVAL: disposable-private-whatsapp-postgres-only
+      SENDRO_WHATSAPP_PRIVATE_PG_CI_URL: postgresql+psycopg://sendro_wa_private_ci:disposable-private-whatsapp-ci@127.0.0.1:55443/sendro_wa_private_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r backend/requirements.txt 'pytest>=8.0' 'httpx>=0.27'
+      - name: Private schema — fail atomic install, empty registry and unprivileged reader
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_dedicated_registry_postgres_ci.py -q
