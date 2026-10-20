@@ -26,10 +26,16 @@ phone numbers, message bodies, provider credentials or WhatsApp access tokens.
 
 ## Assets in this PR
 
+- `ops/db/20261020_whatsapp_verified_destinations_READ_ONLY_preflight.sql`:
+  **catalog-only** PostgreSQL preflight. Checks seven required column types,
+  the composite tenant membership key, and table/function/index name collisions.
+  No customer rows or metadata about actual WhatsApp accounts are selected.
+  A pass is **not** permission to perform DDL.
 - `ops/db/20261020_whatsapp_verified_destinations_MANUAL_ONLY.sql`:
-  **manual-only** PostgreSQL proposal, creates an empty table, rejects weak
-  reviewer membership, prevents ownership/evidence edits/deletes, and permits
-  exactly one irreversible revocation.
+  **manual-only** PostgreSQL proposal, creates an empty table, rejects inactive
+  or non-owner/admin reviewers **including disabled application users**,
+  prevents ownership/evidence edits/deletes, and permits exactly one
+  irreversible revocation.
 - `backend/app/whatsapp_verified_destination_registry.py`:
   metadata-only read-only SELECT limited to at most 1,024 reviewed, non-revoked
   destinations. Returns immutable `{(waba_id, phone_number_id): tenant_id}`
@@ -38,7 +44,7 @@ phone numbers, message bodies, provider credentials or WhatsApp access tokens.
 - `backend/tests/test_whatsapp_verified_destination_postgres_ci.py`:
   exercises the exact operator SQL in the **dedicated disposable GitHub CI
   PostgreSQL** service, extending only synthetic test fixtures.
-  Independently tests two owners, inactive/non-admin reviewer rejection,
+  Independently tests two owners, inactive/non-admin/**disabled** reviewer rejection,
   cross-tenant duplicate ID denial, immutability, revocation, transaction
   rollback and the inert read-only resolver.
 
@@ -50,9 +56,15 @@ phone numbers, message bodies, provider credentials or WhatsApp access tokens.
 2. Independently verify the **current** WhatsApp security settings and both
    staging/production configurations. A previous Shell result from staging
    cannot prove production settings.
-3. Do a read-only schema check of `public.sendro_tenants` and
-   `public.sendro_tenant_users` (member_role/is_active requirements), existing
-   indexes, row counts and migration name collisions. Stop on drift.
+3. Run `ops/db/20261020_whatsapp_verified_destinations_READ_ONLY_preflight.sql`
+   against the correct **shared** Render database using a read-only connection.
+   Require `transaction_read_only=on`, `matched_columns=7`,
+   `composite_membership_key_present=true`, and `schema_preflight_pass=true`.
+   It checks `users.disabled` alongside the tenant/membership columns,
+   exact ID types and new-object name collisions. Stop on any mismatch.
+   Inspect deployment role privileges/default ACLs separately: a catalog pass
+   does not prove least privilege. Capture only metadata and aggregate counts,
+   never guest or Meta account records.
 4. Take a new verified restorable backup of the **shared** staging/production
    PostgreSQL and rehearse restore on an isolated clone.
 5. Require a separate explicit approval to **create an empty table**, distinct
@@ -77,8 +89,14 @@ phone numbers, message bodies, provider credentials or WhatsApp access tokens.
 - No easy "transfer the number" by editing a row. An actual account transfer
   needs a new independently approved design (possibly a separate versioned
   history model), not bypassing the immutability guard.
-- Admin/DB owner can technically bypass DB triggers; production permissions,
-  audit, operations and access controls must also be reviewed separately.
+- Admin/DB owner can technically bypass DB triggers or TRUNCATE; production
+  permissions, audit, operations and access controls must also be reviewed
+  separately. The registry must not be writable by an ordinary inbox agent,
+  and evidence UUIDs require external human verification: a valid UUID does
+  not independently prove ownership.
+- Membership status is verified at attestation time; changing a user's status
+  later does not silently alter or reassign an existing ownership record.
+  Account revocation is a separately authorized action.
 
 ## Rollback and failure behavior
 
