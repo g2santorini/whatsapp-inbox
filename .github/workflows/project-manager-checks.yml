@@ -135,7 +135,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18.3
         env:
           POSTGRES_USER: sendro_wa_acl_ci
           POSTGRES_PASSWORD: ci-ephemeral-role-password-only
