@@ -1,4 +1,4 @@
-"""Actual PostgreSQL 16 rehearsal of a synthetic WhatsApp two-tenant store.
+"""Actual PostgreSQL 16 rehearsal of synthetic WhatsApp multi-tenant storage (2 to 14).
 
 Runs ONLY on the dedicated ephemeral GitHub Actions PostgreSQL service; never
 Render/shared data, customer numbers, actual Meta messages, or real sends.
@@ -154,6 +154,8 @@ def clean_fake_rows(request):
         db.execute(text("DELETE FROM public.wa_ci_reactions"))
         db.execute(text("DELETE FROM public.wa_ci_messages"))
         db.execute(text("DELETE FROM public.wa_ci_conversations"))
+        # Remove tenant/account fixtures added by scale tests; disposable CI only.
+        db.execute(text("DELETE FROM public.wa_ci_accounts WHERE id NOT IN (101,202)"))
         db.execute(text("UPDATE public.wa_ci_accounts SET status='active'"))
     yield
 
@@ -339,3 +341,81 @@ def test_no_runtime_webhook_uses_disposable_rehearsal():
     assert "whatsapp_multitenant_rehearsal" not in live_source
     assert "process_signed_synthetic_delivery" not in live_source
     assert "wa_ci_" not in live_source
+
+
+def test_fourteen_companies_fifteen_phone_accounts_remain_isolated(wa_pg):
+    """14 independent tenants, including one with two WA accounts, with same guest and MID."""
+    accounts = [
+        (101, 71, WABA_A, PHONE_A),
+        (202, 72, WABA_B, PHONE_B),
+    ]
+    # 12 more tenants; one extra phone on tenant 71 => 14 tenants, 15 accounts.
+    extra = [
+        (1301 + i, 301 + i, f"7000001{i:02d}", f"8000001{i:02d}")
+        for i in range(12)
+    ]
+    extra.append((1499, 71, "700000199", "800000199"))
+    with wa_pg.begin() as db:
+        for account_id, tenant_id, waba, phone in extra:
+            db.execute(text("""
+                INSERT INTO public.wa_ci_accounts
+                    (id,tenant_id,waba_id,phone_number_id,status)
+                VALUES (:id,:tenant,:waba,:phone,'active')
+            """), {"id": account_id, "tenant": tenant_id,
+                   "waba": waba, "phone": phone})
+    accounts += extra
+    payload = {"object": "whatsapp_business_account", "entry": []}
+    for account_id, tenant_id, waba, phone in accounts:
+        payload["entry"].append(
+            envelope(waba, phone, messages=[item("shared-provider-message-id")])["entry"][0]
+        )
+    assert ingest(wa_pg, payload) == {"inbound": 15, "statuses": 0, "reactions": 0}
+    assert ingest(wa_pg, payload) == {"inbound": 0, "statuses": 0, "reactions": 0}
+    with wa_pg.connect() as db:
+        stats = db.execute(text("""
+            SELECT COUNT(*) AS total, COUNT(DISTINCT tenant_id) AS tenants,
+                   COUNT(DISTINCT account_id) AS accounts,
+                   MIN(unread_count) AS smallest_unread,
+                   MAX(unread_count) AS largest_unread
+            FROM public.wa_ci_conversations
+        """)).mappings().one()
+        assert (stats["total"],stats["tenants"],stats["accounts"],
+                stats["smallest_unread"],stats["largest_unread"]) == (15,14,15,1,1)
+        assert db.execute(text("""
+            SELECT COUNT(*) FROM public.wa_ci_messages
+            WHERE provider_message_id='shared-provider-message-id'
+        """)).scalar_one() == 15
+        assert db.execute(text("""
+            SELECT COUNT(*) FROM public.wa_ci_conversations
+            WHERE tenant_id=71 AND external_customer_id=:guest
+        """), {"guest": SAME_GUEST}).scalar_one() == 2
+
+    # Same provider id across distinct accounts must not cross-update statuses.
+    for account_id, tenant_id, _, _ in accounts:
+        assert stage_outbound_synthetic_intent(
+            wa_pg, tenant_id=tenant_id, account_id=account_id,
+            customer=SAME_GUEST, provider_message_id="shared-outbound-id"
+        ) == {"created": True}
+    assert ingest(wa_pg, envelope(
+        WABA_A, PHONE_A, statuses=[{"id": "shared-outbound-id", "status": "read"}]
+    ))["statuses"] == 1
+    with wa_pg.connect() as db:
+        statuses = db.execute(text("""
+            SELECT delivery_status, COUNT(*) AS total FROM public.wa_ci_messages
+            WHERE provider_message_id='shared-outbound-id'
+            GROUP BY delivery_status ORDER BY delivery_status
+        """)).all()
+        assert {r.delivery_status: r.total for r in statuses} == {"pending": 14, "read": 1}
+    # Forged mismatched tenant/account and mixed valid+unknown deliveries fail closed.
+    with pytest.raises(SyntheticDeliveryRejected):
+        stage_outbound_synthetic_intent(
+            wa_pg, tenant_id=72, account_id=1499, customer=SAME_GUEST,
+            provider_message_id="invalid-owner-intent"
+        )
+    invalid_payload = {"object": "whatsapp_business_account", "entry": [
+        envelope(WABA_A, PHONE_A, messages=[item("would-be-new")])["entry"][0],
+        envelope(WABA_A, PHONE_B, messages=[item("forged-pair")])["entry"][0],
+    ]}
+    with pytest.raises(ValueError):
+        ingest(wa_pg, invalid_payload)
+    assert count(wa_pg, "wa_ci_messages") == 30
