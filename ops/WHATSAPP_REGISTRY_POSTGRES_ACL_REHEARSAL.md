@@ -29,7 +29,7 @@ rather than merely switching roles on a privileged live connection.
 ## Automated, no-customer-data rehearsal
 
 - `backend/tests/test_whatsapp_destination_privileges_postgres_ci.py` runs
-  against the dedicated ephemeral GitHub PostgreSQL 16 service
+  against the dedicated ephemeral GitHub PostgreSQL 18.3 service
   `sendro_wa_acl_ci`, localhost TCP port 55441 only.
 - The test refuses any database host, username, port, database or approval
   gate that does not exactly match the disposable GitHub Actions configuration.
@@ -50,8 +50,8 @@ rather than merely switching roles on a privileged live connection.
 
 ## Important limitations (NOT rollout clearance)
 
-1. CI uses PostgreSQL 16 synthetic schema; shared Render is PostgreSQL 18.3.
-   Passing CI cannot verify live credentials, role memberships, grants,
+1. CI uses a PostgreSQL 18.3 synthetic schema matching Render's reported
+   server version. Passing CI still cannot verify live role memberships, grants,
    default ACLs, schema owner privileges, Meta ownership or a production rollout.
 2. Existing Sendro staging and production backends share a database. Simply
    introducing restricted roles in test code **does not change the current
