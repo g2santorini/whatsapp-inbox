@@ -58,6 +58,12 @@ def isolated_registry():
             # Disposable CI fixture. Existing ownership rehearsal uses minimal
             # tenant/membership stubs; extend them to production-shape roles.
             db.exec_driver_sql("""
+                CREATE TABLE IF NOT EXISTS public.users (
+                    id INTEGER PRIMARY KEY,
+                    disabled BOOLEAN NOT NULL DEFAULT FALSE
+                )
+            """)
+            db.exec_driver_sql("""
                 CREATE TABLE IF NOT EXISTS public.sendro_tenants (
                     id BIGINT PRIMARY KEY, display_name TEXT NOT NULL
                 )
@@ -78,6 +84,11 @@ def isolated_registry():
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
             """)
             db.execute(text("""
+                INSERT INTO public.users(id,disabled)
+                VALUES (171,FALSE),(172,FALSE),(173,FALSE),(174,FALSE),(175,TRUE)
+                ON CONFLICT(id) DO UPDATE SET disabled=EXCLUDED.disabled
+            """))
+            db.execute(text("""
                 INSERT INTO public.sendro_tenants(id,display_name)
                 VALUES (71,'Synthetic A'), (72,'Synthetic B')
                 ON CONFLICT(id) DO NOTHING
@@ -85,7 +96,8 @@ def isolated_registry():
             db.execute(text("""
                 INSERT INTO public.sendro_tenant_users(tenant_id,user_id,member_role,is_active)
                 VALUES (71,171,'owner',TRUE), (72,172,'admin',TRUE),
-                       (71,173,'operator',TRUE), (71,174,'owner',FALSE)
+                       (71,173,'operator',TRUE), (71,174,'owner',FALSE),
+                       (71,175,'admin',TRUE)
                 ON CONFLICT(tenant_id,user_id) DO UPDATE
                   SET member_role=EXCLUDED.member_role,
                       is_active=EXCLUDED.is_active
@@ -182,6 +194,7 @@ def test_active_verified_pairs_resolve_two_tenants_and_revoke_fail_closed(isolat
     destination(tenant=72, reviewer=171),  # mismatched membership
     destination(reviewer=173),  # operator is not an approver
     destination(reviewer=174),  # inactive member
+    destination(reviewer=175),  # active membership, but disabled login
     destination(tenant=9999, reviewer=171),  # unknown tenant
     destination(phone="not-an-id"),  # nonnumeric Meta ID
     destination(waba="700000002", phone="1"),  # short ID
