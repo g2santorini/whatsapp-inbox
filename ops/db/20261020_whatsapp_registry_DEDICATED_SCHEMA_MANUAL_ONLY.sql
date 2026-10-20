@@ -21,10 +21,13 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
-SET LOCAL ROLE sendro_whatsapp_registry_owner;
 
+-- Controlled migration session must have DB CREATE and be authorized to
+-- create a schema AUTHORIZATION owner. The NOLOGIN owner itself must NOT
+-- receive database-wide CREATE privileges merely to install this schema.
 CREATE SCHEMA sendro_whatsapp AUTHORIZATION sendro_whatsapp_registry_owner;
 REVOKE ALL ON SCHEMA sendro_whatsapp FROM PUBLIC;
+SET LOCAL ROLE sendro_whatsapp_registry_owner;
 
 CREATE TABLE sendro_whatsapp.verified_destinations (
     phone_number_id VARCHAR(32) PRIMARY KEY
