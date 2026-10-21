@@ -40,8 +40,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: node --test src/unifiedInboxRows.test.js src/instagramIncidentRows.test.js
-      - name: Syntax-check dormant Instagram Incident Center JSX without mounting it
-        run: npx --no-install esbuild src/InstagramIncidentCenterPreview.jsx --bundle --platform=browser --format=esm --outfile=/tmp/sendro-ig-incident-preview-check.js --loader:.css=empty
+      - name: Build dormant Instagram Incident Center library separately without mounting it
+        run: >-
+          node --input-type=module -e "import { build } from 'vite';
+          await build({ configFile: false, build: {
+          outDir: '/tmp/sendro-ig-preview-check',
+          lib: { entry: 'src/InstagramIncidentCenterPreview.jsx',
+          formats: ['es'], fileName: 'incident-center' },
+          rollupOptions: { external: ['react'] } } });"
       - run: npm run build
 
   instagram-postgres-integration:
