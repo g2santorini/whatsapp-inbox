@@ -1,6 +1,6 @@
 # WhatsApp registry: production-shaped rehearsal vs genuine restored backup
 
-**2026-10-20 — Read-only Sendro Render schema evidence and disposable CI ONLY.**
+**Updated 2026-10-21: Render catalog read-only inspection + disposable CI + successful installation on a *local clone of a verified real backup*. NO Render/shared-DB writes.**
 No customer information, IDs, DB credentials, or backup data are in this file.
 
 ## Verified PostgreSQL 18.3 dependency shape (catalog-only)
@@ -57,12 +57,54 @@ Do **not** upload the customer-data backup into the public GitHub repo,
 attach it to GitHub Actions, or deploy it on an unrelated shared cloud
 service. Preserve the original backup securely.
 
-A real production-shaped migration rehearsal is still pending. When the
-owner is at the Windows PC again, prepare an independently isolated local
-PostgreSQL instance using the existing verified restore procedure, run
-**only the reviewed manual-only migration against that clone with
-independently provisioned synthetic/isolated roles**, then check that
-legacy counts, names, FKs, and application reads remain unchanged.
+### Completed 2026-10-21 — real restored-clone SQL installation (user-verified terminal output)
+
+The Windows machine hosted PostgreSQL 18 in an isolated local cluster
+bound to `127.0.0.1:55442` with two databases:
+
+- Original restored backup: `sendro_restore_check`, preserved as reference.
+- Independently cloned rehearsal DB:
+  `sendro_registry_rehearsal_20261020`, created via PostgreSQL
+  `CREATE DATABASE ... WITH TEMPLATE sendro_restore_check`.
+
+The owner reported executing the **exact manually reviewed SQL** from
+`ops/db/20261020_whatsapp_registry_DEDICATED_SCHEMA_MANUAL_ONLY.sql`,
+downloaded from immutable commit
+`7b895cdc73e169b17209cf7d38b855cab020dd69`; their PowerShell
+verified Git blob SHA-1
+`889f4e0b3bfea64b454f5b24a887117f16f2d955` BEFORE executing.
+The clone-only safety check passed. The execution log contained
+`BEGIN`, `CREATE SCHEMA`, `CREATE TABLE`, both triggers/functions,
+grants and `COMMIT`, then printed
+`REGISTRY_INSTALL_VERIFIED_OK`.
+
+The owner then ran the independent read-only audit and reported:
+
+- `ORIGINAL_RESTORE_OK` — source restore still has **no registry schema**.
+- `CLONE_SECURITY_AUDIT_OK` — clone has an empty registry, correct
+  NOLOGIN ownership, intended reader column-level SELECT and schema
+  USAGE only, absent reader write/schema CREATE/sensitive-column SELECT,
+  and both intended enabled noninternal triggers.
+- `SENDRO_LOCAL_REGISTRY_REHEARSAL_PASSED`.
+- Both databases' expected **one tenant, 25,548 conversations and 95,316
+  messages** were checked. This confirms row **counts**, not hashes or
+  deep content equality, and is not a complete application regression.
+- Local `sendro_restore_local` superuser password was rotated after
+  the test; local PostgreSQL shut down cleanly with
+  `LOCAL_TEST_DATABASE_STOPPED`. Never store secrets in GitHub.
+
+**Scope and important remaining caveats:** This is now an actual
+real-backup **local-clone installation rehearsal**, NOT merely synthetic CI.
+It validates the registry installation, basic ownership/read permissions,
+the original backup's lack of registry and unchanged row counts.
+It does **not** validate live routing or full app behavior, full
+rollback/forward recovery after a simulated failure, complete data
+checksums, production PostgreSQL role provisioning or a Render deployment.
+The independent local migration administrator was a **local superuser**:
+that does not establish an available/approved independent admin in Render.
+The shared Render database remains unchanged; there is no authorization
+for any live role, credential, schema, DDL, DML or Meta switch.
+
 Do not run migration SQL on the shared Render DB.
 
 ## Independent role owner — unresolved external constraint
