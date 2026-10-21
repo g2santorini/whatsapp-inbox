@@ -164,7 +164,8 @@ def complete_ci_alert_dispatch(
                         available_at = :now,
                         attempts = 0,
                         lease_token = NULL, lease_until = NULL,
-                        sent_at = :now
+                        sent_at = :now,
+                        last_error_code = NULL
                     WHERE alert_code = :code AND status = 'leased'
                       AND lease_token = :lease AND lease_until > :now
                       AND accepted_observations < :version
