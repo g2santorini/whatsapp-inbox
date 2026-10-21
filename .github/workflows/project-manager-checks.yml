@@ -100,6 +100,8 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_alert_episodes_ack_ci.py -q
       - name: PostgreSQL only — unmounted in-app Incident Center, signed recent MFA, global responder ACL
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_incident_center_ci_api.py -q
+      - name: PostgreSQL only — exact Sendro source auth functions against synthetic incident API
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_actual_sendro_auth_chain_ci.py -q
       - name: PostgreSQL only — exact one-time failed Instagram DM recovery audit
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_failed_recovery_ci.py -q
       - name: PostgreSQL only — exact one-DM pilot delivery and account safety
