@@ -22,7 +22,7 @@ from backend.tests.test_instagram_postgres_supervision_ci import (
     ci_supervisor, run,
 )
 from backend.tests.test_instagram_manual_migrations_postgres import (
-    payload, store,
+    payload, replay_engine, store,
 )
 
 
