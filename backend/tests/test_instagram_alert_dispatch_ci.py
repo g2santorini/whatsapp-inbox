@@ -39,9 +39,9 @@ def ci_dispatch(ci_alerts):
     with engine.begin() as db:
         db.execute(text("""
             CREATE TABLE IF NOT EXISTS public.sendro_ci_instagram_alert_dispatch (
-                alert_code TEXT PRIMARY KEY
-                    REFERENCES public.sendro_ci_instagram_alert_outbox(alert_code)
-                    ON DELETE RESTRICT,
+                -- CI outbox fixtures independently TRUNCATE their table.
+                -- Avoid a cross-fixture FK while keeping all writes CI-only.
+                alert_code TEXT PRIMARY KEY,
                 target_observations BIGINT NOT NULL CHECK (target_observations > 0),
                 accepted_observations BIGINT NOT NULL DEFAULT 0
                     CHECK (accepted_observations >= 0),
