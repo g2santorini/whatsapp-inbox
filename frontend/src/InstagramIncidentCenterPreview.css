@@ -1,0 +1,65 @@
+/* Dormant Sendro Instagram operational incident preview only. */
+.ig-incident-center {
+  background: #f8fbff;
+  color: #173153;
+  border: 1px solid #d8e5f3;
+  border-radius: 14px;
+  padding: 18px;
+  max-width: 880px;
+}
+.ig-incident-center-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ig-incident-center-heading h2 { margin: 0; font-size: 1.12rem; }
+.ig-incident-center-heading p,
+.ig-incident-center-note { color: #50617a; font-size: .88rem; }
+.ig-incident-center-preview-pill {
+  font-size: .65rem;
+  font-weight: 750;
+  border: 1px solid #dca8a3;
+  color: #9d3432;
+  border-radius: 999px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+.ig-incident-center-list { list-style: none; margin: 14px 0; padding: 0; }
+.ig-incident-center-list li + li { border-top: 1px solid #dce8f5; }
+.ig-incident-center-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 0;
+}
+.ig-incident-center-row strong,
+.ig-incident-center-row small { display: block; }
+.ig-incident-center-row small { margin-top: 4px; color: #546780; }
+.ig-incident-center-state {
+  background: #e9f0fa;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+.ig-incident-center-row button {
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #1b4b8c;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ig-incident-center-row button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.ig-incident-center-error { color: #a03332; }
+.ig-incident-center-message { font-weight: 700; }
+@media (max-width: 670px) {
+  .ig-incident-center-row { grid-template-columns: 1fr auto; }
+  .ig-incident-center-row button { grid-column: 1 / -1; }
+}
