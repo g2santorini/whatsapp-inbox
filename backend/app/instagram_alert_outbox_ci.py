@@ -64,8 +64,8 @@ def _validated_alert(alert):
         not isinstance(codes, (tuple, list))
         or not codes
         or len(codes) > len(APPROVED_CODES)
-        or len(set(codes)) != len(codes)
         or any(not isinstance(code, str) or code not in APPROVED_CODES for code in codes)
+        or len(set(codes)) != len(codes)
         or not isinstance(states, dict)
         or set(states) != STATE_KEYS
         or not all(_nonnegative_count(value) for value in states.values())
