@@ -25,8 +25,14 @@
    failure it marks `failed`, otherwise leaves `pending` with a later
    `next_attempt_at`. It stores only generic error codes, never payloads.
 4. Read-only `read_instagram_queue_health` reports aggregate state counts,
-   due vs deferred, oldest due age and machine-readable alert codes. No
-   customer identifiers, payloads, raw messages or tokens are returned.
+   due vs deferred, oldest due age and machine-readable alert codes. It
+   also flags any **committed `processing` row** as
+   `unresolved_processing_delivery`: the implemented worker commits
+   pending directly to processed/quarantined in one transaction, so an
+   orphan processing state is ineligible for work and must not silently
+   disappear from queue monitoring. This alert reports aggregates only;
+   no automatic state reset or recovery is performed. No customer
+   identifiers, payloads, raw messages or tokens are returned.
 5. Optional read-only operator CLI:
    `python -m app.instagram_queue_reliability`
 
