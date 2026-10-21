@@ -171,6 +171,38 @@ def test_quarantined_delivery_emits_only_redacted_status_alert(ci_supervisor):
     assert "unknown-business" not in json.dumps(events)
 
 
+
+def test_orphan_processing_row_raises_safe_alert_and_is_not_consumed(ci_supervisor):
+    # Only the disposable PostgreSQL CI fixture is written. Real worker
+    # commits pending -> processed/quarantined atomically; 'processing'
+    # remaining committed indicates a stuck or foreign writer.
+    engine, key = ci_supervisor
+    store(engine, key, payload("ci-p2r-orphan", business="ig-phase2r-business"))
+    with engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET processing_state = 'processing'
+            WHERE provider = 'instagram'
+        """))
+    events = []
+    result = run(engine, key, alert=events.append)
+    assert result == {
+        "processed": 0, "quarantined": 0, "deferred": 0,
+        "failed": 0, "messages": 0,
+        "alerts": ("unresolved_processing_delivery",),
+    }
+    assert len(events) == 1
+    assert events[0]["codes"] == ("unresolved_processing_delivery",)
+    assert events[0]["states"]["processing"] == 1
+    assert events[0]["due"] == 0
+    assert set(events[0]) == {"codes", "states", "due", "deferred"}
+    assert queue_state(engine)[0]["processing_state"] == "processing"
+    assert row_count(engine, "sendro_channel_messages") == 0
+    assert row_count(engine, "sendro_channel_conversations") == 0
+    assert "ig-phase2r-business" not in json.dumps(events)
+    assert key not in json.dumps(events)
+
+
 def test_postgresql_serialization_rollback_and_deferred_retry(ci_supervisor):
     engine, key = ci_supervisor
     store(engine, key, payload("ci-p2r-retry", business="ig-phase2r-business"))

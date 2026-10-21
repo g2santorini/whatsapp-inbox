@@ -158,6 +158,12 @@ def read_instagram_queue_health(
         alert_codes.append("failed_deliveries")
     if states.get("quarantined", 0):
         alert_codes.append("quarantined_deliveries")
+    # The bounded worker transitions pending -> processed/quarantined inside
+    # ONE transaction. A committed 'processing' state is therefore NOT a
+    # normal in-flight worker lock; it can be orphaned and would otherwise
+    # disappear from due/backlog alerts indefinitely.
+    if states.get("processing", 0):
+        alert_codes.append("unresolved_processing_delivery")
     if due_count >= backlog_threshold:
         alert_codes.append("pending_backlog")
     if oldest_age_seconds is not None and oldest_age_seconds >= stale_minutes * 60:

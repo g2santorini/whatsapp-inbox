@@ -68,6 +68,11 @@ Coverage:
   quarantine evidence.
 - Halt if the encryption key cannot decrypt the payload rather than
   acknowledging or partially writing a message.
+- Detect and report a synthetic committed `processing` row that is
+  invisible to the pending-only worker, without modifying its state,
+  processing another delivery or revealing any customer identifiers.
+  This is a redacted **in-process test alert**, not a durable production
+  notification or an automatic recovery.
 - Preserve previous Phase 2L/2M/2N/2P suites.
 
 The tests' synthetic TRUNCATEs and trigger CREATE/DROP **only** occur after

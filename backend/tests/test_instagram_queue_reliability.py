@@ -83,6 +83,39 @@ def test_health_reports_due_delayed_terminal_states_without_customer_data(queue_
     assert get_row(queue_engine, 1).processing_state == "pending"
 
 
+
+def test_committed_processing_row_is_not_silently_ignored(queue_engine):
+    # A real worker commits pending -> processed/quarantined atomically.
+    # If 'processing' is ever committed, it cannot be processed by the
+    # pending-only worker and must be surfaced to the operator.
+    with queue_engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET processing_state = 'processing'
+            WHERE id = 1 AND provider = 'instagram'
+        """))
+    health = read_instagram_queue_health(queue_engine, now=UTC_NOW)
+    assert health["states"]["processing"] == 1
+    assert health["due"] == 0
+    assert health["deferred"] == 1
+    assert "unresolved_processing_delivery" in health["alert_codes"]
+    assert "stale_pending_delivery" not in health["alert_codes"]
+    assert "id" not in health
+    assert "payload" not in str(health)
+    assert get_row(queue_engine, 1).processing_state == "processing"
+
+
+def test_other_provider_processing_state_never_triggers_instagram_alert(queue_engine):
+    with queue_engine.begin() as db:
+        db.execute(text("""
+            UPDATE public.sendro_channel_webhook_deliveries
+            SET processing_state = 'processing' WHERE id = 5
+        """))
+    health = read_instagram_queue_health(queue_engine, now=UTC_NOW)
+    assert health["states"]["processing"] == 0
+    assert "unresolved_processing_delivery" not in health["alert_codes"]
+
+
 def test_backlog_alert_has_configurable_limit(queue_engine):
     health = read_instagram_queue_health(
         queue_engine, now=UTC_NOW, backlog_threshold=1, stale_minutes=120,
