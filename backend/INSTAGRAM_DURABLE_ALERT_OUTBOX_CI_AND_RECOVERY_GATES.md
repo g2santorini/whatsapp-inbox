@@ -69,11 +69,49 @@ payload and audit record, prove idempotency on synthetic PostgreSQL, and
 have a tested stop/rollback and immutable incident history. None of those
 production operations exists in this PR.
 
+## Follow-up 2026-10-21: independent, explicitly invoked CI queue observer
+
+`backend/app/instagram_alert_observer_ci.py` is a **CI-only library
+function**, `observe_ephemeral_instagram_alerts()`, that calls the
+existing aggregate read-only queue-health query and persists any
+allowlisted codes through the previous synthetic durable outbox. This
+observer is independent of the message worker's transient callback.
+It never reads raw payloads, account IDs or guest messages, and **never
+claims, processes, resets, deletes or acknowledges** a delivery.
+
+The observer REQUIRES the existing disposable GitHub PostgreSQL
+identity and CI outbox gates, **plus** a separate explicit
+`INSTAGRAM_ALERT_OBSERVER_CI_ENABLED=true` argument. It has no
+timer, scheduler, cron, app startup hook, Render worker or external
+notification transport. A code merge to `dev` cannot start it.
+
+New tests in isolated disposable PostgreSQL establish that:
+- A message can become quarantined **without ever invoking** the
+  supervisor alert callback; the independent observer subsequently
+  discovers the incident and commits the redacted record.
+- A committed `processing` state is detected and recorded, while
+  its ciphertext, state and attempts remain unchanged.
+- When the test-only outbox is missing, observation fails closed with
+  a sanitized error; after restoring the outbox, the next explicit
+  sample records the incident because the delivery remains quarantined.
+- Re-observation aggregates into one incident code and increments an
+  observation count; a healthy queue creates no alert rows.
+- Incorrect CI flags or any nonallowlisted database URI are refused
+  before the observer opens a connection.
+
+**Not solved:** the observer is *not scheduled*, so no real incident
+is automatically monitored. A process crash and short-lived event
+between explicit samples could still evade the alert record. Delivery
+to a human, durable dispatch/ack state, alert ownership and a
+secure restart/recovery control remain unimplemented; no claims of
+actual customer notifications are made.
+
 ## Next separately scoped work
 
-1. Design a *real* event-to-outbox transactional story or independent
-   periodic observer so a process crash between commit and callback
-   cannot make alerts disappear.
+1. Advance the tested, explicitly invoked **CI-only observer** to
+   an independently supervised and scheduled production design, or
+   implement event-to-outbox atomic persistence. Neither is
+   deployed, and independent automatic detection is not yet guaranteed.
 2. Choose a reliable operator notification destination, implement durable
    dispatch/acknowledgement/retries/dead-letter handling, and verify the
    alert arrives **without customer PII**. No destination selected yet.
