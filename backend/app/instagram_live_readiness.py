@@ -25,6 +25,9 @@ _DISALLOWED_ENABLED_FLAGS = (
     "INSTAGRAM_WORKER_MANUAL_ENABLED",
     "INSTAGRAM_SUPERVISOR_TEST_ENABLED",
     "INSTAGRAM_ISOLATED_DB_APPROVED",
+    # The attended one-DM operator has an independent opt-in gate.
+    # Even with the manual worker OFF, an enabled pilot is not standby.
+    "INSTAGRAM_PILOT_ONE_DM_ENABLED",
 )
 
 
