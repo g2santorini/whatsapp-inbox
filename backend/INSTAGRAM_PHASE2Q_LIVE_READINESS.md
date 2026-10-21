@@ -68,8 +68,11 @@ python -m app.instagram_live_readiness
   app secrets, verification tokens, encryption keys, URLs or user data.
 - Checks that `INSTAGRAM_WEBHOOK_INGESTION_ENABLED`,
   `INSTAGRAM_WORKER_MANUAL_ENABLED`,
-  `INSTAGRAM_SUPERVISOR_TEST_ENABLED`, and
-  `INSTAGRAM_ISOLATED_DB_APPROVED` are all disabled.
+  `INSTAGRAM_SUPERVISOR_TEST_ENABLED`,
+  `INSTAGRAM_ISOLATED_DB_APPROVED`, and (since the 2026-10-21
+  hardening) `INSTAGRAM_PILOT_ONE_DM_ENABLED` are all disabled.
+  A one-DM pilot flag set to `true` must never be reported as safe
+  standby, even while the separate manual worker gate is disabled.
 - Checks presence (not live validity with Meta) of Instagram App Secret
   and separate verification token, plus syntactic validity of the
   encryption key without printing any secret values.

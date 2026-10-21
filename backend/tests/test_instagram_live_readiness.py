@@ -24,6 +24,7 @@ def safe_prepared_env():
         "INSTAGRAM_WORKER_MANUAL_ENABLED": "false",
         "INSTAGRAM_SUPERVISOR_TEST_ENABLED": "false",
         "INSTAGRAM_ISOLATED_DB_APPROVED": "false",
+        "INSTAGRAM_PILOT_ONE_DM_ENABLED": "false",
         "INSTAGRAM_APP_SECRET": FAKE_APP_SECRET,
         "INSTAGRAM_WEBHOOK_VERIFY_TOKEN": FAKE_VERIFY_TOKEN,
         "WHATSAPP_WEBHOOK_VERIFY_TOKEN": "separate-fabricated-whatsapp-token",
@@ -55,12 +56,49 @@ def test_enabled_ingress_and_worker_are_reported_as_blockers():
     for variable in ("INSTAGRAM_WEBHOOK_INGESTION_ENABLED",
                      "INSTAGRAM_WORKER_MANUAL_ENABLED",
                      "INSTAGRAM_SUPERVISOR_TEST_ENABLED",
-                     "INSTAGRAM_ISOLATED_DB_APPROVED"):
+                     "INSTAGRAM_ISOLATED_DB_APPROVED",
+                     "INSTAGRAM_PILOT_ONE_DM_ENABLED"):
         env = safe_prepared_env()
         env[variable] = "true"
         result = inspect_instagram_live_readiness(env)
         assert not result["secure_standby"]
         assert variable + "_off" in result["unmet_checks"]
+
+
+
+def test_pilot_flag_enabled_is_not_safe_standby_even_when_worker_disabled():
+    env = safe_prepared_env()
+    assert env["INSTAGRAM_WORKER_MANUAL_ENABLED"] == "false"
+    env["INSTAGRAM_PILOT_ONE_DM_ENABLED"] = "true"
+    report = inspect_instagram_live_readiness(env)
+    assert not report["secure_standby"]
+    assert report["secrets_configured"]  # Unrelated secrets are prepared
+    assert not report["pilot_ready"]
+    assert report["checks"]["INSTAGRAM_WORKER_MANUAL_ENABLED_off"]
+    assert not report["checks"]["INSTAGRAM_PILOT_ONE_DM_ENABLED_off"]
+    assert report["unmet_checks"] == ["INSTAGRAM_PILOT_ONE_DM_ENABLED_off"]
+
+
+def test_unknown_pilot_flag_values_fail_closed():
+    for value in ("true", "1", "enabled", "truee", "n/a"):
+        env = safe_prepared_env()
+        env["INSTAGRAM_PILOT_ONE_DM_ENABLED"] = value
+        assert not inspect_instagram_live_readiness(env)["secure_standby"]
+    for value in ("false", "FALSE", " off ", "0", ""):
+        env = safe_prepared_env()
+        env["INSTAGRAM_PILOT_ONE_DM_ENABLED"] = value
+        assert inspect_instagram_live_readiness(env)["secure_standby"]
+
+
+def test_manual_command_returns_exit_two_for_pilot_gate(monkeypatch, capsys):
+    for key, value in safe_prepared_env().items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("INSTAGRAM_PILOT_ONE_DM_ENABLED", "true")
+    assert main() == 2
+    report = json.loads(capsys.readouterr().out)
+    assert not report["secure_standby"]
+    assert report["unmet_checks"] == ["INSTAGRAM_PILOT_ONE_DM_ENABLED_off"]
+    assert not report["pilot_ready"]
 
 
 def test_unknown_values_fail_closed_instead_of_looking_off():
