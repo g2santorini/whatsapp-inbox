@@ -88,6 +88,8 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_alert_observer_ci.py -q
       - name: PostgreSQL only — synthetic Instagram alert dispatch and acknowledgment
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_alert_dispatch_ci.py -q
+      - name: PostgreSQL only — exact one-time failed Instagram DM recovery audit
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_failed_recovery_ci.py -q
       - name: PostgreSQL only — exact one-DM pilot delivery and account safety
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_single_dm_pilot_postgres.py -q
       - name: PostgreSQL only — synthetic privacy retention aggregate preview
