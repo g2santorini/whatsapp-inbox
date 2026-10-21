@@ -34,10 +34,12 @@ from backend.tests.test_instagram_manual_migrations_postgres import (
 
 
 def flags(**overrides):
-    return dispatch_flags(
-        INSTAGRAM_ALERT_EPISODE_CI_ENABLED="true",
-        INSTAGRAM_ALERT_ACK_CI_ENABLED="true", **overrides,
-    )
+    requested = {
+        "INSTAGRAM_ALERT_EPISODE_CI_ENABLED": "true",
+        "INSTAGRAM_ALERT_ACK_CI_ENABLED": "true",
+    }
+    requested.update(overrides)
+    return dispatch_flags(**requested)
 
 
 @pytest.fixture
