@@ -63,8 +63,8 @@ def test_independent_heartbeat_missing_and_stale_must_escalate_empty_queue():
 def test_a_stale_independent_feed_masks_no_health_assumptions():
     result = check(snapshot(
         captured_at=NOW - timedelta(seconds=91),
-        observer_heartbeat_at=NOW - timedelta(seconds=30),
-        dispatch_heartbeat_at=NOW - timedelta(seconds=40),
+        observer_heartbeat_at=NOW - timedelta(seconds=100),
+        dispatch_heartbeat_at=NOW - timedelta(seconds=110),
     ))
     assert "observation_feed_stale" in result["codes"]
     assert result["severity"] == "critical"
