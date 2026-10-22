@@ -86,6 +86,8 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_manual_migrations_postgres.py -q
       - name: PostgreSQL only — read-only Instagram schema drift audit
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_schema_audit_postgres.py -q
+      - name: PostgreSQL only — metadata-only dedicated read-only observer DB role
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_restricted_observer_postgres_ci.py -q
       - name: PostgreSQL only — signed Instagram HTTP to Inbox gated rehearsal
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_signed_http_postgres_e2e.py -q
       - name: PostgreSQL only — bounded gated Instagram supervisor rehearsal
