@@ -76,6 +76,10 @@ def _guard(engine, environ):
 
 
 def _prove_restricted_role(db):
+    identity = db.execute(text("SELECT current_user, session_user")).one()
+    if tuple(identity) != (ROLE, ROLE):
+        raise ReadonlyObserverDenied("Observer database identity differs")
+
     role = db.execute(text("""
         SELECT rolcanlogin, rolsuper, rolcreaterole, rolcreatedb,
                rolreplication, rolbypassrls
@@ -108,6 +112,17 @@ def _prove_restricted_role(db):
             has_table_privilege(current_user,
                 'public.sendro_channel_webhook_deliveries', 'TRUNCATE')
                 AS can_truncate,
+            has_any_column_privilege(current_user,
+                'public.sendro_channel_webhook_deliveries', 'INSERT')
+                AS can_insert_column,
+            has_any_column_privilege(current_user,
+                'public.sendro_channel_webhook_deliveries', 'UPDATE')
+                AS can_update_column,
+            has_table_privilege(current_user, 'public.users', 'SELECT')
+                AS can_read_users,
+            has_table_privilege(current_user,
+                'public.sendro_channel_messages', 'SELECT')
+                AS can_read_messages,
             has_column_privilege(current_user,
                 'public.sendro_channel_webhook_deliveries', 'provider', 'SELECT')
                 AS read_provider,
@@ -137,6 +152,8 @@ def _prove_restricted_role(db):
         any(permissions[name] for name in (
             "schema_create", "database_create",
             "can_insert", "can_update", "can_delete", "can_truncate",
+            "can_insert_column", "can_update_column",
+            "can_read_users", "can_read_messages",
             "read_payload", "read_digest", "read_id", "read_error",
         ))
         or not all(permissions[name] is True for name in (
