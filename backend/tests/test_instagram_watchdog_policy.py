@@ -156,6 +156,14 @@ def test_future_monitoring_timestamps_flag_clock_anomaly_without_leak():
     ))
     assert result2["codes"] == ("monitor_clock_anomaly",)
 
+    # A heartbeat may be only four seconds ahead of its snapshot
+    # but still more than five seconds ahead of the trusted clock.
+    result3 = check(snapshot(
+        captured_at=NOW + timedelta(seconds=5),
+        observer_heartbeat_at=NOW + timedelta(seconds=9),
+    ))
+    assert result3["codes"] == ("monitor_clock_anomaly",)
+
 
 def test_cleared_issue_never_leaves_persistent_false_alerts():
     before = check(snapshot(failed_notifications=1))
