@@ -1,0 +1,24 @@
+# UNDEPLOYED EXAMPLE ONLY — do not sync as a Render Blueprint.
+# This file is deliberately NOT called render.yaml and is NOT at repo root.
+# Creating/syncing this service would create a separately billable Render
+# cron resource. Owner must authorize cost, staff recipient and scheduling.
+#
+# Even if somebody provisioned it accidentally, the executable refuses
+# all network activity and exits nonzero until explicit approval flag is
+# separately supplied by an authorized operator in its isolated env.
+#
+# Detects ONLY staging backend public HTTP GET / response status.
+# It does NOT observe Instagram queue, webhook, Meta, worker, DB,
+# incident dispatch/acknowledgment, or customer data.
+services:
+  - type: cron
+    name: sendro-instagram-staging-http-sentinel-proposal
+    runtime: python
+    branch: dev
+    region: frankfurt
+    plan: 0.5c-512mb
+    rootDir: backend
+    schedule: "*/5 * * * *"
+    buildCommand: "true"
+    startCommand: "python -m app.instagram_staging_http_sentinel"
+    autoDeployTrigger: "off"
