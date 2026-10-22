@@ -87,6 +87,7 @@ def evaluate_instagram_watchdog(snapshot, *, now):
         raise WatchdogInputDenied("Invalid open incident timestamp")
     if any(
         value > captured + MAX_CLOCK_SKEW
+        or value > moment + MAX_CLOCK_SKEW
         for value in (observer, dispatcher, review)
         if value is not None
     ):
