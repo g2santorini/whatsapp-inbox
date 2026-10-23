@@ -24,6 +24,24 @@ Unit tests use only fabricated records in CI. The code has **no router mount, wo
 
 These are aggregate counts, no guest identifiers/messages were accessed. Live staging and production use a **shared database**.
 
+## Step 2: disposable PostgreSQL transaction rehearsal (same PR)
+
+In addition to the pure 12-month classifier, `backend/tests/test_privacy_batch_delivery_postgres_ci.py` models the database's actual **foreign-key direction** on fabricated `template_batch_items`, `template_batches`, `messages` and `conversations`. GitHub Actions starts its **own** short-lived PostgreSQL 16 container at `127.0.0.1:55443/sendro_batch_retention_ci` with a purpose-specific user. A strict allowlist validates host, user, database, port and CI-only approval string **before creating the engine**. It will refuse the shared Render database.
+
+The synthetic-only `ci_verified_batch_scope` table is **invented for tests and does not exist in production**. This makes explicit an unresolved critical dependency: the old WhatsApp batch history cannot yet be safely attributed to tenants. The test never claims its simulated verification establishes real tenant ownership.
+
+The rehearsal uses explicit one-item `DELETE … RETURNING` queries **inside disposable PostgreSQL transactions that are always rolled back**, and verifies:
+
+1. A 12-month-old authorised item is removable even if its delivery-status timestamp is much newer;
+2. younger items, other businesses' items, unknown ownership, and legal holds cannot be selected;
+3. expiry exactly at the UTC calendar-month boundary;
+4. linked messages/conversations and a younger sibling survive deletion of the older history record;
+5. parent `template_batches` remain untouched — actual safe orphan-parent disposal is still an unresolved separate step;
+6. a simulated failure rolls back the transaction, leaving aggregate row counts unchanged;
+7. no application router, worker, live script or release-time migration is added.
+
+**This is NOT production erasure, a production-valid SQL deletion procedure, or authorisation to run SQL on Sendro.** It is evidence that simple child-row deletion *can* preserve selected foreign keys under a designed set of checks. The full schema, legal hold evidence, parent contents, actual ownership and backup process must still be validated before any live cleanup.
+
 ## Outstanding implementation gates for real batch erasure
 
 1. Review `template_batch_items`, `template_batches`, `conversations`, `messages` references and any storage outside Postgres. Old UI conversation DELETE currently only nulls links to the batch, **not** the batch's personal fields. Ensure that erasing old batch metadata cannot erase younger linked conversations/messages or unexpectedly break existing Sendro reads.
