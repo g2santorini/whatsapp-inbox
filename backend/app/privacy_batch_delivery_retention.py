@@ -69,7 +69,7 @@ def review_delivery_history(
     status_updated = record.delivery_status_updated_at
     if status_updated is not None:
         parsed_status = _utc(status_updated)
-        if parsed_status is None or parsed_status > now or parsed_status < created:
+        if parsed_status is None or parsed_status > now:
             return "invalid_status_timestamp"
     if created > cutoff:
         return "within_12_calendar_months"
