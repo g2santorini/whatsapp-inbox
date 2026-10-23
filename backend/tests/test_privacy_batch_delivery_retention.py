@@ -51,6 +51,14 @@ def test_status_changes_do_not_restart_clock():
     ) == "candidate_for_manual_erasure_review"
 
 
+
+def test_provider_status_older_than_local_row_creation_is_not_a_new_clock():
+    # Provider event timestamps can predate a locally persisted row.
+    assert check(
+        delivery_status_updated_at=datetime(2025, 6, 11, 8, 59)
+    ) == "candidate_for_manual_erasure_review"
+
+
 def test_leap_year_cutoff_calendar_based_not_365_days():
     leap = datetime(2024, 2, 29, 11, tzinfo=timezone.utc)
     assert twelve_month_cutoff(leap) == datetime(
