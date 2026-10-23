@@ -50,6 +50,8 @@ Read-only October 23, 2026 PostgreSQL aggregate facts (no personal details, name
 - **1,543** have neither message nor conversation link;
 - **0** linked items have a mismatch between the item conversation ID and its linked message's conversation ID;
 - **0** batch items older than 12 months. These observed counts do NOT establish tenant/business ownership.
+- **3,104** parents contain only normally linked history items; **680** contain both linked and unlinked items; **28** parents contain only unlinked items.
+- Of the **1,543 unlinked items**, **1,351** sit alongside linked items in mixed batches and **192** belong to the 28 unlinked-only parents. **Neither case authorizes inferring legal controller from the folder alone.**
 
 The new `backend/tests/test_privacy_batch_parent_ownership_postgres_ci.py` runs on **its own fabricated tables** in an independent schema inside the ephemeral GitHub Actions PostgreSQL described above. It models **two fictional businesses**, independent per-parent approval, independent per-conversation approval, linked messages, newer and expired children, legal holds, missing provenance and a deliberately mixed/corrupt parent batch.
 
