@@ -250,4 +250,4 @@ jobs:
       - name: Install test-only Python dependencies
         run: pip install -r backend/requirements.txt 'pytest>=8.0'
       - name: Verify expired bulk delivery history erasure is scoped and reversible
-        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_privacy_batch_delivery_postgres_ci.py -q
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_privacy_batch_delivery_postgres_ci.py tests/test_privacy_batch_parent_ownership_postgres_ci.py -q
