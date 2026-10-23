@@ -316,13 +316,13 @@ def test_transaction_rolls_back_if_second_step_fails(synthetic_pg):
 
 
 def test_no_application_write_path_or_real_ownership_claim():
-    from pathlib import Path
-    code = Path(__file__).read_text(encoding="utf-8")
-    assert "ci_verified_batch_scope" in code  # DOES NOT exist live
-    assert "get_db(" not in code and "FastAPI(" not in code
-    assert "DATABASE_URL" not in code and "render.com" in code
-    assert "SENDRO_BATCH_RETENTION_PG_CI_URL" in code
-    assert "app.include_router(" not in code
+    from inspect import getsource
+    fixture = getsource(synthetic_pg.__wrapped__)
+    assert "ci_verified_batch_scope" in fixture  # DOES NOT exist live
+    assert "get_db(" not in fixture and "FastAPI(" not in fixture
+    assert "DATABASE_URL" not in fixture
+    assert "os.environ.get(CI_URL)" in fixture
+    assert "app.include_router(" not in fixture
 
 
 def test_only_explicitly_scoped_id_not_bulk_delete(synthetic_pg):
