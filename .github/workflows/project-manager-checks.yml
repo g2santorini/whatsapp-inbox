@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r backend/requirements.txt 'httpx>=0.27' 'pytest>=8.0'
-      - run: cd backend && PYTHONPATH=.. python -m pytest tests/test_project_manager.py tests/test_project_route_guard.py tests/test_task_hub.py tests/test_webflow_backlog_import.py tests/test_whatsapp_live_panel.py tests/test_whatsapp_webhook_hardening.py tests/test_whatsapp_account_routing_preflight.py tests/test_manual_index_rollout.py tests/test_instagram_webhook_handshake.py tests/test_instagram_event_normalizer.py tests/test_instagram_encrypted_inbox.py tests/test_instagram_delivery_worker.py tests/test_instagram_worker_control.py tests/test_instagram_inbox_read_api.py tests/test_instagram_synthetic_e2e.py tests/test_instagram_meta_payload_shapes.py tests/test_instagram_queue_reliability.py tests/test_instagram_live_readiness.py tests/test_instagram_pilot_evidence_preflight.py tests/test_instagram_watchdog_policy.py tests/test_instagram_staging_http_sentinel.py tests/test_privacy_retention.py tests/test_privacy_erasure_cases.py tests/test_privacy_case_api.py tests/test_privacy_readonly_preview.py -q
+      - run: cd backend && PYTHONPATH=.. python -m pytest tests/test_project_manager.py tests/test_project_route_guard.py tests/test_task_hub.py tests/test_webflow_backlog_import.py tests/test_whatsapp_live_panel.py tests/test_whatsapp_webhook_hardening.py tests/test_whatsapp_account_routing_preflight.py tests/test_manual_index_rollout.py tests/test_instagram_webhook_handshake.py tests/test_instagram_event_normalizer.py tests/test_instagram_encrypted_inbox.py tests/test_instagram_delivery_worker.py tests/test_instagram_worker_control.py tests/test_instagram_inbox_read_api.py tests/test_instagram_synthetic_e2e.py tests/test_instagram_meta_payload_shapes.py tests/test_instagram_queue_reliability.py tests/test_instagram_live_readiness.py tests/test_instagram_pilot_evidence_preflight.py tests/test_instagram_watchdog_policy.py tests/test_instagram_staging_http_sentinel.py tests/test_privacy_retention.py tests/test_privacy_batch_delivery_retention.py tests/test_privacy_erasure_cases.py tests/test_privacy_case_api.py tests/test_privacy_readonly_preview.py -q
 
   frontend:
     name: React production build
@@ -217,3 +217,37 @@ jobs:
       - run: pip install -r backend/requirements.txt 'pytest>=8.0' 'httpx>=0.27'
       - name: Private schema — fail atomic install, empty registry and unprivileged reader
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_whatsapp_dedicated_registry_postgres_ci.py -q
+
+  # This job exercises DELETE only on fabricated rows in an isolated,
+  # short-lived GitHub Actions PostgreSQL 16. NEVER reuse Render/shared DB.
+  batch-delivery-retention-postgres-ci:
+    name: Batch delivery 12-month erasure rollback — disposable PostgreSQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sendro_batch_ci
+          POSTGRES_PASSWORD: synthetic-batch-password
+          POSTGRES_DB: sendro_batch_retention_ci
+        ports:
+          - 55443:5432
+        options: >-
+          --health-cmd "pg_isready -U sendro_batch_ci -d sendro_batch_retention_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SENDRO_BATCH_RETENTION_PG_CI_APPROVAL: ephemeral-batch-retention-only
+      SENDRO_BATCH_RETENTION_PG_CI_URL: postgresql+psycopg://sendro_batch_ci:synthetic-batch-password@127.0.0.1:55443/sendro_batch_retention_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test-only Python dependencies
+        run: pip install -r backend/requirements.txt 'pytest>=8.0'
+      - name: Verify expired bulk delivery history erasure is scoped and reversible
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_privacy_batch_delivery_postgres_ci.py tests/test_privacy_batch_parent_ownership_postgres_ci.py -q
