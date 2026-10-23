@@ -42,6 +42,26 @@ The rehearsal uses explicit one-item `DELETE … RETURNING` queries **inside dis
 
 **This is NOT production erasure, a production-valid SQL deletion procedure, or authorisation to run SQL on Sendro.** It is evidence that simple child-row deletion *can* preserve selected foreign keys under a designed set of checks. The full schema, legal hold evidence, parent contents, actual ownership and backup process must still be validated before any live cleanup.
 
+## Step 3: adversarial batch ownership + empty parent rehearsal (disposable PostgreSQL only)
+
+Read-only October 23, 2026 PostgreSQL aggregate facts (no personal details, names, numbers or raw rows):
+- **3,812** parent \`template_batches\`, **0** currently empty;
+- **25,800** \`template_batch_items\` have both message and conversation links;
+- **1,543** have neither message nor conversation link;
+- **0** linked items have a mismatch between the item conversation ID and its linked message's conversation ID;
+- **0** batch items older than 12 months. These observed counts do NOT establish tenant/business ownership.
+
+The new \`backend/tests/test_privacy_batch_parent_ownership_postgres_ci.py\` runs on **its own fabricated tables** in an independent schema inside the ephemeral GitHub Actions PostgreSQL described above. It models **two fictional businesses**, independent per-parent approval, independent per-conversation approval, linked messages, newer and expired children, legal holds, missing provenance and a deliberately mixed/corrupt parent batch.
+
+Required fail-closed rules proved in the synthetic transaction rehearsal:
+1. A parent approval **does not override** the owner of a linked conversation or message;
+2. if **any** child in a parent contains a cross-tenant, inconsistent or unverified link, the **whole parent's candidates are blocked** rather than deleting an apparently safe unlinked sibling;
+3. an older, individually approved child can be removed while a younger child, the parent and both current conversation/message tables survive unchanged;
+4. a parent (which itself may have a title or operational metadata) can be removed only when its own age, same-tenant attestation and retention/hold review all pass, and **no child remains**;
+5. failure of the child-and-parent transaction restores **both** rows together.
+
+The test-only \`verified_batch_scope\` and \`verified_conversation_scope\` tables are **fabricated** and are **not** equivalent to the legacy WhatsApp ownership database. This rehearsal cannot magically attribute the 1,543 unlinked delivery records to a business. Real historical provenance, parent metadata and all foreign-key dependencies remain deployment blockers. No production DELETE, migration, secret, real-data lookup, worker or background purge is added.
+
 ## Outstanding implementation gates for real batch erasure
 
 1. Review `template_batch_items`, `template_batches`, `conversations`, `messages` references and any storage outside Postgres. Old UI conversation DELETE currently only nulls links to the batch, **not** the batch's personal fields. Ensure that erasing old batch metadata cannot erase younger linked conversations/messages or unexpectedly break existing Sendro reads.
