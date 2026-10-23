@@ -134,9 +134,12 @@ def sandbox_pg():
                       REFERENCES ci_batch_provenance_rehearsal.messages(id))
             """)
             db.exec_driver_sql("""
+                -- This synthetic verification ledger must remain after
+                -- a parent deletion; it intentionally holds an opaque ID
+                -- without a foreign key to the expiring parent. A real audit
+                -- design needs its own lawful retention and access limits.
                 CREATE TABLE ci_batch_provenance_rehearsal.verified_batch_scope(
-                    batch_id INTEGER PRIMARY KEY
-                      REFERENCES ci_batch_provenance_rehearsal.batches(id),
+                    batch_id INTEGER PRIMARY KEY,
                     tenant_id INTEGER NOT NULL,
                     ownership_verified BOOLEAN NOT NULL,
                     controller_instructions_verified BOOLEAN NOT NULL,
@@ -288,6 +291,12 @@ def test_last_old_item_and_parent_are_both_removed_atomically(sandbox_pg):
             assert remove_parent(db, batch=1005) == []
             assert remove_child(db, 506, batch=1005) == [506]
             assert remove_parent(db, batch=1005) == [1005]
+            # Verification evidence is not silently lost with the batch.
+            assert db.execute(text("""
+                SELECT COUNT(*)
+                FROM ci_batch_provenance_rehearsal.verified_batch_scope
+                WHERE batch_id=1005 AND tenant_id=401
+            """)).scalar_one() == 1
             assert counts(db) == (before[0] - 1, before[1] - 1,
                                   before[2], before[3])
         finally:
