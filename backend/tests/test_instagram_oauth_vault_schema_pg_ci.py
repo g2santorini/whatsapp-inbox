@@ -167,4 +167,25 @@ def test_fail_stopped_migration_and_exact_tenant_fk_on_ephemeral_pg():
             db.execute(text(
                 "DROP TABLE IF EXISTS public.sendro_instagram_oauth_challenges"
             ))
+            # These uniquely named fixtures exist only in the ephemeral CI
+            # database. Remove all records to protect following CI scenarios.
+            db.execute(text("""
+                DELETE FROM public.sendro_channel_accounts
+                WHERE tenant_id IN (
+                    SELECT id FROM public.sendro_tenants
+                    WHERE slug IN ('ig-oauth-schema-ci-1','ig-oauth-schema-ci-2')
+                )
+            """))
+            db.execute(text("""
+                DELETE FROM public.sendro_tenant_users
+                WHERE tenant_id IN (
+                    SELECT id FROM public.sendro_tenants
+                    WHERE slug IN ('ig-oauth-schema-ci-1','ig-oauth-schema-ci-2')
+                )
+            """))
+            db.execute(text("""
+                DELETE FROM public.sendro_tenants
+                WHERE slug IN ('ig-oauth-schema-ci-1','ig-oauth-schema-ci-2')
+            """))
+            db.execute(text("DELETE FROM public.users WHERE id=912397"))
         engine.dispose()
