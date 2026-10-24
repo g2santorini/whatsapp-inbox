@@ -84,6 +84,8 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_isolation.py -q
       - name: PostgreSQL only — replay six pinned manual Instagram migrations
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_manual_migrations_postgres.py -q
+      - name: PostgreSQL only — OAuth/vault RELEASE HOLD and tenant FK schema rehearsal
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_oauth_vault_schema_pg_ci.py -q
       - name: PostgreSQL only — read-only Instagram schema drift audit
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_schema_audit_postgres.py -q
       - name: PostgreSQL only — metadata-only dedicated read-only observer DB role
