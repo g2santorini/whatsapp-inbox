@@ -39,7 +39,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: node --test src/unifiedInboxRows.test.js src/instagramIncidentRows.test.js
+      - run: node --test src/unifiedInboxRows.test.js src/instagramIncidentRows.test.js src/instagramConnectFlow.test.js
       - name: Build dormant Instagram Incident Center library separately without mounting it
         run: >-
           node --input-type=module -e "import { build } from 'vite';
