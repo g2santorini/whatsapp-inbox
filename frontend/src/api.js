@@ -569,3 +569,18 @@ export async function recordPrivacyResponse(tenantId, ref) {
     body: JSON.stringify({ externally_confirmed: true }),
   });
 }
+
+
+// Future staging-only Instagram account-status read adapter.
+// NOT invoked by the currently disabled InstagramAccountStatusPreview.
+// The unmounted backend endpoint rechecks real signed Sendro MFA + admin
+// membership and never exposes encrypted credentials or Meta tokens.
+export async function getInstagramAccountStatus(tenantId, options = {}) {
+  if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
+    throw new Error('Invalid Instagram business');
+  }
+  return apiRequest(
+    `/channels/instagram/account-status?tenant_id=${tenantId}`,
+    { signal: options.signal },
+  );
+}
