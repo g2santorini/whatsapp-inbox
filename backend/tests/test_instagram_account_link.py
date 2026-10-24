@@ -236,3 +236,9 @@ def test_duplicate_link_does_not_overwrite_existing_token(db):
 def test_unmounted_and_no_graph_request_at_import():
     source=(Path(__file__).parents[1]/"app"/"main.py").read_text(encoding="utf-8")
     assert "instagram_account_link" not in source
+
+def test_short_lived_token_object_does_not_leak_when_repr_called():
+    from backend.app.instagram_login_oauth import InstagramShortToken
+    short=InstagramShortToken(access_token=SHORT_TOKEN, instagram_user_id=USER_ID)
+    assert SHORT_TOKEN not in repr(short)
+    assert SHORT_TOKEN not in str(short)
