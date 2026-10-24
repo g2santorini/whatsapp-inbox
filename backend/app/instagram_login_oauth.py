@@ -25,10 +25,16 @@ class InstagramLoginError(Exception):
     """Sanitized error: never include Meta's token-bearing response body."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class InstagramShortToken:
     access_token: str
     instagram_user_id: str
+
+    def __repr__(self):
+        return "InstagramShortToken(<redacted>)"
+
+    def __str__(self):
+        return "<redacted Instagram authorization token>"
 
 
 @dataclass(frozen=True)
