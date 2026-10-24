@@ -88,7 +88,10 @@ def capture_instagram_authorization_code(
         raise InstagramCallbackDenied("Instagram callback expired or already received")
 
 
-def create_dormant_callback_router(capture: Callable[[str, str], None]) -> APIRouter:
+def create_dormant_callback_router(
+    capture: Callable[[str, str], None], *,
+    request_gate: Callable[[Request], None] | None = None,
+) -> APIRouter:
     """Opt-in router factory; never mount automatically or use live DB here.
 
     The callback intentionally does not redirect to another URL, use cookies,
@@ -99,6 +102,14 @@ def create_dormant_callback_router(capture: Callable[[str, str], None]) -> APIRo
 
     @router.get("/channels/instagram/oauth/callback", response_class=HTMLResponse)
     def instagram_callback(request: Request):
+        # A missing gate must never expose a working Meta callback.
+        # A reviewer must separately attest upstream query-string redaction.
+        if request_gate is None:
+            return HTMLResponse(_HTML_ERROR, status_code=503, headers=_HEADERS)
+        try:
+            request_gate(request)
+        except Exception:
+            return HTMLResponse(_HTML_ERROR, status_code=503, headers=_HEADERS)
         params = request.query_params
         # Duplicate values can introduce parser disagreement. Fail closed.
         if any(len(params.getlist(field)) > 1 for field in ("state", "code", "error")):
