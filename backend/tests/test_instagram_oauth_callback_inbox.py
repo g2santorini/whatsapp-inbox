@@ -96,7 +96,7 @@ def test_bad_code_rejected(db, bad_code):
 
 def client_with_capture(capture):
     app = FastAPI()
-    app.include_router(create_dormant_callback_router(capture))
+    app.include_router(create_dormant_callback_router(capture, request_gate=lambda request: None))
     return TestClient(app)
 
 
