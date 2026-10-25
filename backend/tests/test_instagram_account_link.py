@@ -13,6 +13,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from backend.app.instagram_oauth_completion import ClaimedInstagramCode
+from backend.app.instagram_oauth_http_security import InstagramOAuthLogAttestations
+
+def fake_ci_attestation():
+    # Only test assertions with fake HTTP responses, not actual Render proof.
+    return InstagramOAuthLogAttestations(**{
+        field: True for field in InstagramOAuthLogAttestations.__dataclass_fields__
+    })
+
 from backend.app.instagram_account_link import (
     InstagramAccountLinkDenied, VerifiedInstagramLink,
     prepare_verified_instagram_link, save_verified_instagram_link,
@@ -85,7 +93,8 @@ def _claim(tenant_id=10, user_id=7):
 def _prepared(fake=None, claim=None):
     return prepare_verified_instagram_link(
         claimed_code=claim or _claim(), instagram_app_id=APP_ID,
-        instagram_app_secret=APP_SECRET, session=fake or FakeMeta())
+        instagram_app_secret=APP_SECRET, session=fake or FakeMeta(),
+        egress_approval=fake_ci_attestation())
 
 
 def _user(user_id=7, username="synthetic-owner", **overrides):
@@ -242,3 +251,12 @@ def test_short_lived_token_object_does_not_leak_when_repr_called():
     short=InstagramShortToken(access_token=SHORT_TOKEN, instagram_user_id=USER_ID)
     assert SHORT_TOKEN not in repr(short)
     assert SHORT_TOKEN not in str(short)
+
+def test_unapproved_link_claim_makes_zero_meta_calls():
+    meta=FakeMeta()
+    with pytest.raises(Exception, match="network access blocked"):
+        prepare_verified_instagram_link(
+            claimed_code=_claim(), instagram_app_id=APP_ID,
+            instagram_app_secret=APP_SECRET, session=meta,
+        )
+    assert meta.calls==[]

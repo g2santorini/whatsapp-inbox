@@ -7,6 +7,8 @@ Not routed, scheduled or imported by Sendro app startup.
 from dataclasses import dataclass
 import requests
 
+from .instagram_meta_egress_guard import require_safe_instagram_meta_egress
+
 GRAPH_LONG_LIVED_EXCHANGE_URL = "https://graph.instagram.com/access_token"
 GRAPH_REFRESH_URL = "https://graph.instagram.com/refresh_access_token"
 _MAX_TOKEN_LENGTH = 8192
@@ -57,7 +59,9 @@ def _parse(result):
     return InstagramGraphLongLivedToken(token, expires)
 
 
-def _send_get(url, *, params, session=None):
+def _send_get(url, *, params, session=None, egress_approval=None):
+    # Validate BEFORE constructing any token-bearing outgoing request.
+    require_safe_instagram_meta_egress(egress_approval)
     transport = requests if session is None else session
     try:
         reply = transport.get(
@@ -73,7 +77,8 @@ def _send_get(url, *, params, session=None):
         raise InstagramTokenLifecycleError("Instagram token service unavailable") from None
 
 
-def exchange_instagram_long_lived(*, short_lived_token, instagram_app_secret, session=None):
+def exchange_instagram_long_lived(*, short_lived_token, instagram_app_secret,
+                                  session=None, egress_approval=None):
     """Instagram Login short-lived to long-lived. Explicit server-side call only."""
     token = _token(short_lived_token)
     if not isinstance(instagram_app_secret, str) or not instagram_app_secret:
@@ -82,12 +87,13 @@ def exchange_instagram_long_lived(*, short_lived_token, instagram_app_secret, se
         "grant_type": "ig_exchange_token",
         "client_secret": instagram_app_secret,
         "access_token": token,
-    }, session=session)
+    }, session=session, egress_approval=egress_approval)
 
 
-def refresh_instagram_long_lived(*, long_lived_token, session=None):
+def refresh_instagram_long_lived(*, long_lived_token, session=None,
+                                  egress_approval=None):
     """Caller checks age/expiry first. No automatic scheduling/service grants."""
     token = _token(long_lived_token)
     return _send_get(GRAPH_REFRESH_URL, params={
         "grant_type": "ig_refresh_token", "access_token": token,
-    }, session=session)
+    }, session=session, egress_approval=egress_approval)

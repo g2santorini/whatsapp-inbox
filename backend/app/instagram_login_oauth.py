@@ -13,6 +13,8 @@ from urllib.parse import urlencode, urlsplit
 
 import requests
 
+from .instagram_meta_egress_guard import require_safe_instagram_meta_egress
+
 INSTAGRAM_AUTHORIZE = "https://www.instagram.com/oauth/authorize"
 INSTAGRAM_TOKEN = "https://api.instagram.com/oauth/access_token"
 INSTAGRAM_PROFILE = "https://graph.instagram.com/me"
@@ -87,7 +89,7 @@ def build_authorize_url(*, app_id: str, redirect_uri: str, state: str) -> str:
 
 def exchange_short_lived_token(
     *, app_id: str, app_secret: str, code: str, redirect_uri: str,
-    session=None,
+    session=None, egress_approval=None,
 ) -> InstagramShortToken:
     """Server-only code exchange. Caller must never persist plaintext tokens."""
     _check_staging_callback(redirect_uri)
@@ -97,6 +99,7 @@ def exchange_short_lived_token(
         raise InstagramLoginError("Instagram Login is not configured")
     if not isinstance(code, str) or not 1 <= len(code) <= 2048:
         raise InstagramLoginError("Invalid authorization code")
+    require_safe_instagram_meta_egress(egress_approval)
     transport = session or requests
     try:
         result = transport.post(
@@ -125,10 +128,12 @@ def exchange_short_lived_token(
     return InstagramShortToken(token, str(user_id))
 
 
-def fetch_authorized_profile(*, access_token: str, session=None) -> InstagramProfile:
+def fetch_authorized_profile(*, access_token: str, session=None,
+                             egress_approval=None) -> InstagramProfile:
     """Only retrieve the authorized business account's profile, not posts or DMs."""
     if not isinstance(access_token, str) or not 10 <= len(access_token) <= 8192:
         raise InstagramLoginError("Invalid Instagram access token")
+    require_safe_instagram_meta_egress(egress_approval)
     transport = session or requests
     try:
         result = transport.get(

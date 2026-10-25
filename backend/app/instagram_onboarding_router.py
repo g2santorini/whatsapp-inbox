@@ -171,6 +171,7 @@ def create_dormant_instagram_onboarding_router(
                 claimed_code=claimed,
                 instagram_app_id=instagram_app_id,
                 instagram_app_secret=instagram_app_secret,
+                egress_approval=log_attestations,
             )
             with transaction() as conn:
                 result = save_link(

@@ -5,6 +5,19 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from backend.app import instagram_login_oauth as ig
+from backend.app.instagram_oauth_http_security import InstagramOAuthLogAttestations
+
+def approved():
+    # Mock-only test attestation. Production operational checks are NOT done.
+    return InstagramOAuthLogAttestations(**{
+        field: True for field in InstagramOAuthLogAttestations.__dataclass_fields__
+    })
+
+def short(**kw):
+    return ig.exchange_short_lived_token(**kw, egress_approval=approved())
+
+def fetch_profile(**kw):
+    return ig.fetch_authorized_profile(**kw, egress_approval=approved())
 
 
 class FakeResponse:
@@ -56,7 +69,7 @@ def test_redirect_rejected_before_network(bad_uri):
     with pytest.raises(ig.InstagramLoginError):
         ig.build_authorize_url(app_id="1234567890", redirect_uri=bad_uri, state=ig.new_state())
     with pytest.raises(ig.InstagramLoginError):
-        ig.exchange_short_lived_token(
+        short(
             app_id="1234567890", app_secret="fake", code="fake",
             redirect_uri=bad_uri, session=FakeSession(FakeResponse()),
         )
@@ -66,7 +79,7 @@ def test_token_exchange_is_server_only_and_never_redirects():
     secret = "synthetic-do-not-log"
     token = "synthetic-short-lived-token-only"
     session = FakeSession(FakeResponse(payload={"access_token": token, "user_id": 17841402010000000}))
-    result = ig.exchange_short_lived_token(
+    result = short(
         app_id="1234567890", app_secret=secret, code="synthetic-code",
         redirect_uri=ig.STAGING_CALLBACK, session=session,
     )
@@ -83,7 +96,7 @@ def test_failed_exchange_redacts_credential_bearing_meta_response():
     secret = "synthetic-supersecret"
     session = FakeSession(FakeResponse(400, {"error": f"{secret} token rejected"}))
     with pytest.raises(ig.InstagramLoginError) as err:
-        ig.exchange_short_lived_token(
+        short(
             app_id="1234567890", app_secret=secret, code="badcode",
             redirect_uri=ig.STAGING_CALLBACK, session=session,
         )
@@ -96,7 +109,7 @@ def test_profile_query_is_read_only_and_omits_messages():
         "user_id": "17841402010000000", "username": "synthetic_ig",
         "account_type": "BUSINESS", "profile_picture_url": "https://images.example/ig.jpg",
     }))
-    profile = ig.fetch_authorized_profile(access_token=token, session=session)
+    profile = fetch_profile(access_token=token, session=session)
     assert profile.username == "synthetic_ig"
     method, url, args = session.calls[0]
     assert method == "get" and url == ig.INSTAGRAM_PROFILE
@@ -111,3 +124,16 @@ def test_dormant_module_exposes_no_fastapi_route_or_worker():
                       "INSTAGRAM_WEBHOOK_INGESTION_ENABLED", "send_whatsapp_",
                       "include_router", "setenv("):
         assert forbidden not in source
+
+def test_meta_short_exchange_and_profile_default_block_before_network():
+    session = FakeSession(FakeResponse(payload={
+        "access_token": "fake-verified-token", "user_id": "12345678"}))
+    with pytest.raises(Exception, match="network access blocked"):
+        ig.exchange_short_lived_token(
+            app_id="1234567890", app_secret="synthetic-secret",
+            code="synthetic-code", redirect_uri=ig.STAGING_CALLBACK,
+            session=session)
+    with pytest.raises(Exception, match="network access blocked"):
+        ig.fetch_authorized_profile(
+            access_token="synthetic-access-token", session=session)
+    assert session.calls == []
