@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 
 from .instagram_meta_egress_guard import require_safe_instagram_meta_egress
+from .instagram_meta_transport import instagram_meta_session
 
 INSTAGRAM_AUTHORIZE = "https://www.instagram.com/oauth/authorize"
 INSTAGRAM_TOKEN = "https://api.instagram.com/oauth/access_token"
@@ -100,19 +101,19 @@ def exchange_short_lived_token(
     if not isinstance(code, str) or not 1 <= len(code) <= 2048:
         raise InstagramLoginError("Invalid authorization code")
     require_safe_instagram_meta_egress(egress_approval)
-    transport = session or requests
     try:
-        result = transport.post(
-            INSTAGRAM_TOKEN,
-            data={"client_id": app_id, "client_secret": app_secret,
-                  "grant_type": "authorization_code", "redirect_uri": redirect_uri,
-                  "code": code},
-            timeout=TIMEOUT_SECONDS,
-            allow_redirects=False,
-        )
-        if result.status_code != 200:
-            raise InstagramLoginError("Instagram authorization failed")
-        payload = result.json()
+        with instagram_meta_session(session) as transport:
+            result = transport.post(
+                INSTAGRAM_TOKEN,
+                data={"client_id": app_id, "client_secret": app_secret,
+                      "grant_type": "authorization_code", "redirect_uri": redirect_uri,
+                      "code": code},
+                timeout=TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+            if result.status_code != 200:
+                raise InstagramLoginError("Instagram authorization failed")
+            payload = result.json()
     except InstagramLoginError:
         raise
     except (requests.RequestException, ValueError, TypeError, KeyError):
@@ -134,18 +135,18 @@ def fetch_authorized_profile(*, access_token: str, session=None,
     if not isinstance(access_token, str) or not 10 <= len(access_token) <= 8192:
         raise InstagramLoginError("Invalid Instagram access token")
     require_safe_instagram_meta_egress(egress_approval)
-    transport = session or requests
     try:
-        result = transport.get(
-            INSTAGRAM_PROFILE,
-            params={"fields": "user_id,username,account_type,profile_picture_url"},
-            headers={"Authorization": "Bearer " + access_token},
-            timeout=TIMEOUT_SECONDS,
-            allow_redirects=False,
-        )
-        if result.status_code != 200:
-            raise InstagramLoginError("Instagram profile request failed")
-        payload = result.json()
+        with instagram_meta_session(session) as transport:
+            result = transport.get(
+                INSTAGRAM_PROFILE,
+                params={"fields": "user_id,username,account_type,profile_picture_url"},
+                headers={"Authorization": "Bearer " + access_token},
+                timeout=TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+            if result.status_code != 200:
+                raise InstagramLoginError("Instagram profile request failed")
+            payload = result.json()
     except InstagramLoginError:
         raise
     except (requests.RequestException, ValueError, TypeError):
