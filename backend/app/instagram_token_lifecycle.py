@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import requests
 
 from .instagram_meta_egress_guard import require_safe_instagram_meta_egress
+from .instagram_meta_transport import instagram_meta_session
 
 GRAPH_LONG_LIVED_EXCHANGE_URL = "https://graph.instagram.com/access_token"
 GRAPH_REFRESH_URL = "https://graph.instagram.com/refresh_access_token"
@@ -62,15 +63,15 @@ def _parse(result):
 def _send_get(url, *, params, session=None, egress_approval=None):
     # Validate BEFORE constructing any token-bearing outgoing request.
     require_safe_instagram_meta_egress(egress_approval)
-    transport = requests if session is None else session
     try:
-        reply = transport.get(
-            url, params=params, timeout=_TIMEOUT, allow_redirects=False,
-            headers={"Accept": "application/json"},
-        )
-        if reply.status_code != 200:
-            raise InstagramTokenLifecycleError("Instagram token request was rejected")
-        return _parse(reply)
+        with instagram_meta_session(session) as transport:
+            reply = transport.get(
+                url, params=params, timeout=_TIMEOUT, allow_redirects=False,
+                headers={"Accept": "application/json"},
+            )
+            if reply.status_code != 200:
+                raise InstagramTokenLifecycleError("Instagram token request was rejected")
+            return _parse(reply)
     except InstagramTokenLifecycleError:
         raise
     except (requests.RequestException, ValueError, TypeError, AttributeError):
