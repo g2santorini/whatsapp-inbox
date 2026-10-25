@@ -16,7 +16,7 @@ def approved():
 def short(**kw):
     return ig.exchange_short_lived_token(**kw, egress_approval=approved())
 
-def profile(**kw):
+def fetch_profile(**kw):
     return ig.fetch_authorized_profile(**kw, egress_approval=approved())
 
 
@@ -109,7 +109,7 @@ def test_profile_query_is_read_only_and_omits_messages():
         "user_id": "17841402010000000", "username": "synthetic_ig",
         "account_type": "BUSINESS", "profile_picture_url": "https://images.example/ig.jpg",
     }))
-    profile = profile(access_token=token, session=session)
+    profile = fetch_profile(access_token=token, session=session)
     assert profile.username == "synthetic_ig"
     method, url, args = session.calls[0]
     assert method == "get" and url == ig.INSTAGRAM_PROFILE
