@@ -90,11 +90,12 @@ def client_for(engine, *, enabled=True, attestations=None, current=None,
                preparation=None):
     u=current or user()
     state={"calls":0,"vault_exists_at_meta":None,"challenge_exists_at_meta":None}
-    def fake_meta(*,claimed_code,instagram_app_id,instagram_app_secret):
+    def fake_meta(*,claimed_code,instagram_app_id,instagram_app_secret,egress_approval):
         state["calls"]+=1
         assert claimed_code.authorization_code==FAKE_CODE
         assert instagram_app_id==APP_ID
         assert instagram_app_secret=="synthetic-secret"
+        assert egress_approval.approved() is True
         with engine.connect() as c:
             state["challenge_exists_at_meta"]=c.execute(
                 text("SELECT COUNT(*) FROM public.sendro_instagram_oauth_challenges")
