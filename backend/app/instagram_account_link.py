@@ -25,6 +25,7 @@ from .instagram_login_oauth import (
     STAGING_CALLBACK, InstagramLoginError,
     exchange_short_lived_token, fetch_authorized_profile,
 )
+from .instagram_meta_egress_guard import require_safe_instagram_meta_egress
 from .instagram_token_lifecycle import (
     InstagramTokenLifecycleError, exchange_instagram_long_lived,
 )
@@ -59,7 +60,7 @@ class VerifiedInstagramLink:
 
 def prepare_verified_instagram_link(
     *, claimed_code: ClaimedInstagramCode, instagram_app_id: str,
-    instagram_app_secret: str, session=None,
+    instagram_app_secret: str, session=None, egress_approval=None,
 ) -> VerifiedInstagramLink:
     """Explicit server-side calls only: code -> short token -> profile
     -> long token -> reverified profile. NO database writes or live routing.
@@ -76,16 +77,20 @@ def prepare_verified_instagram_link(
         or not isinstance(claimed_code.authorization_code, str)
     ):
         raise InstagramAccountLinkDenied("Instagram onboarding claim invalid")
+    # Claim ownership is checked before the first external request. A signed
+    # operator-reviewed network/log attestation is required in production.
+    require_safe_instagram_meta_egress(egress_approval)
     try:
         short_token = exchange_short_lived_token(
             app_id=instagram_app_id,
             app_secret=instagram_app_secret,
             code=claimed_code.authorization_code,
             redirect_uri=STAGING_CALLBACK,
-            session=session,
+            session=session, egress_approval=egress_approval,
         )
         short_profile = fetch_authorized_profile(
             access_token=short_token.access_token, session=session,
+            egress_approval=egress_approval,
         )
         if (
             short_profile.instagram_user_id != short_token.instagram_user_id
@@ -96,10 +101,11 @@ def prepare_verified_instagram_link(
         long_token = exchange_instagram_long_lived(
             short_lived_token=short_token.access_token,
             instagram_app_secret=instagram_app_secret,
-            session=session,
+            session=session, egress_approval=egress_approval,
         )
         long_profile = fetch_authorized_profile(
             access_token=long_token.access_token, session=session,
+            egress_approval=egress_approval,
         )
         if (
             long_profile.instagram_user_id != short_profile.instagram_user_id
