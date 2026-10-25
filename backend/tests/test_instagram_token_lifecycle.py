@@ -3,6 +3,23 @@ from pathlib import Path
 import pytest
 import requests
 from backend.app import instagram_token_lifecycle as lifecycle
+from backend.app.instagram_oauth_http_security import InstagramOAuthLogAttestations
+
+def approved():
+    # FAKE attestation for mocked CI transport ONLY; not a release approval.
+    return InstagramOAuthLogAttestations(**{
+        field: True for field in InstagramOAuthLogAttestations.__dataclass_fields__
+    })
+
+def exchange(**kwargs):
+    return lifecycle.exchange_instagram_long_lived(
+        **kwargs, egress_approval=approved(),
+    )
+
+def refresh(**kwargs):
+    return lifecycle.refresh_instagram_long_lived(
+        **kwargs, egress_approval=approved(),
+    )
 
 TOKEN = "synthetic-short-lived-ig-token"
 SECRET = "synthetic-secret-NEVER-real"
@@ -32,7 +49,7 @@ class Session:
 
 def test_exchange_uses_fixed_graph_host_and_exact_scope():
     session = Session()
-    token = lifecycle.exchange_instagram_long_lived(
+    token = exchange(
         short_lived_token=TOKEN, instagram_app_secret=SECRET, session=session)
     assert token.expires_in_seconds == 5183999
     assert token.access_token not in repr(token) and token.access_token not in str(token)
@@ -47,7 +64,7 @@ def test_exchange_uses_fixed_graph_host_and_exact_scope():
 
 def test_refresh_does_not_send_app_secret_or_old_facebook_grant_type():
     session = Session()
-    lifecycle.refresh_instagram_long_lived(long_lived_token=TOKEN, session=session)
+    refresh(long_lived_token=TOKEN, session=session)
     url, kw = session.calls[0]
     assert url == "https://graph.instagram.com/refresh_access_token"
     assert kw["params"] == {"grant_type": "ig_refresh_token", "access_token": TOKEN}
@@ -65,7 +82,7 @@ def test_refresh_does_not_send_app_secret_or_old_facebook_grant_type():
 ])
 def test_provider_malformed_responses_fail_closed(bad):
     with pytest.raises(lifecycle.InstagramTokenLifecycleError):
-        lifecycle.exchange_instagram_long_lived(
+        exchange(
             short_lived_token=TOKEN, instagram_app_secret=SECRET,
             session=Session(Response(body=bad)))
 
@@ -73,7 +90,7 @@ def test_provider_malformed_responses_fail_closed(bad):
 def test_provider_error_bodies_are_not_reflected():
     response = Response(status=400, body={"error": "BAD " + SECRET + TOKEN})
     with pytest.raises(lifecycle.InstagramTokenLifecycleError) as exc:
-        lifecycle.exchange_instagram_long_lived(
+        exchange(
             short_lived_token=TOKEN, instagram_app_secret=SECRET,
             session=Session(response))
     assert SECRET not in str(exc.value) and TOKEN not in str(exc.value)
@@ -83,7 +100,7 @@ def test_invalid_inputs_fail_before_network():
     session = Session()
     for short in ["", "x", "line\nbreak", "a"*9000]:
         with pytest.raises(lifecycle.InstagramTokenLifecycleError):
-            lifecycle.exchange_instagram_long_lived(
+            exchange(
                 short_lived_token=short, instagram_app_secret=SECRET, session=session)
     assert session.calls == []
 
@@ -93,7 +110,7 @@ def test_transport_error_sanitized():
         def get(self,*args,**kwargs):
             raise requests.Timeout("synthetic-secret-should-not-log")
     with pytest.raises(lifecycle.InstagramTokenLifecycleError) as exc:
-        lifecycle.refresh_instagram_long_lived(
+        refresh(
             long_lived_token=TOKEN, session=TimeoutSession())
     assert "should-not-log" not in str(exc.value)
 
@@ -101,3 +118,13 @@ def test_transport_error_sanitized():
 def test_unmounted_adapter_isnt_used_by_sendro_main():
     source = (Path(__file__).parents[1]/"app"/"main.py").read_text(encoding="utf-8")
     assert "instagram_token_lifecycle" not in source
+
+def test_default_denies_all_graph_requests_before_network():
+    session = Session()
+    with pytest.raises(Exception, match="network access blocked"):
+        lifecycle.exchange_instagram_long_lived(
+            short_lived_token=TOKEN, instagram_app_secret=SECRET, session=session)
+    with pytest.raises(Exception, match="network access blocked"):
+        lifecycle.refresh_instagram_long_lived(
+            long_lived_token=TOKEN, session=session)
+    assert session.calls == []
