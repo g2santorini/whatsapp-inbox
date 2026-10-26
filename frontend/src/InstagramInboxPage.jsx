@@ -7,6 +7,9 @@ import {
   getInstagramMessages,
 } from './api';
 import './InstagramInboxPage.css';
+import InstagramConnectPreview from './InstagramConnectPreview';
+import InstagramAccountStatusPreview from './InstagramAccountStatusPreview';
+import { isInstagramStagingHost } from './instagramConnectFlow.js';
 
 const formatDate = (value) => {
   if (!value) return '';
@@ -183,6 +186,24 @@ export default function InstagramInboxPage({
                 <option value={tenant.id} key={tenant.id}>{tenant.display_name}</option>
               ))}
           </select>
+
+          {isInstagramStagingHost(window.location.hostname) && (
+            <>
+              <InstagramConnectPreview
+                tenantId={tenantId}
+                companyName={company?.display_name || ''}
+                channelAccountId={null}
+                currentUser={currentUser}
+                enabled={false}
+              />
+              <InstagramAccountStatusPreview
+                tenantId={tenantId}
+                companyName={company?.display_name || ''}
+                currentUser={currentUser}
+                enabled={false}
+              />
+            </>
+          )}
 
           <div className="ig-conversation-summary">
             <span><strong>{conversations.length}</strong> conversations</span>

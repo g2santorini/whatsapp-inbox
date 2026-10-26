@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r backend/requirements.txt 'httpx>=0.27' 'pytest>=8.0'
-      - run: cd backend && PYTHONPATH=.. python -m pytest tests/test_project_manager.py tests/test_project_route_guard.py tests/test_task_hub.py tests/test_webflow_backlog_import.py tests/test_whatsapp_live_panel.py tests/test_whatsapp_webhook_hardening.py tests/test_whatsapp_account_routing_preflight.py tests/test_manual_index_rollout.py tests/test_instagram_webhook_handshake.py tests/test_instagram_event_normalizer.py tests/test_instagram_encrypted_inbox.py tests/test_instagram_delivery_worker.py tests/test_instagram_worker_control.py tests/test_instagram_inbox_read_api.py tests/test_instagram_synthetic_e2e.py tests/test_instagram_meta_payload_shapes.py tests/test_instagram_queue_reliability.py tests/test_instagram_live_readiness.py tests/test_instagram_pilot_evidence_preflight.py tests/test_instagram_watchdog_policy.py tests/test_instagram_staging_http_sentinel.py tests/test_privacy_retention.py tests/test_privacy_erasure_cases.py tests/test_privacy_case_api.py tests/test_privacy_readonly_preview.py -q
+      - run: cd backend && PYTHONPATH=.. python -m pytest tests/test_project_manager.py tests/test_project_route_guard.py tests/test_task_hub.py tests/test_webflow_backlog_import.py tests/test_whatsapp_live_panel.py tests/test_whatsapp_webhook_hardening.py tests/test_whatsapp_account_routing_preflight.py tests/test_manual_index_rollout.py tests/test_instagram_webhook_handshake.py tests/test_instagram_event_normalizer.py tests/test_instagram_encrypted_inbox.py tests/test_instagram_delivery_worker.py tests/test_instagram_worker_control.py tests/test_instagram_inbox_read_api.py tests/test_instagram_synthetic_e2e.py tests/test_instagram_meta_payload_shapes.py tests/test_instagram_queue_reliability.py tests/test_instagram_live_readiness.py tests/test_instagram_pilot_evidence_preflight.py tests/test_instagram_watchdog_policy.py tests/test_instagram_staging_http_sentinel.py tests/test_privacy_retention.py tests/test_privacy_erasure_cases.py tests/test_privacy_case_api.py tests/test_privacy_readonly_preview.py tests/test_instagram_login_oauth.py tests/test_instagram_oauth_state.py tests/test_instagram_oauth_callback_inbox.py tests/test_instagram_oauth_completion.py tests/test_instagram_token_vault.py tests/test_instagram_token_lifecycle.py tests/test_instagram_account_link.py tests/test_instagram_oauth_http_security.py tests/test_instagram_onboarding_router.py tests/test_instagram_account_status.py tests/test_instagram_meta_egress_guard.py tests/test_instagram_meta_transport.py -q
 
   frontend:
     name: React production build
@@ -39,7 +39,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: node --test src/unifiedInboxRows.test.js src/instagramIncidentRows.test.js
+      - run: node --test src/unifiedInboxRows.test.js src/instagramIncidentRows.test.js src/instagramConnectFlow.test.js src/instagramAccountStatus.test.js
       - name: Build dormant Instagram Incident Center library separately without mounting it
         run: >-
           node --input-type=module -e "import { build } from 'vite';
@@ -84,6 +84,8 @@ jobs:
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_postgres_isolation.py -q
       - name: PostgreSQL only — replay six pinned manual Instagram migrations
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_manual_migrations_postgres.py -q
+      - name: PostgreSQL only — OAuth/vault RELEASE HOLD and tenant FK schema rehearsal
+        run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_oauth_vault_schema_pg_ci.py -q
       - name: PostgreSQL only — read-only Instagram schema drift audit
         run: cd backend && PYTHONPATH=.. python -m pytest tests/test_instagram_schema_audit_postgres.py -q
       - name: PostgreSQL only — metadata-only dedicated read-only observer DB role
