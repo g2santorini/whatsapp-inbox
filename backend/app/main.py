@@ -2260,6 +2260,19 @@ async def get_current_active_user(
 app.include_router(project_api.create_project_router(get_current_active_user))
 app.include_router(tasks_api.create_tasks_router(get_current_active_user))
 app.include_router(instagram_inbox_api.create_instagram_inbox_router(get_current_active_user))
+# Mount Instagram metadata-only status on this exact staging Render service.
+# Real OAuth routes require independent logging clearance and explicit flags.
+# Production main / service ID never mounts these routes.
+from .instagram_staging_wiring import mount_instagram_staging_wiring
+mount_instagram_staging_wiring(
+    app,
+    current_user_dependency=get_current_active_user,
+    bearer_dependency=oauth2_scheme,
+    transaction=engine.begin,
+    jwt_secret=SECRET_KEY,
+    jwt_algorithm=ALGORITHM,
+)
+
 # Opt-in GDPR preview. Production never mounts these routes.
 # Staging and production share live PostgreSQL. The manual workflow is a
 # SECOND separately approved gate, disabled by default; do not enable it

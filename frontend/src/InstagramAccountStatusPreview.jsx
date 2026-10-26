@@ -13,7 +13,7 @@ import './InstagramAccountStatusPreview.css';
  */
 export default function InstagramAccountStatusPreview({
   tenantId = null, currentUser = null, companyName = '',
-  enabled = false, statusLoader,
+  enabled = false, statusLoader, onAccountsChange,
 }) {
   const hostname = typeof window === 'undefined' ? '' : window.location.hostname;
   const staging = isInstagramStagingHost(hostname);
@@ -37,16 +37,20 @@ export default function InstagramAccountStatusPreview({
         if (active) {
           const parsed = parseInstagramAccountStatus(payload, tenantId);
           setState({ phase: 'ready', accounts: parsed.accounts });
+          onAccountsChange?.(parsed.accounts);
         }
       })
       .catch(() => {
-        if (active) setState({ phase: 'error', accounts: [] });
+        if (active) {
+          setState({ phase: 'error', accounts: [] });
+          onAccountsChange?.([]);
+        }
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [tenantId, currentUser?.id, canRead, statusLoader]);
+  }, [tenantId, currentUser?.id, canRead, statusLoader, onAccountsChange]);
 
   if (!staging) return null;
 

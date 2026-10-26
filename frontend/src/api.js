@@ -584,3 +584,33 @@ export async function getInstagramAccountStatus(tenantId, options = {}) {
     { signal: options.signal },
   );
 }
+
+
+// Staging-only Instagram Business Login. Called only by an explicit user click
+// after the frontend and server feature gates are enabled. Never pass Meta
+// authorization codes or tokens through React or localStorage.
+export async function startInstagramOAuthConnection({ tenant_id }) {
+  if (!Number.isSafeInteger(tenant_id) || tenant_id <= 0) {
+    throw new Error('Invalid Instagram business');
+  }
+  return apiRequest('/channels/instagram/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify({ tenant_id }),
+  });
+}
+
+export async function finishInstagramOAuthConnection(payload) {
+  if (!payload || !Number.isSafeInteger(payload.tenant_id)
+    || !Number.isSafeInteger(payload.channel_account_id)
+    || typeof payload.state !== 'string') {
+    throw new Error('Invalid Instagram authorization');
+  }
+  return apiRequest('/channels/instagram/oauth/complete', {
+    method: 'POST',
+    body: JSON.stringify({
+      tenant_id: payload.tenant_id,
+      channel_account_id: payload.channel_account_id,
+      state: payload.state,
+    }),
+  });
+}
