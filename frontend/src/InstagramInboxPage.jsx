@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import WorkspaceTabs from './WorkspaceTabs';
 import sendroLogo from './assets/sendro_logo_reversed.png';
 import {
   getInstagramTenants,
   getInstagramConversations,
   getInstagramMessages,
+  getInstagramAccountStatus,
+  startInstagramOAuthConnection,
+  finishInstagramOAuthConnection,
 } from './api';
 import './InstagramInboxPage.css';
 import InstagramConnectPreview from './InstagramConnectPreview';
@@ -42,6 +45,10 @@ export default function InstagramInboxPage({
   const [error, setError] = useState('');
   const [messagesError, setMessagesError] = useState('');
   const [refreshId, setRefreshId] = useState(0);
+  const [instagramAccountId, setInstagramAccountId] = useState(null);
+  const onAccountsChange = useCallback((accounts) => {
+    setInstagramAccountId(accounts.length === 1 ? accounts[0].accountId : null);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -175,6 +182,7 @@ export default function InstagramInboxPage({
             disabled={loadingTenants || tenants.length < 2}
             onChange={(event) => {
               setTenantId(Number(event.target.value));
+              setInstagramAccountId(null);
               setSelected(null);
               setMessages([]);
               setError('');
@@ -192,15 +200,19 @@ export default function InstagramInboxPage({
               <InstagramConnectPreview
                 tenantId={tenantId}
                 companyName={company?.display_name || ''}
-                channelAccountId={null}
+                channelAccountId={instagramAccountId}
                 currentUser={currentUser}
-                enabled={false}
+                enabled={import.meta.env.VITE_SENDRO_IG_OAUTH_ENABLED === 'true'}
+                startConnection={startInstagramOAuthConnection}
+                finishConnection={finishInstagramOAuthConnection}
               />
               <InstagramAccountStatusPreview
                 tenantId={tenantId}
                 companyName={company?.display_name || ''}
                 currentUser={currentUser}
-                enabled={false}
+                enabled={true}
+                statusLoader={getInstagramAccountStatus}
+                onAccountsChange={onAccountsChange}
               />
             </>
           )}
